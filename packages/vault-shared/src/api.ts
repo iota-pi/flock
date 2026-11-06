@@ -59,6 +59,8 @@ export type ManifestEntry = {
   version?: number
   modifiedAt?: number
   isDeleted?: boolean
+  /** The stored snapshot's encrypted heads, when the device that uploaded it sent them */
+  heads?: z.infer<typeof CryptoResultSchema>
 }
 
 export const PutSnapshotResultItemSchema = z.object({
@@ -78,26 +80,25 @@ const SyncEncryptedMessageSchema = (
   })
 )
 
-/**
- * Continues a paginated pull where the previous page stopped. Only the driver that issued it
- * knows what it contains; clients pass it back unchanged.
- */
-export const PageTokenSchema = z.string().min(1).max(2048)
-export type PageToken = z.infer<typeof PageTokenSchema>
+const SyncLogMessageSchema = z.object({
+  itemId: ItemIdSchema,
+  encryptedMessage: SyncEncryptedMessageSchema,
+})
+/** A message on its way to the account's log */
+export type SyncLogMessage = z.infer<typeof SyncLogMessageSchema>
 
-export const SyncPollBatchSchema = z.object({
+export const SyncLogEntrySchema = SyncLogMessageSchema.extend({
+  seq: z.number().int().min(1),
+  createdAt: z.number(),
+})
+/** A message in the account's log, at the position `seq` */
+export type SyncLogEntry = z.infer<typeof SyncLogEntrySchema>
+
+/** Appends `push` to the account's log and reads the log after the seq `after` */
+export const PollLogSchema = z.object({
   account: z.string().min(1),
-  clientLatestCursor: z.number().int().min(0).optional(),
-  globalPageToken: PageTokenSchema.optional(),
-  pushMessages: z.array(z.object({
-    itemId: ItemIdSchema,
-    encryptedMessage: SyncEncryptedMessageSchema,
-  })).max(100).default([]),
-  pullCursors: z.array(z.object({
-    itemId: ItemIdSchema,
-    cursor: z.number().int().min(0).optional(),
-    pageToken: PageTokenSchema.optional(),
-  })).max(100).default([]),
+  push: z.array(SyncLogMessageSchema).max(100).default([]),
+  after: z.number().int().min(0),
 })
 
 export const PutSnapshotBatchSchema = z.object({

@@ -1,11 +1,10 @@
 import { PutCommand } from '@aws-sdk/lib-dynamodb'
 import DynamoDriver from './driver'
 import { authenticateLogin, authenticateSession } from '../../authentication'
-import { AuthenticationError, InvalidPageTokenError } from '../../errors'
+import { AuthenticationError } from '../../errors'
 import type { VaultAccountWithAuth } from '../vaultDriver'
-import { generateItemId, type ItemId } from '@vault/shared'
+import { generateItemId, MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import { generateAccountId } from '../../util'
-import { MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import { hashSessionToken, isSessionFor, SESSION_EXPIRY_MS } from '../../sessions'
 
 const generateTestAccountId = () => generateAccountId(10)
@@ -407,28 +406,6 @@ describe('DynamoDriver', function () {
     expect(result.keyring).toBe(keyringValue)
   })
 
-  it('can push and get sync messages, in cursor order and without their record keys', async () => {
-    const account = generateTestAccountId()
-    const itemId = 'test-item-123' as ItemId
-    const entry1 = {
-      cursor: 1001,
-      encryptedMessage: { iv: 'iv1', cipher: 'cipher1' },
-      createdAt: Date.now(),
-    }
-    const entry2 = {
-      cursor: 1002,
-      encryptedMessage: { iv: 'iv2', cipher: 'cipher2' },
-      createdAt: Date.now(),
-    }
-
-    // Pushed out of order, to check the query returns them in cursor order
-    await driver.pushSyncMessagesBatch({ account, messages: [{ itemId, entry: entry2 }] })
-    await driver.pushSyncMessagesBatch({ account, messages: [{ itemId, entry: entry1 }] })
-
-    const result = await driver.getSyncMessages({ account, itemId })
-    expect(result.messages).toEqual([entry1, entry2])
-  })
-
   it('session eviction on updateAccountData works', async () => {
     const account = generateTestAccountId()
     await driver.createAccount({
@@ -532,7 +509,7 @@ describe('DynamoDriver', function () {
     expect(results[0].snapshot?.iv).toBe('snapshot-iv')
   })
 
-  it('keeps the ciphertext format of snapshots and sync messages', async () => {
+  it('keeps the ciphertext format of snapshots', async () => {
     const account = generateTestAccountId()
     const item = generateItemId()
     const payload = Buffer.from('doc-bound-snapshot').toString('base64')
@@ -543,24 +520,38 @@ describe('DynamoDriver', function () {
       metadata: { iv: 'iv', modified: Date.now() },
       snapshot: { cipher: payload, iv: 'snapshot-iv', kver: '1', format: 2 },
     })
-    await driver.pushSyncMessagesBatch({
-      account,
-      messages: [{
-        itemId: item,
-        entry: {
-          cursor: 1,
-          encryptedMessage: { iv: 'message-iv', cipher: 'message-cipher', kver: '1', format: 2, version: '1.0' },
-          createdAt: Date.now(),
-        },
-      }],
-    })
 
     const [stored] = await driver.fetchByIds({ account, itemIds: [item] })
     expect(stored.snapshot).toEqual({ cipher: payload, iv: 'snapshot-iv', kver: '1', format: 2 })
-    const { messages } = await driver.getSyncMessages({ account, itemId: item })
-    expect(messages[0].encryptedMessage).toEqual({
-      iv: 'message-iv', cipher: 'message-cipher', kver: '1', format: 2, version: '1.0',
-    })
+  })
+
+  it('returns snapshot heads in the manifest and removes them with a write that has none', async () => {
+    const account = generateTestAccountId()
+    const item = generateItemId()
+    const snapshot = { cipher: Buffer.from('snapshot').toString('base64'), iv: 'snapshot-iv', kver: '1', format: 2 as const }
+    const heads = { cipher: 'heads-cipher', iv: 'heads-iv', kver: '1', format: 2 as const }
+
+    await driver.set({ account, item, metadata: { iv: '', modified: 1 }, snapshot, heads })
+    expect((await driver.fetchManifest({ account }))[0]).toMatchObject({ itemId: item, version: 1, heads })
+
+    // Another snapshot from a build that doesn't send heads: the old ones would describe an older snapshot
+    await driver.set({ account, item, metadata: { iv: '', modified: 2 }, snapshot })
+    const [entry] = await driver.fetchManifest({ account })
+    expect(entry.version).toBe(2)
+    expect(entry.heads).toBeUndefined()
+  })
+
+  it('leaves heads out of the manifest for a deleted item', async () => {
+    const account = generateTestAccountId()
+    const item = generateItemId()
+    const snapshot = { cipher: Buffer.from('snapshot').toString('base64'), iv: 'snapshot-iv', kver: '1' }
+    const heads = { cipher: 'heads-cipher', iv: 'heads-iv', kver: '1' }
+
+    await driver.set({ account, item, metadata: { iv: '', modified: 1, deleted: true }, snapshot, heads })
+
+    const [entry] = await driver.fetchManifest({ account })
+    expect(entry).toMatchObject({ itemId: item, isDeleted: true })
+    expect(entry.heads).toBeUndefined()
   })
 
   it('payload-less tombstone keeps the previous snapshot and marks the item deleted', async () => {
@@ -662,135 +653,5 @@ describe('DynamoDriver', function () {
     const stored = await driverWithDefaults.getAccountRecord({ account })
     authenticateLogin(stored, authToken)
     expect((stored as VaultAccountWithAuth & { displayName?: string }).displayName).toBe('Default')
-  })
-
-  describe('page tokens', () => {
-    const encryptedMessage = { iv: 'iv', cipher: 'cipher' }
-    const pageToken = (key: Record<string, unknown>) => Buffer.from(JSON.stringify(key)).toString('base64url')
-
-    it('getSyncMessages pages through an item with opaque tokens', async () => {
-      // A small page needs only a few messages: DynamoDB Local takes seconds to write a full page's worth
-      const pageSize = 3
-      const pagingDriver = new DynamoDriver({ syncMessagePageSize: pageSize }).connect()
-      const account = generateTestAccountId()
-      const itemId = generateItemId()
-      // More messages than fit on one page
-      const pushed = Array.from({ length: pageSize + 1 }, (_, i) => 101 + i)
-      await pagingDriver.pushSyncMessagesBatch({
-        account,
-        messages: [100, ...pushed].map(cursor => ({
-          itemId, entry: { cursor, encryptedMessage, createdAt: 1 },
-        })),
-      })
-
-      const cursors: number[] = []
-      let token: string | undefined
-      let pages = 0
-      do {
-        const page = await pagingDriver.getSyncMessages({ account, itemId, fromCursor: 100, pageToken: token })
-        cursors.push(...page.messages.map(m => m.cursor))
-        token = page.nextPageToken
-        expect(page.hasMore).toBe(!!token)
-        pages += 1
-      } while (token && pages < 10)
-
-      expect(pages).toBeGreaterThan(1)
-      expect(cursors).toEqual(pushed)
-    })
-
-    it('getSyncMessages rejects a token for another item', async () => {
-      const account = generateTestAccountId()
-      const itemId = generateItemId() as ItemId
-
-      await expect(
-        driver.getSyncMessages({ account, itemId, pageToken: pageToken({ syncId: 'wrong-account#item-1', cursor: 100 }) })
-      ).rejects.toThrow(InvalidPageTokenError)
-    })
-
-    it('getSyncMessages rejects a token that starts before fromCursor', async () => {
-      const account = generateTestAccountId()
-      const itemId = generateItemId() as ItemId
-
-      await expect(
-        driver.getSyncMessages({ account, itemId, fromCursor: 500, pageToken: pageToken({ syncId: `${account}#${itemId}`, cursor: 499 }) })
-      ).rejects.toThrow('Page token cannot start before cursor 500')
-    })
-
-    it('getSyncMessages rejects malformed tokens', async () => {
-      const account = generateTestAccountId()
-      const itemId = generateItemId() as ItemId
-
-      for (const token of ['not-a-token', pageToken({ syncId: `${account}#${itemId}`, cursor: -5 })]) {
-        await expect(driver.getSyncMessages({ account, itemId, pageToken: token })).rejects.toThrow('Page token is malformed')
-      }
-    })
-
-    it('getGlobalSyncMessagesAfterCursor reports the highest cursor scanned', async () => {
-      const account = generateTestAccountId()
-      const itemA = generateItemId()
-      const itemB = generateItemId()
-      await driver.pushSyncMessagesBatch({
-        account,
-        messages: [
-          { itemId: itemA, entry: { cursor: 110, encryptedMessage, createdAt: 1 } },
-          { itemId: itemB, entry: { cursor: 120, encryptedMessage, createdAt: 1 } },
-          { itemId: itemA, entry: { cursor: 130, encryptedMessage, createdAt: 1 } },
-        ],
-      })
-
-      const page = await driver.getGlobalSyncMessagesAfterCursor({ account, cursor: 100 })
-      expect(page.scannedThroughCursor).toBe(130)
-      expect(page.hasMore).toBe(false)
-      expect(page.nextPageToken).toBeUndefined()
-
-      const empty = await driver.getGlobalSyncMessagesAfterCursor({ account, cursor: 500 })
-      expect(empty.items).toEqual([])
-      expect(empty.scannedThroughCursor).toBe(500)
-
-      const continuation = await driver.getGlobalSyncMessagesAfterCursor({
-        account,
-        cursor: 100,
-        pageToken: pageToken({ account, cursor: 120, syncId: `${account}#${itemB}` }),
-      })
-      expect(continuation.items.flatMap(i => i.messages.map(m => m.cursor))).toEqual([130])
-      expect(continuation.scannedThroughCursor).toBe(130)
-    })
-
-    it('getGlobalSyncMessagesAfterCursor keeps an item ID that contains #', async () => {
-      const account = generateTestAccountId()
-      const itemId = 'item#with#hashes' as ItemId
-      await driver.pushSyncMessagesBatch({
-        account,
-        messages: [{ itemId, entry: { cursor: 110, encryptedMessage, createdAt: 1 } }],
-      })
-
-      const page = await driver.getGlobalSyncMessagesAfterCursor({ account, cursor: 100 })
-      expect(page.items.map(i => i.itemId)).toEqual([itemId])
-      const itemPage = await driver.getSyncMessages({ account, itemId })
-      expect(itemPage.messages.map(m => m.cursor)).toEqual([110])
-    })
-
-    it('getGlobalSyncMessagesAfterCursor rejects a token for another account', async () => {
-      const account = generateTestAccountId()
-
-      for (const key of [
-        { account: 'other-account', cursor: 100, syncId: 'other-account#item-1' },
-        { account, cursor: 100, syncId: 'wrong-account#item-1' },
-      ]) {
-        await expect(
-          driver.getGlobalSyncMessagesAfterCursor({ account, pageToken: pageToken(key) })
-        ).rejects.toThrow(`Page token is for another account: expected ${account}`)
-      }
-    })
-
-    it('validatePageToken applies the same checks without querying', () => {
-      const account = 'acct'
-      const itemId = 'item-1' as ItemId
-
-      expect(() => driver.validatePageToken({ account, itemId, cursor: 10, pageToken: pageToken({ syncId: 'acct#item-1', cursor: 10 }) })).not.toThrow()
-      expect(() => driver.validatePageToken({ account, itemId, cursor: 11, pageToken: pageToken({ syncId: 'acct#item-1', cursor: 10 }) })).toThrow(InvalidPageTokenError)
-      expect(() => driver.validatePageToken({ account, pageToken: pageToken({ account, cursor: 1, syncId: 'acct#item-9' }) })).not.toThrow()
-      expect(() => driver.validatePageToken({ account, pageToken: pageToken({ syncId: 'acct#item-1', cursor: 10 }) })).toThrow(InvalidPageTokenError)
-    })
   })
 })

@@ -5,8 +5,7 @@ import type { AutomergeDocStore, AutomergeIndexManager } from './docStore'
 import type { RepoDoc } from './docStore/AutomergeDocStore'
 import { generateItemId, settingsDocId, type ItemId } from '@vault/shared'
 import { MAX_ITEM_CONTENT_BYTES, MAX_ITEM_CONTENT_KB } from '@vault/shared'
-import { mutateDraftToMatchSnapshot } from './utils/snapshot'
-import { applyItemUpdatesToDraft } from './utils/crdtReconcile'
+import { applyItemUpdatesToDraft, mutateDraftToMatchSnapshot } from './utils/crdtReconcile'
 import type { RealtimeBus } from './RealtimeBus'
 import type { RecoveryManager } from './RecoveryManager'
 import { KeyedSingleFlightGuard } from '../utils/SingleFlightGuard'
@@ -25,6 +24,7 @@ export interface ItemOperationsDeps {
   /** Tells the account's other tabs which items changed */
   bus?: RealtimeBus
   hooks?: SyncDomainHooks
+  mergedTextFields?: readonly string[]
 }
 
 export interface StoreItemsOptions {
@@ -75,7 +75,7 @@ export class ItemOperations {
           refusedDeleted = true
           return
         }
-        applyItemUpdatesToDraft(doc, changes)
+        applyItemUpdatesToDraft(doc, changes, this.deps.mergedTextFields)
       },
       options,
     )
@@ -232,7 +232,7 @@ export class ItemOperations {
     const overwritten = await this.deps.docStore.changeDocument(
       itemId,
       doc => {
-        mutateDraftToMatchSnapshot(doc, localSnapshot)
+        mutateDraftToMatchSnapshot(doc, localSnapshot, this.deps.mergedTextFields)
         ensureDocId(doc, itemId)
       },
       { createIfMissing: true },

@@ -18,7 +18,7 @@ const META_STORE = 'meta'
 export interface LocalStorage {
   mode: 'plaintext' | 'sealed'
   storage: VaultIndexedDBStorageAdapter
-  /** Seals the WAL and index. Set in sealed mode. */
+  /** Seals the index. Set in sealed mode. */
   cipher?: LocalCipher
   /** Sealed, with no plaintext stores left */
   retired: boolean

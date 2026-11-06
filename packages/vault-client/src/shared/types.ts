@@ -15,6 +15,20 @@ export type VaultMetadata = Record<string, unknown>
 
 export type SyncStatus = 'idle' | 'connecting' | 'syncing' | 'offline' | 'degraded' | 'dead'
 
+/** Local changes on this device that the server doesn't have yet, which clearing local data would lose */
+export interface UnsyncedChanges {
+  /** Items with changes not yet pushed or a snapshot not yet uploaded */
+  pendingItems: number
+  /** Items held for manual recovery, whose local changes aren't syncing (not counted in `pendingItems`) */
+  quarantinedItems: number
+}
+
+/** How far this device's changes have reached the server, as the worker's `syncProgress` events report it */
+export interface SyncProgress extends UnsyncedChanges {
+  /** When any of the account's tabs on this device last completed a sync with the server, or null if none has */
+  lastSyncedAt: number | null
+}
+
 /**
  * Why sync can't run until the app's migration app has run (see `SyncWorkerConfig.minDataVersion`):
  * this device's local data is below the minimum level, or the server holds rows in a legacy format.

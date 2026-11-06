@@ -36,7 +36,7 @@ function isLeader(target: SyncOrchestrator): boolean {
 describe('SyncOrchestrator', () => {
   let orchestrator: SyncOrchestrator
   let mockPoller: any
-  let mockPullQueueManager: any
+  let mockPuller: any
   let clientEventHub: ClientEventHub
   let onPollResult: Mock<(outcome: PollOutcome) => void>
   let mockManifestSyncManager: any
@@ -54,10 +54,10 @@ describe('SyncOrchestrator', () => {
       executePoll: vi.fn().mockResolvedValue('success'),
     }
 
-    mockPullQueueManager = {
-      loadCursors: vi.fn().mockResolvedValue(undefined),
-      hasPendingPulls: vi.fn().mockReturnValue(false),
+    mockPuller = {
+      loadState: vi.fn().mockResolvedValue(undefined),
       hasImmediatePendingPulls: vi.fn().mockReturnValue(false),
+      gapRepollDelay: undefined,
     }
 
     clientEventHub = new ClientEventHub()
@@ -67,7 +67,7 @@ describe('SyncOrchestrator', () => {
       accountId: 'account-1',
       poller: mockPoller,
       clientEventHub,
-      pullQueueManager: mockPullQueueManager,
+      puller: mockPuller,
       manifestSyncManager: mockManifestSyncManager,
       onPollResult,
     })
@@ -411,7 +411,7 @@ describe('SyncOrchestrator', () => {
     mockPoller.executePoll.mockImplementationOnce(() => pollPromise)
 
     orchestrator.setLeader(true)
-    // Await microtasks for reloadCursors and launch of the immediate poll
+    // Await microtasks for reloadState and launch of the immediate poll
     await vi.advanceTimersByTimeAsync(0)
 
     // An immediate poll was launched, and no redundant scheduled timer should be pending
@@ -448,7 +448,7 @@ describe('SyncOrchestrator', () => {
 
   it('polls again at once while the pull queue has more pages, then waits for the scheduled poll', async () => {
     // The first poll leaves more pages to pull (e.g. a pull result with hasMore), the second doesn't
-    mockPullQueueManager.hasImmediatePendingPulls.mockReturnValueOnce(true)
+    mockPuller.hasImmediatePendingPulls.mockReturnValueOnce(true)
 
     orchestrator.setLeader(true)
     setOnline(orchestrator, true)
@@ -473,7 +473,7 @@ describe('SyncOrchestrator', () => {
       accountId: 'account-1',
       poller: mockPoller,
       clientEventHub,
-      pullQueueManager: mockPullQueueManager,
+      puller: mockPuller,
       manifestSyncManager: mockManifestSyncManager,
       onLeaderOverlapChange,
       createLeaderElection: (_accountId, callbacks) => {
@@ -508,7 +508,7 @@ describe('SyncOrchestrator', () => {
       accountId: 'account-1',
       poller: mockPoller,
       clientEventHub,
-      pullQueueManager: mockPullQueueManager,
+      puller: mockPuller,
       manifestSyncManager: mockManifestSyncManager,
       createLeaderElection: (_accountId, callbacks) => {
         capturedCallbacks = callbacks
@@ -542,7 +542,7 @@ describe('SyncOrchestrator', () => {
       accountId: 'account-1',
       poller: mockPoller,
       clientEventHub,
-      pullQueueManager: mockPullQueueManager,
+      puller: mockPuller,
       manifestSyncManager: mockManifestSyncManager,
       createLeaderElection: () => mockLeaderElection,
     })
@@ -556,29 +556,30 @@ describe('SyncOrchestrator', () => {
   })
 
   describe('promoted leader cursor reloading', () => {
-    it('reloads cursors via pullQueueManager and awaits reload before polling on promotion', async () => {
+    it('reloads cursors via the puller and awaits reload before polling on promotion', async () => {
       let resolveReload: () => void = () => {}
       const reloadPromise = new Promise<void>(resolve => {
         resolveReload = resolve
       })
-      const customPullQueueManager: SyncOrchestratorDeps['pullQueueManager'] = {
-        loadCursors: vi.fn().mockImplementation(() => reloadPromise),
+      const customPuller: SyncOrchestratorDeps['puller'] = {
+        loadState: vi.fn().mockImplementation(() => reloadPromise),
         hasImmediatePendingPulls: vi.fn().mockReturnValue(false),
+        gapRepollDelay: undefined,
       }
 
       const orchestratorWithPQM = createOrchestrator({
         accountId: 'account-1',
         poller: mockPoller,
         clientEventHub,
-        pullQueueManager: customPullQueueManager,
+        puller: customPuller,
         manifestSyncManager: mockManifestSyncManager,
       })
 
       // Promote to leader
       orchestratorWithPQM.setLeader(true)
 
-      // loadCursors should have been called
-      expect(customPullQueueManager.loadCursors).toHaveBeenCalledTimes(1)
+      // loadState should have been called
+      expect(customPuller.loadState).toHaveBeenCalledTimes(1)
 
       // Poll must NOT have executed yet because reload is still in-flight
       await vi.advanceTimersByTimeAsync(0)
@@ -599,11 +600,11 @@ describe('SyncOrchestrator', () => {
       const reloadPromise = new Promise<void>(resolve => {
         resolveReload = resolve
       })
-      mockPullQueueManager.loadCursors = vi.fn().mockImplementation(() => reloadPromise)
+      mockPuller.loadState = vi.fn().mockImplementation(() => reloadPromise)
 
       orchestrator.setLeader(true)
 
-      expect(mockPullQueueManager.loadCursors).toHaveBeenCalledTimes(1)
+      expect(mockPuller.loadState).toHaveBeenCalledTimes(1)
 
       await vi.advanceTimersByTimeAsync(0)
       expect(mockPoller.executePoll).not.toHaveBeenCalled()
@@ -619,21 +620,22 @@ describe('SyncOrchestrator', () => {
       const reloadPromise = new Promise<void>(resolve => {
         resolveReload = resolve
       })
-      const customPullQueueManager: SyncOrchestratorDeps['pullQueueManager'] = {
-        loadCursors: vi.fn().mockImplementation(() => reloadPromise),
+      const customPuller: SyncOrchestratorDeps['puller'] = {
+        loadState: vi.fn().mockImplementation(() => reloadPromise),
         hasImmediatePendingPulls: vi.fn().mockReturnValue(false),
+        gapRepollDelay: undefined,
       }
 
       const orchestratorWithPQM = createOrchestrator({
         accountId: 'account-1',
         poller: mockPoller,
         clientEventHub,
-        pullQueueManager: customPullQueueManager,
+        puller: customPuller,
         manifestSyncManager: mockManifestSyncManager,
       })
 
       orchestratorWithPQM.setLeader(true)
-      expect(customPullQueueManager.loadCursors).toHaveBeenCalledTimes(1)
+      expect(customPuller.loadState).toHaveBeenCalledTimes(1)
 
       // Leadership revoked while reloading
       orchestratorWithPQM.setLeader(false)
@@ -655,7 +657,7 @@ describe('SyncOrchestrator', () => {
       accountId: 'account-1',
       poller: mockPoller,
       clientEventHub,
-      pullQueueManager: mockPullQueueManager,
+      puller: mockPuller,
       manifestSyncManager: mockManifestSyncManager,
       onLeaderChange: leaderChangeListener,
     })
@@ -779,9 +781,7 @@ describe('SyncOrchestrator', () => {
 
     it('schedules next poll with normal interval rather than 0ms when hasImmediatePendingPulls is false', async () => {
       mockPoller.executePoll.mockResolvedValue('success')
-      // Simulate retrying or key-blocked items: hasPendingPulls is true, but hasImmediatePendingPulls is false
-      mockPullQueueManager.hasPendingPulls.mockReturnValue(true)
-      mockPullQueueManager.hasImmediatePendingPulls = vi.fn().mockReturnValue(false)
+      mockPuller.hasImmediatePendingPulls = vi.fn().mockReturnValue(false)
 
       orchestrator.setLeader(true)
       setOnline(orchestrator, true)
@@ -798,6 +798,34 @@ describe('SyncOrchestrator', () => {
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
     })
 
+    it('polls again after the gap delay, and never at 0ms, while waiting on a gap', async () => {
+      mockPoller.executePoll.mockResolvedValue('success')
+      mockPuller.gapRepollDelay = 1000
+
+      orchestrator.setLeader(true)
+      setOnline(orchestrator, true)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(100)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
+
+      // The delay plus jitter
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(mockPoller.executePoll.mock.calls.length).toBeGreaterThan(1)
+    })
+
+    it('keeps failure backoff while waiting on a gap', async () => {
+      mockPoller.executePoll.mockResolvedValue('failure')
+      mockPuller.gapRepollDelay = 1000
+
+      orchestrator.setLeader(true)
+      setOnline(orchestrator, true)
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
+    })
+
     it('schedules next poll at 0ms delay when hasImmediatePendingPulls is true', async () => {
       let resolvePoll: (val: any) => void = () => {}
       const firstPollPromise = new Promise(resolve => {
@@ -805,8 +833,7 @@ describe('SyncOrchestrator', () => {
       })
 
       mockPoller.executePoll.mockImplementationOnce(() => firstPollPromise)
-      mockPullQueueManager.hasPendingPulls.mockReturnValue(true)
-      mockPullQueueManager.hasImmediatePendingPulls = vi.fn().mockReturnValue(true)
+      mockPuller.hasImmediatePendingPulls = vi.fn().mockReturnValue(true)
 
       orchestrator.setLeader(true)
       setOnline(orchestrator, true)
@@ -820,6 +847,186 @@ describe('SyncOrchestrator', () => {
 
       // When immediate pulls exist, next poll runs immediately (0ms delay)
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  describe('onForeground (the user came back to a tab)', () => {
+    it('polls at once and resets backoff when polling is backing off', async () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0.5)
+      mockPoller.executePoll.mockResolvedValueOnce('failure')
+      mockPoller.executePoll.mockResolvedValueOnce('failure')
+      mockPoller.executePoll.mockResolvedValueOnce('failure')
+
+      orchestrator.setLeader(true)
+      setOnline(orchestrator, true)
+      // The first failure waits 60s, and the second failure 120s
+      await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(60000)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
+
+      orchestrator.onForeground()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(3)
+
+      // The third failure backs off from the start (60s), not from the 300s step
+      await vi.advanceTimersByTimeAsync(60000)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(4)
+    })
+
+    it('polls once the last poll is older than the minimum gap', async () => {
+      orchestrator.setLeader(true)
+      setOnline(orchestrator, true)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
+
+      orchestrator.onForeground()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.foregroundPollMinGap)
+      orchestrator.onForeground()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not start a second poll while one is running', async () => {
+      let resolvePoll: (outcome: PollOutcome) => void = () => {}
+      mockPoller.executePoll.mockImplementationOnce(() => new Promise(resolve => {
+        resolvePoll = resolve
+      }))
+      orchestrator.setLeader(true)
+      setOnline(orchestrator, true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      orchestrator.onForeground()
+      resolvePoll('success')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
+    })
+
+    it('does nothing for a follower or while offline', async () => {
+      mockPoller.executePoll.mockResolvedValueOnce('failure')
+      orchestrator.setLeader(true)
+      setOnline(orchestrator, true)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
+
+      setOnline(orchestrator, false)
+      orchestrator.onForeground()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
+
+      const follower = createOrchestrator({
+        accountId: 'account-2',
+        poller: mockPoller,
+        clientEventHub,
+        puller: mockPuller,
+        manifestSyncManager: mockManifestSyncManager,
+      })
+      setOnline(follower, true)
+      follower.onForeground()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
+    })
+
+    it('runs a manifest sync, which skips itself when one ran recently', async () => {
+      orchestrator.setLeader(true)
+      setOnline(orchestrator, true)
+      await vi.advanceTimersByTimeAsync(0)
+      const manifestSyncs = mockManifestSyncManager.sync.mock.calls.length
+
+      orchestrator.onForeground()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(manifestSyncs + 1)
+      expect(mockManifestSyncManager.sync).toHaveBeenLastCalledWith(false)
+
+      setOnline(orchestrator, false)
+      orchestrator.onForeground()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(manifestSyncs + 1)
+    })
+
+    it('does not resume polling that is paused for auth', async () => {
+      mockPoller.executePoll.mockResolvedValueOnce('failure')
+      mockPoller.executePoll.mockResolvedValueOnce('auth-failure')
+      orchestrator.setLeader(true)
+      setOnline(orchestrator, true)
+      await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(80000)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
+
+      orchestrator.onForeground()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  describe('poll cadence by visibility', () => {
+    let isForeground: boolean
+
+    beforeEach(() => {
+      vi.spyOn(Math, 'random').mockReturnValue(0.5)
+      isForeground = true
+      orchestrator = createOrchestrator({
+        accountId: 'account-1',
+        poller: mockPoller,
+        clientEventHub,
+        puller: mockPuller,
+        manifestSyncManager: mockManifestSyncManager,
+        isForeground: () => isForeground,
+      })
+    })
+
+    /** Makes the orchestrator the leader, which polls at once */
+    async function startPolling(): Promise<void> {
+      orchestrator.setLeader(true)
+      await vi.advanceTimersByTimeAsync(0)
+    }
+
+    it('polls every 30s while a tab is visible', async () => {
+      await startPolling()
+      await vi.advanceTimersByTimeAsync(30000)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
+    })
+
+    it('slows to the hidden interval while no tab is visible', async () => {
+      isForeground = false
+      await startPolling()
+      await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.hiddenPollInterval - 1)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(1)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps failure backoff while hidden', async () => {
+      isForeground = false
+      mockPoller.executePoll.mockResolvedValueOnce('failure')
+      await startPolling()
+      await vi.advanceTimersByTimeAsync(60000)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
+    })
+
+    it('still pushes local changes at once while hidden', async () => {
+      isForeground = false
+      await startPolling()
+      orchestrator.flush()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
+    })
+
+    it('polls when the user comes back to a hidden leader', async () => {
+      isForeground = false
+      await startPolling()
+      await vi.advanceTimersByTimeAsync(60000)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
+
+      isForeground = true
+      orchestrator.onForeground()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(30000)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(3)
     })
   })
 
@@ -854,7 +1061,7 @@ describe('SyncOrchestrator', () => {
         accountId: 'account-1',
         poller: mockPoller,
         clientEventHub,
-        pullQueueManager: mockPullQueueManager,
+        puller: mockPuller,
         manifestSyncManager: mockManifestSyncManager,
         manifestSyncIntervalMs: 5000,
       })
@@ -879,7 +1086,7 @@ describe('SyncOrchestrator', () => {
         accountId: 'account-1',
         poller: mockPoller,
         clientEventHub,
-        pullQueueManager: mockPullQueueManager,
+        puller: mockPuller,
         manifestSyncManager: mockManifestSyncManager,
         manifestSyncIntervalMs: 10000,
       })
@@ -904,7 +1111,7 @@ describe('SyncOrchestrator', () => {
         accountId: 'account-1',
         poller: mockPoller,
         clientEventHub,
-        pullQueueManager: mockPullQueueManager,
+        puller: mockPuller,
         manifestSyncManager: mockManifestSyncManager,
         manifestSyncIntervalMs: 5000,
       })
@@ -929,7 +1136,7 @@ describe('SyncOrchestrator', () => {
         accountId: 'account-1',
         poller: mockPoller,
         clientEventHub,
-        pullQueueManager: mockPullQueueManager,
+        puller: mockPuller,
         manifestSyncManager: mockManifestSyncManager,
         manifestSyncIntervalMs: 5000,
       })

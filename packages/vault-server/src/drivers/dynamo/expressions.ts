@@ -72,26 +72,6 @@ export function partitionKeyCondition(
 }
 
 /**
- * The key condition for a partition, optionally limited to cursors strictly after `afterCursor`.
- * Pulls have no lookback (docs/sync-design.md).
- */
-export function cursorKeyCondition(
-  partitionKey: string,
-  partitionValue: unknown,
-  afterCursor: number | undefined,
-): Pick<QueryCommandInput, 'KeyConditionExpression' | 'ExpressionAttributeNames' | 'ExpressionAttributeValues'> {
-  const partition = partitionKeyCondition(partitionKey, partitionValue)
-  if (typeof afterCursor !== 'number') {
-    return partition
-  }
-  return {
-    KeyConditionExpression: `${partition.KeyConditionExpression} AND #c > :cursor`,
-    ExpressionAttributeNames: { '#c': 'cursor' },
-    ExpressionAttributeValues: { ...partition.ExpressionAttributeValues, ':cursor': afterCursor },
-  }
-}
-
-/**
  * A projection of the given attribute paths (such as `metadata.modified`), with every path segment
  * going through a name placeholder so that reserved words are safe.
  */

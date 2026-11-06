@@ -1,6 +1,7 @@
 import type { MockInstance } from 'vitest'
 import { getVaultStorageNames } from '../../shared/storageNames'
-import { getAccountDatabaseName, clearAccountStoreInstancesCacheForTesting } from '../../shared/createAccountStore'
+import { clearAccountStoreInstancesCacheForTesting } from '../../shared/createAccountStore'
+import { getWalDBName } from '../../shared/localDatabaseNames'
 import { getAutomergeDBName } from '../AutomergeRepoManager'
 import { getSyncMetadataStorage, SYNC_METADATA_KEYS } from '../stores/syncMetadataStorage'
 import * as deleteDatabaseModule from '../../utils/deleteDatabase'
@@ -36,7 +37,7 @@ describe('retireLegacyStores', () => {
 
   async function expectRetired(): Promise<void> {
     expect(deleteDatabase).toHaveBeenCalledWith(getAutomergeDBName(ACCOUNT), expect.any(Number))
-    expect(deleteDatabase).toHaveBeenCalledWith(getAccountDatabaseName('wal-entries', ACCOUNT), expect.any(Number))
+    expect(deleteDatabase).toHaveBeenCalledWith(getWalDBName(ACCOUNT), expect.any(Number))
     expect(await getSyncMetadataStorage(ACCOUNT).getItem(SYNC_METADATA_KEYS.INDEX_DOC)).toBeNull()
     expect(await getSyncMetadataStorage(ACCOUNT).getItem(SYNC_METADATA_KEYS.CURSORS)).toEqual([])
   }
@@ -90,6 +91,16 @@ describe('retireLegacyStores', () => {
 
     expect(await retireLegacyStores({ accountId: ACCOUNT })).toBe(false)
 
+    expect(await getSyncMetadataStorage(ACCOUNT).getItem(SYNC_METADATA_KEYS.INDEX_DOC)).not.toBeNull()
+  })
+
+  // The plaintext index is what makes the upgrade retry, so it must outlast the WAL as well
+  it('keeps the plaintext index when only the WAL deletion is blocked', async () => {
+    deleteDatabase.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('blocked'))
+
+    expect(await retireLegacyStores({ accountId: ACCOUNT })).toBe(false)
+
+    expect(deleteDatabase).toHaveBeenCalledWith(getWalDBName(ACCOUNT), expect.any(Number))
     expect(await getSyncMetadataStorage(ACCOUNT).getItem(SYNC_METADATA_KEYS.INDEX_DOC)).not.toBeNull()
   })
 

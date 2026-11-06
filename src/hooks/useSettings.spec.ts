@@ -26,8 +26,9 @@ const mocks = {
   restoreFromBinaries: vi.fn(async () => ['i1']),
   clearAutomergeDocStore: vi.fn(async () => undefined),
   exportSyncState: vi.fn(async () => (
-    { cursors: [], pendingSync: [], lastModified: [] } as BackupSyncState
+    { cursors: [], lastModified: [] } as BackupSyncState
   )),
+  getUnsyncedChanges: vi.fn(async () => ({ pendingItems: 0, quarantinedItems: 0 })),
   restoreSyncState: vi.fn(async () => undefined),
   flushSync: vi.fn(async () => undefined),
   fullResync: vi.fn(async () => undefined),
@@ -81,6 +82,7 @@ beforeEach(() => {
       exportAllBinaries: mocks.exportAllBinaries,
       restoreFromBinaries: mocks.restoreFromBinaries,
       exportSyncState: mocks.exportSyncState,
+      getUnsyncedChanges: mocks.getUnsyncedChanges,
       restoreSyncState: mocks.restoreSyncState,
       flushSync: mocks.flushSync,
       fullResync: mocks.fullResync,
@@ -101,8 +103,7 @@ describe('useSettings backup portability', () => {
   it('exports metadata and items in a v2 payload along with sync state', async () => {
     mocks.exportData.mockImplementation(async (payload: unknown) => payload)
     mocks.exportSyncState.mockResolvedValue({
-      cursors: [['i1' as ItemId, 10]],
-      pendingSync: [['i1' as ItemId, ['msg1']]],
+      cursors: [],
       lastModified: [['i1' as ItemId, 12345]]
     })
 
@@ -117,11 +118,26 @@ describe('useSettings backup portability', () => {
     expect(parsed).toMatchObject({
       version: 2,
       documents: { i1: 'base64-doc' },
-      cursors: [['i1', 10]],
-      pendingSync: [['i1', ['msg1']]],
       lastModified: [['i1', 12345]]
     })
+    expect(parsed).not.toHaveProperty('pendingSync')
     expect(mocks.exportSyncState).toHaveBeenCalledTimes(1)
+  })
+
+  it('warns about unsent changes from the unsynced count', async () => {
+    mocks.exportData.mockImplementation(async (payload: unknown) => payload)
+    mocks.getUnsyncedChanges.mockResolvedValueOnce({ pendingItems: 2, quarantinedItems: 0 })
+
+    const { result } = renderHook(() => useSettings(mockItems))
+
+    await act(async () => {
+      await result.current.actions.handleExport()
+    })
+
+    expect(mocks.setMessage).toHaveBeenCalledWith({
+      message: 'You have unsent offline changes. Please connect to the internet to sync before exporting a backup.',
+      severity: 'warning',
+    })
   })
 
   it('warns the user when items were skipped during export', async () => {
@@ -143,7 +159,7 @@ describe('useSettings backup portability', () => {
     })
   })
 
-  it('restores metadata, binaries, and sync state without queue side effects', async () => {
+  it('restores metadata, binaries and timestamps, ignoring an older backup\'s cursors and pendingSync', async () => {
     mocks.restoreFromBinaries.mockResolvedValue(['i1'])
     mocks.setMetadata.mockResolvedValue(undefined)
 
@@ -162,11 +178,7 @@ describe('useSettings backup portability', () => {
 
     expect(mocks.setMetadata).toHaveBeenCalledTimes(1)
     expect(mocks.restoreFromBinaries).toHaveBeenCalledTimes(1)
-    expect(mocks.restoreSyncState).toHaveBeenCalledWith({
-      cursors: [['i1', 10]],
-      pendingSync: [['i1', ['msg1']]],
-      lastModified: [['i1', 12345]]
-    })
+    expect(mocks.restoreSyncState).toHaveBeenCalledWith({ lastModified: [['i1', 12345]] })
     expect(mocks.flushSync).toHaveBeenCalledTimes(1)
     expect(mocks.storeItems).not.toHaveBeenCalled()
   })

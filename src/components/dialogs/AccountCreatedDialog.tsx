@@ -66,8 +66,13 @@ export default function AccountCreatedDialog({ accountId, open, onContinue }: Pr
         />
 
         <Typography>
-          Please store your account ID and password in a secure location.
-          If you lose your account ID or password, your data will be lost permanently.
+          This is your username. Add it to the entry your password manager just saved,
+          so the two are kept together.
+        </Typography>
+
+        <Typography>
+          If you lose your account ID or password, your data can&apos;t be recovered.
+          While you&apos;re signed in, you can always export a backup from Settings.
         </Typography>
 
         <FormGroup>
@@ -83,7 +88,7 @@ export default function AccountCreatedDialog({ accountId, open, onContinue }: Pr
                 onChange={handleChangeAgreement}
               />
             }
-            label="I will stored my account ID and password in a secure location"
+            label="I've saved my account ID and password together"
             required
           />
         </FormGroup>

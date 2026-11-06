@@ -5,21 +5,19 @@ import {
 } from '@aws-sdk/client-dynamodb'
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb'
 import type {
+  AppendLogInput,
   AuthData,
   BaseData,
   FetchedVaultItem,
-  GetGlobalSyncMessagesInput,
-  GetSyncMessagesInput,
-  GlobalSyncMessagesPage,
   ItemFormatSummary,
+  LogPushResult,
+  ReadLogInput,
   StoredAccount,
+  SyncLogPage,
   UpdateAccountDataParams,
   VaultAccount,
-  ValidatePageTokenInput,
   VaultDriver,
   VaultItem,
-  PushSyncMessagesInput,
-  SyncMessagesPage,
 } from '../vaultDriver'
 import type { ItemId, ManifestEntry } from '@vault/shared'
 import { isResourceInUseError } from './dynamoErrors'
@@ -28,26 +26,26 @@ import { getVaultTableDefinitions } from './tables'
 import type { DynamoContext } from './commands'
 import * as accountRecords from './accountRecords'
 import * as itemRecords from './itemRecords'
-import * as syncMessages from './syncMessages'
+import * as syncLog from './syncLog'
 
 export interface DynamoDriverOptions {
   tables?: Partial<VaultTableNames>
   /** App-specific fields written to every new account record */
   accountDefaults?: Record<string, unknown>
-  /** Most sync messages one page holds. Tests lower it so paging needs only a few messages. */
-  syncMessagePageSize?: number
+  /** Most log rows one page holds. Tests lower it so paging needs only a few rows. */
+  syncLogPageSize?: number
 }
 
 export default class DynamoDriver implements VaultDriver {
   private internalClient: DynamoDBDocumentClient | undefined
   readonly tables: VaultTableNames
   private readonly accountDefaults: Record<string, unknown>
-  private readonly syncMessagePageSize: number
+  private readonly syncLogPageSize: number
 
   constructor(options: DynamoDriverOptions = {}) {
     this.tables = resolveVaultTableNames(options.tables)
     this.accountDefaults = options.accountDefaults ?? {}
-    this.syncMessagePageSize = options.syncMessagePageSize ?? syncMessages.SYNC_MESSAGE_PAGE_SIZE
+    this.syncLogPageSize = options.syncLogPageSize ?? syncLog.SYNC_LOG_PAGE_SIZE
   }
 
   get client() {
@@ -59,7 +57,11 @@ export default class DynamoDriver implements VaultDriver {
 
   /** Built per call, so operations use whichever client `connect` (or a test) set */
   private get context(): DynamoContext {
-    return { client: this.client, tables: this.tables, syncMessagePageSize: this.syncMessagePageSize }
+    return {
+      client: this.client,
+      tables: this.tables,
+      syncLogPageSize: this.syncLogPageSize,
+    }
   }
 
   /** Creates any of the vault's tables that don't exist yet */
@@ -142,19 +144,15 @@ export default class DynamoDriver implements VaultDriver {
     return itemRecords.fetchByIds(this.context, data)
   }
 
-  async pushSyncMessagesBatch(input: PushSyncMessagesInput): Promise<void> {
-    return syncMessages.pushSyncMessagesBatch(this.context, input)
+  async appendLog(input: AppendLogInput): Promise<LogPushResult[]> {
+    return syncLog.appendLog(this.context, input)
   }
 
-  async getSyncMessages(input: GetSyncMessagesInput): Promise<SyncMessagesPage> {
-    return syncMessages.getSyncMessages(this.context, input)
+  async readLog(input: ReadLogInput): Promise<SyncLogPage> {
+    return syncLog.readLog(this.context, input)
   }
 
-  validatePageToken(input: ValidatePageTokenInput): void {
-    syncMessages.validatePageToken(input)
-  }
-
-  async getGlobalSyncMessagesAfterCursor(input: GetGlobalSyncMessagesInput): Promise<GlobalSyncMessagesPage> {
-    return syncMessages.getGlobalSyncMessagesAfterCursor(this.context, input)
+  async readLogHead(data: BaseData): Promise<number> {
+    return syncLog.readLogHead(this.context, data)
   }
 }

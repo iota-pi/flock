@@ -7,6 +7,7 @@ import { IndexStore } from '../stores/IndexStore'
 import { ACCOUNT_INDEX_DOCUMENT_ID, type BackupDocId } from '../utils/automerge'
 import type { VaultDoc } from '../../shared/types'
 import type { ItemId } from '@vault/shared'
+import { BackupSyncStateSchema } from '../../shared/backupSyncState'
 
 const testRepo = new Repo()
 
@@ -141,19 +142,9 @@ describe('backup operations', () => {
 })
 
 describe('sync state backup', () => {
-  let pullQueueManager: any
-  let wal: any
   let snapshotManager: any
 
   beforeEach(() => {
-    pullQueueManager = {
-      cursors: { exportCursors: vi.fn().mockReturnValue([['item-1', 5]]) },
-      importCursors: vi.fn().mockResolvedValue(undefined),
-    }
-    wal = {
-      readAll: vi.fn().mockResolvedValue(new Map([['item-1', [{ data: new Uint8Array([1, 2, 3]) }]]])),
-      append: vi.fn().mockResolvedValue(undefined),
-    }
     snapshotManager = {
       tracker: {
         exportLastModified: vi.fn().mockReturnValue([['item-1', 1000]]),
@@ -162,35 +153,29 @@ describe('sync state backup', () => {
     }
   })
 
-  it('exports cursors, unpushed WAL entries and modification times', async () => {
-    const state = await exportSyncState(pullQueueManager, wal, snapshotManager)
-
-    expect(state).toEqual({
-      cursors: [['item-1', 5]],
-      pendingSync: [['item-1', [new Uint8Array([1, 2, 3]).toBase64()]]],
-      lastModified: [['item-1', 1000]],
-    })
+  it('exports modification times and no unsent messages', () => {
+    expect(exportSyncState(snapshotManager)).toEqual({ cursors: [], lastModified: [['item-1', 1000]] })
   })
 
-  it('restores the state it exported', async () => {
-    const message = new Uint8Array([4, 5, 6])
-
-    await restoreSyncState(pullQueueManager, wal, snapshotManager, {
+  it('restores modification times, ignoring the cursors and messages in an older backup', async () => {
+    await restoreSyncState(snapshotManager, {
       cursors: [['item-1' as ItemId, 5]],
-      pendingSync: [['item-1' as ItemId, [message.toBase64()]]],
+      pendingSync: [['item-1' as ItemId, ['bWVzc2FnZQ==']]],
       lastModified: [['item-1' as ItemId, 1000]],
     })
 
-    expect(pullQueueManager.importCursors).toHaveBeenCalledWith([['item-1', 5]])
-    expect(wal.append).toHaveBeenCalledWith('item-1', message)
     expect(snapshotManager.tracker.importLastModified).toHaveBeenCalledWith([['item-1', 1000]])
   })
 
   it('leaves out the parts a backup does not carry', async () => {
-    await restoreSyncState(pullQueueManager, wal, snapshotManager, {})
+    await restoreSyncState(snapshotManager, {})
 
-    expect(pullQueueManager.importCursors).not.toHaveBeenCalled()
-    expect(wal.append).not.toHaveBeenCalled()
     expect(snapshotManager.tracker.importLastModified).not.toHaveBeenCalled()
+  })
+
+  it('parses an old backup that has pendingSync, and a new one without it', () => {
+    const old = { cursors: [['item-1', 5]], pendingSync: [['item-1', ['bWVzc2FnZQ==']]], lastModified: [] }
+    expect(BackupSyncStateSchema.safeParse(old).success).toBe(true)
+    expect(BackupSyncStateSchema.safeParse({ cursors: [], lastModified: [] }).success).toBe(true)
   })
 })

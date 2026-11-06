@@ -13,7 +13,7 @@ import SettingsItemsList from './settings/SettingsItemsList'
 import SettingsDialogs from './settings/SettingsDialogs'
 import type { SettingsActionId } from './settings/settingsConfig'
 import { useVisibleItems } from 'src/state/selectors'
-import ConfirmationDialog from '../dialogs/ConfirmationDialog'
+import RemoveAccountDialog from '../dialogs/RemoveAccountDialog'
 import { createLogger } from 'src/utils/logger'
 
 const log = createLogger('Settings')
@@ -139,26 +139,14 @@ function SettingsPage() {
         }}
         naturalGoal={values.naturalGoal}
       />
-      <ConfirmationDialog
-        cancel="Cancel"
-        confirm="Sign out & remove data"
-        confirmColour="error"
+      <RemoveAccountDialog
         onCancel={() => setConfirmRemoveAccountOpen(false)}
         onConfirm={handleConfirmRemoveAccount}
+        onExport={() => {
+          void onExport()
+        }}
         open={confirmRemoveAccountOpen}
-        title="Sign out and remove local data?"
-      >
-        <Typography component="p" gutterBottom>
-          Are you sure you want to sign out and remove all local data from this device?
-          You will need an active internet connection
-          to download your data again the next time you sign in.
-        </Typography>
-        <Typography>
-          It is <strong>highly recommended</strong> to perform this action on shared devices
-          or in high-security environments.
-          Otherwise, you could simply lock the app.
-        </Typography>
-      </ConfirmationDialog>
+      />
     </BasePage>
   )
 }

@@ -1,5 +1,5 @@
 import { VaultSnapshotSchema } from './snapshots'
-import { SyncPollBatchSchema } from './api'
+import { PollLogSchema } from './api'
 
 describe('VaultSnapshotSchema', () => {
   const base = {
@@ -33,13 +33,14 @@ describe('VaultSnapshotSchema', () => {
   })
 })
 
-describe('SyncPollBatchSchema', () => {
+describe('PollLogSchema', () => {
   it('keeps the ciphertext format of pushed messages', () => {
     const encryptedMessage = { iv: 'iv', cipher: 'abc', kver: '1', format: 2, version: '1.0' }
-    const parsed = SyncPollBatchSchema.parse({
+    const parsed = PollLogSchema.parse({
       account: 'acct',
-      pushMessages: [{ itemId: 'item-1', encryptedMessage }],
+      push: [{ itemId: 'item-1', encryptedMessage }],
+      after: 0,
     })
-    expect(parsed.pushMessages[0].encryptedMessage).toEqual(encryptedMessage)
+    expect(parsed.push[0].encryptedMessage).toEqual(encryptedMessage)
   })
 })

@@ -57,11 +57,12 @@ describe('DynamoDriver.fetchManifest', () => {
         '#metadata': 'metadata',
         '#modified': 'modified',
         '#deleted': 'deleted',
+        '#heads': 'heads',
       },
       ExpressionAttributeValues: {
         ':account': 'acc-123',
       },
-      ProjectionExpression: '#item, #version, #modifiedAt, #metadata.#modified, #metadata.#deleted, #deleted',
+      ProjectionExpression: '#item, #version, #modifiedAt, #metadata.#modified, #metadata.#deleted, #deleted, #heads',
     })
 
     expect(result).toEqual([

@@ -1,6 +1,5 @@
 import { AutomergeRepoManager } from './AutomergeRepoManager'
 import { VaultIndexedDBStorageAdapter } from './VaultIndexedDBStorageAdapter'
-import type { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import * as storageManager from '../utils/storageManager'
 import { createMockKeyProvider } from './__test__/testUtils'
 import { spyOnExports } from '../../test/moduleMocks'
@@ -51,7 +50,7 @@ describe('AutomergeRepoManager', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     storage = new VaultIndexedDBStorageAdapter('test-db')
-    manager = new AutomergeRepoManager('account-1', createMockKeyProvider(), {} as VaultNetworkAdapter, storage)
+    manager = new AutomergeRepoManager('account-1', createMockKeyProvider(), storage)
     repo = manager.repo
   })
 

@@ -1,6 +1,5 @@
 import type { ItemId } from '@vault/shared'
 import type { LastModifiedStore } from './stores/LastModifiedStore'
-import type { SyncMessageBroker } from './SyncMessageBroker'
 import type { ClientEventHub } from './SyncEventHub'
 import type { RecoveryManager } from './RecoveryManager'
 import type { SyncApiClient } from './SyncApiClient'
@@ -11,6 +10,7 @@ import type { SnapshotPushResult } from './syncProtocol'
 import { fireAndForget } from '../utils/fireAndForget'
 import type { SyncSessionState } from './SyncSessionState'
 import type { StoredSnapshotRecorder, UploadableSnapshot } from './snapshotUpload'
+import type { StoredSnapshotDetails } from './SnapshotCoverage'
 
 export interface SnapshotManagerOptions {
   maxPayloadBytes?: number
@@ -33,7 +33,8 @@ export class SnapshotManager implements StoredSnapshotRecorder {
       session: SyncSessionState
       lastModifiedStore: LastModifiedStore
       builder: SnapshotBuilder
-      broker: SyncMessageBroker
+      pushToLog: (itemIds: ItemId[], signal?: AbortSignal) => Promise<void>
+      onSnapshotStored: (details: StoredSnapshotDetails) => void
       getLatestCursor?: () => number
       eventHub: ClientEventHub
       recoveryManager: RecoveryManager
@@ -57,7 +58,8 @@ export class SnapshotManager implements StoredSnapshotRecorder {
       session: deps.session,
       tracker: this.tracker,
       builder: deps.builder,
-      broker: deps.broker,
+      pushToLog: deps.pushToLog,
+      onSnapshotStored: deps.onSnapshotStored,
       recoveryManager: deps.recoveryManager,
       apiClient: deps.apiClient,
       eventHub: deps.eventHub,
@@ -102,8 +104,8 @@ export class SnapshotManager implements StoredSnapshotRecorder {
     return this.pusher.flushPendingSnapshots()
   }
 
-  recordStoredSnapshots(stored: UploadableSnapshot[], versions: Map<ItemId, number>): void {
-    this.pusher.recordStoredSnapshots(stored, versions)
+  recordStoredSnapshots(stored: UploadableSnapshot[], versions: Map<ItemId, number>, logSeq: number): void {
+    this.pusher.recordStoredSnapshots(stored, versions, logSeq)
   }
 
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {

@@ -9,6 +9,11 @@ export const VaultSnapshotSchema = z.object({
   modified: z.number(),
   deleted: z.boolean().optional(),
   version: z.number().int().min(0).optional(),
+  /**
+   * The Automerge heads of the saved document, encrypted and bound to the item. The manifest returns
+   * them, so a device that already has those changes can skip fetching the snapshot.
+   */
+  heads: CryptoResultSchema.optional(),
 }).superRefine((s, ctx) => {
   if (!s.snapshot && s.deleted !== true) {
     ctx.addIssue({

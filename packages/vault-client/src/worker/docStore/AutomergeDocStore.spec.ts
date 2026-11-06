@@ -1055,6 +1055,140 @@ describe('AutomergeDocStore Unit Tests', () => {
     })
   })
 
+  describe('log changes', () => {
+    type Doc = Record<string, unknown>
+
+    function concatenate(changes: Uint8Array[]): Uint8Array {
+      const row = new Uint8Array(changes.reduce((total, change) => total + change.byteLength, 0))
+      let offset = 0
+      for (const change of changes) {
+        row.set(change, offset)
+        offset += change.byteLength
+      }
+      return row
+    }
+
+    const base = () => Automerge.change(Automerge.init<Doc>(), d => { d.title = 'base' })
+
+    function seed(itemId: ItemId, doc: Automerge.Doc<Doc>) {
+      return docStore.seedImportedDocument(itemId, Automerge.save(doc))
+    }
+
+    it('applies concatenated changes to a loaded doc, reporting the heads either side', async () => {
+      const itemId = 'log-item-1' as ItemId
+      const start = base()
+      await seed(itemId, start)
+      const edited = Automerge.change(Automerge.change(Automerge.clone(start), d => { d.a = 1 }), d => { d.b = 2 })
+      const onApplied = vi.fn()
+
+      const result = await docStore.applyIncomingChanges(
+        itemId,
+        concatenate(Automerge.getChangesSince(edited, Automerge.getHeads(start))),
+        onApplied,
+      )
+
+      expect(result).toEqual({ status: 'applied', addedChanges: true })
+      expect(onApplied).toHaveBeenCalledWith({ headsBefore: Automerge.getHeads(start), headsAfter: Automerge.getHeads(edited) })
+      expect(await docStore.readItemSnapshot(itemId)).toMatchObject({ a: 1, b: 2 })
+    })
+
+    it('changes nothing when a row is applied twice', async () => {
+      const itemId = 'log-item-2' as ItemId
+      const start = base()
+      await seed(itemId, start)
+      const edited = Automerge.change(Automerge.clone(start), d => { d.a = 1 })
+      const row = concatenate(Automerge.getChangesSince(edited, Automerge.getHeads(start)))
+
+      await docStore.applyIncomingChanges(itemId, row)
+      const result = await docStore.applyIncomingChanges(itemId, row)
+
+      expect(result).toEqual({ status: 'applied', addedChanges: false })
+    })
+
+    it('merges into concurrent local edits', async () => {
+      const itemId = 'log-item-3' as ItemId
+      const start = base()
+      const handle = await seed(itemId, start)
+      handle.change(d => { d.local = true })
+      const edited = Automerge.change(Automerge.clone(start), d => { d.remote = true })
+
+      await docStore.applyIncomingChanges(itemId, concatenate(Automerge.getChangesSince(edited, Automerge.getHeads(start))))
+
+      expect(await docStore.readItemSnapshot(itemId)).toMatchObject({ local: true, remote: true })
+    })
+
+    it('creates an unknown doc from a row that holds its whole history', async () => {
+      const itemId = 'log-item-4' as ItemId
+      const onApplied = vi.fn()
+
+      const result = await docStore.applyIncomingChanges(itemId, concatenate(Automerge.getChangesSince(base(), [])), onApplied)
+
+      expect(result).toEqual({ status: 'applied', addedChanges: true })
+      expect(onApplied).toHaveBeenCalledWith({ headsBefore: [], headsAfter: expect.any(Array) })
+      expect(await docStore.readItemSnapshot(itemId)).toMatchObject({ title: 'base' })
+    })
+
+    it('stores nothing for an unknown doc whose dependencies are missing', async () => {
+      const itemId = 'log-item-5' as ItemId
+      const start = base()
+      const edited = Automerge.change(Automerge.clone(start), d => { d.a = 1 })
+
+      const result = await docStore.applyIncomingChanges(
+        itemId,
+        concatenate(Automerge.getChangesSince(edited, Automerge.getHeads(start))),
+      )
+
+      expect(result).toEqual({ status: 'missingDeps' })
+      expect(await docStore.hasDataInStorage(itemId)).toBe(false)
+    })
+
+    it('reports missing dependencies on a loaded doc, and applies them when the parents arrive', async () => {
+      const itemId = 'log-item-6' as ItemId
+      const start = base()
+      await seed(itemId, start)
+      const parent = Automerge.change(Automerge.clone(start), d => { d.a = 1 })
+      const child = Automerge.change(Automerge.clone(parent), d => { d.b = 2 })
+      const orphan = concatenate(Automerge.getChangesSince(child, Automerge.getHeads(parent)))
+
+      expect(await docStore.applyIncomingChanges(itemId, orphan)).toEqual({ status: 'missingDeps' })
+      expect((await docStore.getMissingDeps(itemId)).length).toBe(1)
+
+      await docStore.hydrateAutomergeDocumentBinary(itemId, Automerge.save(parent))
+
+      expect(await docStore.getMissingDeps(itemId)).toEqual([])
+      expect(await docStore.readItemSnapshot(itemId)).toMatchObject({ a: 1, b: 2 })
+    })
+
+    it('reads what a doc has after the server heads', async () => {
+      const itemId = 'log-item-7' as ItemId
+      const start = base()
+      const handle = await seed(itemId, start)
+      handle.change(d => { d.a = 1 })
+
+      const read = await docStore.readChangesSince(itemId, Automerge.getHeads(start))
+
+      expect(read?.changes).toHaveLength(1)
+      expect(read?.heads).toEqual(Automerge.getHeads(handle.doc()!))
+      expect(docStore.hasChangesSince(itemId, Automerge.getHeads(start))).toBe(true)
+      expect(docStore.hasChangesSince(itemId, read!.heads)).toBe(false)
+      expect((await docStore.readChangesSince(itemId, read!.heads))?.changes).toEqual([])
+    })
+
+    it('reads the whole history for heads the doc lacks', async () => {
+      const itemId = 'log-item-8' as ItemId
+      await seed(itemId, base())
+
+      const read = await docStore.readChangesSince(itemId, ['a'.repeat(64)])
+
+      expect(read?.changes).toHaveLength(1)
+    })
+
+    it('reads nothing from a doc it can not load', async () => {
+      expect(await docStore.readChangesSince('log-item-9' as ItemId, [])).toBeNull()
+      expect(await docStore.readHeads('log-item-9' as ItemId)).toBeNull()
+    })
+  })
+
   describe('hydration merges into storage', () => {
     class MemoryStorage implements StorageAdapterInterface {
       readonly data = new Map<string, { key: StorageKey, data: Uint8Array }>()

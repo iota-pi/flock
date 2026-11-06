@@ -13,6 +13,7 @@ export const storeSink: SyncStateSink<Item, AccountMetadata> = {
   updateIndex: itemIds => useAppStore.getState().updateIndexFromServer(itemIds),
   updateMetadata: metadata => useAppStore.getState().updateMetadata(metadata),
   setSyncStatus: status => useAppStore.getState().setSyncStatus(status),
+  setSyncProgress: progress => useAppStore.getState().setSyncProgress(progress),
   getSyncWarning: () => useAppStore.getState().syncWarning,
   setSyncWarning: message => useAppStore.getState().setSyncWarning(message),
   clearSyncWarning: () => useAppStore.getState().clearSyncWarning(),
@@ -21,7 +22,11 @@ export const storeSink: SyncStateSink<Item, AccountMetadata> = {
   setLeaderConflict: hasConflict => useAppStore.getState().setLeaderConflict(hasConflict),
   startRequest: () => useAppStore.getState().startRequest(),
   finishRequest: () => useAppStore.getState().finishRequest(),
-  reset: () => useAppStore.getState().reset(),
+  reset: () => {
+    useAppStore.getState().reset()
+    // The next session may be another account's
+    useAppStore.getState().setSyncProgress(null)
+  },
   onDataRestored: () => useAppStore.getState().incrementGeneration(),
   // Other tabs still syncing would hold on to the plaintext stores the worker is about to delete
   beforeRetiringLegacyStores: account => askOtherTabsToStop({ type: 'started', account }),

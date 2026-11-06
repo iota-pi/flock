@@ -14,14 +14,17 @@ import { isAuthError } from '../utils/errorClassifier'
 import { errorMessage } from '../utils/errorMessage'
 import { calculateSyncDeltas, type QuarantinedItem, type SyncDeltas } from './calculateSyncDeltas'
 import { ManifestHydrator } from './ManifestHydrator'
+import { findSnapshotsCoveredLocally } from './findSnapshotsCoveredLocally'
+import { areHeadsEqual } from './utils/automerge'
+import type { SnapshotCoverage } from './SnapshotCoverage'
 import type { KeyProvider } from '../keys/Keyring'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('ManifestSyncManager')
 
-const ONE_DAY_MS = 24 * 60 * 60 * 1000
-const MANIFEST_SYNC_OFFLINE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000
+const MANIFEST_SYNC_MIN_GAP_MS = SYNC_TIMEOUTS.manifestSyncMinGap
 const UPSTREAM_SNAPSHOT_DEBOUNCE_MS = SYNC_TIMEOUTS.upstreamSnapshotDebounce
+const PULLED_CHANGES_GRACE_MS = SYNC_TIMEOUTS.pulledChangesGrace
 
 export interface ManifestSyncManagerDeps {
   accountId: string
@@ -35,10 +38,17 @@ export interface ManifestSyncManagerDeps {
   storeItems: (items: VaultDoc[], options?: StoreItemsOptions) => Promise<void>
   onDecryptionFailure?: (itemId: ItemId, error: unknown, serverVersion?: number) => void
   onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void
+  /** Called with a server snapshot the local doc already holds, which wasn't fetched */
+  onSnapshotCovered?: (itemId: ItemId, heads: string[]) => void
+  /** Called with an item whose doc has changes a snapshot merged into it lacks */
+  onLocalChangesFound?: (itemId: ItemId) => void
+  /** Called once a sync has merged what it could, with the manifest it fetched */
+  onManifestProcessed?: (manifest: ManifestEntry[]) => Promise<void>
+  coverage: Pick<SnapshotCoverage, 'listUnconfirmedPulls' | 'confirmPulledChanges'>
   decodeLegacyItem?: SyncDomain['decodeLegacyItem']
   /** Called when the server holds legacy rows and there is no `decodeLegacyItem` hook to read them */
   onMigrationRequired?: () => void
-  /** Fetches the manifest on every sync, rather than at most daily on a device that has items */
+  /** Fetches the manifest on every sync, rather than at most every `manifestSyncMinGap` on a device that has items */
   fetchManifestEverySync?: boolean
   /** Moves settings that predate the settings document into it (see AccountSettings) */
   migrateLegacySettings?: () => Promise<void>
@@ -58,6 +68,8 @@ export class ManifestSyncManager {
   private readonly isAlive = () => !this.isShutdown
   private readonly syncRun = new AbortableRun(this.isAlive)
   private readonly syncGuard = new SingleFlightGuard<SyncResult>()
+  /** Whether the last sync run reached the end with a fetched manifest */
+  private fetchedManifest = false
 
   constructor(private readonly deps: ManifestSyncManagerDeps) {
     this.hydrator = new ManifestHydrator({
@@ -70,6 +82,7 @@ export class ManifestSyncManager {
       storeItems: this.deps.storeItems,
       onDecryptionFailure: this.deps.onDecryptionFailure,
       onItemSnapshotHydrated: this.deps.onItemSnapshotHydrated,
+      onLocalChangesFound: this.deps.onLocalChangesFound,
       onKeyVersionMissing: this.deps.onKeyVersionMissing,
       decodeLegacyItem: this.deps.decodeLegacyItem,
       onMigrationRequired: this.deps.onMigrationRequired,
@@ -96,11 +109,38 @@ export class ManifestSyncManager {
     return this.syncGuard.run(() => this.executeSync(force, signal))
   }
 
+  /**
+   * Runs a sync now, whenever the last one was, and returns whether it fetched the manifest. A sync
+   * that merged only some items counts: those items are left for the next one. It waits for a sync
+   * in flight rather than sharing it, because that one may have skipped itself.
+   */
+  async syncNow(signal?: AbortSignal): Promise<boolean> {
+    if (this.isShutdown) return false
+    await this.syncGuard.waitForRunning()
+    this.fetchedManifest = false
+    await this.syncGuard.run(() => this.executeSync(false, signal, { ignoreMinGap: true }))
+    return this.fetchedManifest
+  }
+
+  /** Fetches items' snapshots and merges them into their docs, away from any manifest sync */
+  async fetchSnapshots(itemIds: ItemId[], signal?: AbortSignal): Promise<void> {
+    if (this.isShutdown || itemIds.length === 0) return
+    const [knownItemIds, tombstoneItemIds] = await Promise.all([
+      this.deps.indexManager.listItemIds(),
+      this.deps.indexManager.listTombstoneIds(),
+    ])
+    await this.hydrator.fetchAndHydrateRemoteItems({
+      missingIds: itemIds,
+      manifest: [],
+      serverTime: Date.now(),
+      knownSet: new Set(knownItemIds),
+      tombstoneSet: new Set(tombstoneItemIds),
+    }, signal)
+  }
+
   private shouldSkipSync(force: boolean, hasKnownItems: boolean, timeSinceLastSync: number): boolean {
     if (this.deps.fetchManifestEverySync) return false
-    const isOfflineTooLong = timeSinceLastSync >= MANIFEST_SYNC_OFFLINE_THRESHOLD_MS
-    const isWithinDailyWindow = hasKnownItems && timeSinceLastSync < ONE_DAY_MS
-    return !force && !isOfflineTooLong && isWithinDailyWindow
+    return !force && hasKnownItems && timeSinceLastSync < MANIFEST_SYNC_MIN_GAP_MS
   }
 
   private async fetchRemoteManifest(
@@ -203,11 +243,15 @@ export class ManifestSyncManager {
     throw new Error(`[ManifestSyncManager] Manifest sync failed: ${errorMessage(e)}`, { cause: e })
   }
 
-  private async executeSync(force = false, outerSignal?: AbortSignal): Promise<SyncResult> {
+  private async executeSync(
+    force = false,
+    outerSignal?: AbortSignal,
+    options: { ignoreMinGap?: boolean } = {},
+  ): Promise<SyncResult> {
     let hasKnownItems = false
     try {
       return await this.syncRun.run(async signal => {
-        const gating = await this.checkGating(force, signal)
+        const gating = await this.checkGating(force || options.ignoreMinGap === true, signal)
         hasKnownItems = gating.hasKnownItems
         if (gating.skip) {
           // Only a sync without failures records the time that lets later syncs be skipped
@@ -227,6 +271,11 @@ export class ManifestSyncManager {
 
         const localState = await this.collectLocalSyncState(signal)
         checkAlive(signal, this.isAlive)
+
+        if (!force) {
+          await this.skipSnapshotsCoveredLocally(remoteData.manifest, gating.knownItemIds, localState, signal)
+          checkAlive(signal, this.isAlive)
+        }
 
         // Step 1: Calculate sync deltas
         const deltas = calculateSyncDeltas({
@@ -262,6 +311,10 @@ export class ManifestSyncManager {
           hasFailures = hydrationResult.hasFailures
           checkAlive(signal, this.isAlive)
         }
+
+        await this.notifyManifestProcessed(remoteData.manifest)
+        checkAlive(signal, this.isAlive)
+        this.fetchedManifest = true
 
         await this.migrateLegacySettings()
         checkAlive(signal, this.isAlive)
@@ -304,6 +357,70 @@ export class ManifestSyncManager {
     for (const id of deltas.upstreamIds) {
       this.deps.snapshotManager.tracker.markItemDirty(id, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
     }
+  }
+
+  private async notifyManifestProcessed(manifest: ManifestEntry[]): Promise<void> {
+    try {
+      await this.deps.onManifestProcessed?.(manifest)
+    } catch (error) {
+      if (isAbortError(error)) throw error
+      log.warn('Failed to process the manifest (will retry on next sync):', error)
+    }
+  }
+
+  /**
+   * Raises `baseVersion` to the server's for items whose snapshot this device already has, so that
+   * the deltas don't fetch them.
+   *
+   * A device that holds changes must upload them if nobody else does (rule S3 of snapshot coverage).
+   * So an item whose doc holds this snapshot and more gets a new one, once the author of any pulled
+   * changes has had its chance.
+   */
+  private async skipSnapshotsCoveredLocally(
+    manifest: ManifestEntry[],
+    knownItemIds: ItemId[],
+    localState: Awaited<ReturnType<ManifestSyncManager['collectLocalSyncState']>>,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const unconfirmedPulls = await this.deps.coverage.listUnconfirmedPulls()
+    const found = await findSnapshotsCoveredLocally({
+      manifest,
+      activeItemIds: knownItemIds,
+      tombstoneItemIds: localState.tombstoneItemIds,
+      quarantinedMap: localState.quarantinedMap,
+      localVersionsMap: localState.localVersionsMap,
+      unconfirmedPulls,
+      keys: this.deps.keys,
+      docStore: this.deps.docStore,
+      signal,
+      isAlive: this.isAlive,
+    })
+    if (found.length === 0) return
+    checkAlive(signal, this.isAlive)
+
+    const covered = found.filter(snapshot => snapshot.isNewer)
+    for (const { itemId, version } of covered) {
+      const isDirty = localState.localVersionsMap.get(itemId)?.isDirty ?? false
+      localState.localVersionsMap.set(itemId, { baseVersion: version, isDirty })
+    }
+    await this.deps.snapshotManager.tracker.importVersions(covered.map(({ itemId, version }) => [itemId, version]))
+    for (const { itemId, heads } of covered) {
+      this.deps.onSnapshotCovered?.(itemId, heads)
+    }
+    if (covered.length > 0) {
+      log.info(`Skipped fetching ${covered.length} snapshots this device already has`)
+    }
+
+    const graceStart = Date.now() - PULLED_CHANGES_GRACE_MS
+    const confirmed: ItemId[] = []
+    for (const { itemId, heads, docHeads, isNewer } of found) {
+      if (areHeadsEqual(heads, docHeads)) {
+        if (unconfirmedPulls.has(itemId)) confirmed.push(itemId)
+      } else if (isNewer || (unconfirmedPulls.get(itemId) ?? Infinity) <= graceStart) {
+        this.deps.snapshotManager.tracker.markItemDirty(itemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
+      }
+    }
+    await this.deps.coverage.confirmPulledChanges(confirmed)
   }
 
   private async migrateLegacySettings() {

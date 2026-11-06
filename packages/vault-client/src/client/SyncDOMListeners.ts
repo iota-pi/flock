@@ -11,13 +11,19 @@ export interface SyncDOMListenersCallbacks {
   onOnlineChange?: (isOnline: boolean) => Promise<void> | void
   onReconnect?: () => Promise<void> | void
   onVisibilityHidden: () => void
+  /**
+   * The page's visibility: reported when listening starts, when it changes, and when the window gets
+   * focus. `returned` says the user just came back to the page (it became visible or got focus).
+   */
+  onVisibilityChange?: (visible: boolean, returned: boolean) => void
   onKeyringChange: () => void
 }
 
 export class SyncDOMListeners {
   private callbacks: SyncDOMListenersCallbacks | null = null
   private onlineHandler: (() => void) | null = null
-  private visibilityHandler: (() => void) | null = null
+  private visibilityHandler: ((event?: Event) => void) | null = null
+  private focusHandler: (() => void) | null = null
   private storageHandler: ((event: StorageEvent) => void) | null = null
   private vaultEventsChannel: BroadcastChannel | null = null
   private eventSequence = 0
@@ -34,15 +40,32 @@ export class SyncDOMListeners {
     }
 
     if (!this.visibilityHandler && typeof document !== 'undefined') {
-      this.visibilityHandler = () => {
+      this.visibilityHandler = (event?: Event) => {
         if (document.visibilityState === 'hidden') {
           this.callbacks?.onVisibilityHidden()
+          this.callbacks?.onVisibilityChange?.(false, false)
+        } else if (document.visibilityState === 'visible' && event?.type !== 'pagehide') {
+          this.callbacks?.onVisibilityChange?.(true, true)
         }
       }
       document.addEventListener('visibilitychange', this.visibilityHandler)
       if (typeof window !== 'undefined') {
         window.addEventListener('pagehide', this.visibilityHandler)
       }
+    }
+
+    if (!this.focusHandler && typeof window !== 'undefined' && typeof document !== 'undefined') {
+      // A window beside another one stays visible, so coming back to it only shows as focus
+      this.focusHandler = () => {
+        if (document.visibilityState === 'visible') {
+          this.callbacks?.onVisibilityChange?.(true, true)
+        }
+      }
+      window.addEventListener('focus', this.focusHandler)
+    }
+
+    if (typeof document !== 'undefined') {
+      this.callbacks.onVisibilityChange?.(document.visibilityState !== 'hidden', false)
     }
 
     if (!this.storageHandler && typeof window !== 'undefined') {
@@ -131,6 +154,11 @@ export class SyncDOMListeners {
         window.removeEventListener('pagehide', this.visibilityHandler)
       }
       this.visibilityHandler = null
+    }
+
+    if (this.focusHandler && typeof window !== 'undefined') {
+      window.removeEventListener('focus', this.focusHandler)
+      this.focusHandler = null
     }
 
     if (this.storageHandler && typeof window !== 'undefined') {

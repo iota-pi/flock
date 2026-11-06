@@ -17,6 +17,7 @@ import {
 import type { KdfParams } from './kdf'
 import { broadcastVaultEvent } from './vaultEvents'
 import { retryTransientFailures } from './requestRetry'
+import { clearSyncLogStorage } from '../shared/syncLogStorage'
 import { clearWriteAheadLog } from '../shared/writeAheadLogStorage'
 import { clearBiometricData, hasBiometricData } from './biometricStore'
 import { CURRENT_SALT_VERSION, getDefaultKdf, isRateLimitedError } from '@vault/shared'
@@ -281,11 +282,12 @@ export async function storeVault(account: string, activeVersionOverride?: string
 
 /**
  * Removes every trace of the vault from this device: keys, the session, cached keyring, biometric
- * unlock data and stored metadata, plus the account's WAL and manual recovery entries. Shut the sync
+ * unlock data and stored metadata, plus the account's sync log stores, any WAL an older build left and manual recovery entries. Shut the sync
  * worker down (clearing its local data) before calling this.
  */
 export async function clearVaultDeviceData(account?: string) {
   if (account) {
+    await clearSyncLogStorage(account)
     await clearWriteAheadLog(account)
     await clearManualRecoveryEntries(account)
   }

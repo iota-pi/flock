@@ -1,6 +1,5 @@
 import type { SnapshotPushResult } from './syncProtocol'
 import type { SyncApiClient } from './SyncApiClient'
-import type { SyncMessageBroker } from './SyncMessageBroker'
 import { classifySyncError } from '../utils/errorClassifier'
 import { type ItemId, MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import type { ClientEventHub } from './SyncEventHub'
@@ -18,6 +17,7 @@ import { fireAndForget } from '../utils/fireAndForget'
 import { uploadSnapshotBatch, type SnapshotBatchResult, type UploadableSnapshot } from './snapshotUpload'
 import { createLogger } from '../utils/logger'
 import type { SyncSessionState } from './SyncSessionState'
+import type { StoredSnapshotDetails } from './SnapshotCoverage'
 
 const log = createLogger('SnapshotPusher')
 
@@ -27,7 +27,10 @@ export interface SnapshotPusherOptions {
   session: SyncSessionState
   tracker: SnapshotTracker
   builder: SnapshotBuilder
-  broker: SyncMessageBroker
+  /** Pushes items' changes to the log, which comes before their snapshots */
+  pushToLog: (itemIds: ItemId[], signal?: AbortSignal) => Promise<void>
+  /** Called with each snapshot the server stored */
+  onSnapshotStored: (details: StoredSnapshotDetails) => void
   recoveryManager: RecoveryManager
   apiClient: SyncApiClient
   eventHub: ClientEventHub
@@ -179,9 +182,20 @@ export class SnapshotPusher {
     }
 
     // The build bounds its document lookup, so an unreadable document fails here rather than wedging the push
-    const buildResult = await this.deps.builder.build(itemId, snapshotCursor, { signal })
+    let buildResult = await this.deps.builder.build(itemId, snapshotCursor, { signal })
+    if (buildResult.type === 'deferred' && buildResult.reason === 'unpushed') {
+      // Changes made since the push that started this upload
+      await this.deps.pushToLog([itemId], signal)
+      buildResult = await this.deps.builder.build(itemId, snapshotCursor, { signal })
+    }
+
     if (buildResult.type === 'not-ready') {
       return { type: 'fail' }
+    }
+
+    if (buildResult.type === 'deferred') {
+      // An item waiting for its server heads asks for its snapshot once it has them
+      return { type: buildResult.reason === 'awaitingHeads' ? 'skip' : 'fail' }
     }
 
     if (buildResult.type === 'error') {
@@ -221,12 +235,14 @@ export class SnapshotPusher {
   }
 
   /** Records snapshots the server stored, whichever upload sent them */
-  recordStoredSnapshots(stored: UploadableSnapshot[], versions: Map<ItemId, number>): void {
+  recordStoredSnapshots(stored: UploadableSnapshot[], versions: Map<ItemId, number>, logSeq: number): void {
     for (const item of stored) {
-      this.consecutiveFailures.reset(item.snapshot.itemId)
-      const assignedVersion = versions.get(item.snapshot.itemId)
-      this.deps.tracker.recordSnapshotSuccess(item.snapshot.itemId, item.snapshot.modified, item.tick, assignedVersion)
-      this.deps.broker.confirmSnapshot(item.snapshot.itemId, item.heads)
+      const { itemId } = item.snapshot
+      this.consecutiveFailures.reset(itemId)
+      const assignedVersion = versions.get(itemId)
+      const baseVersion = this.deps.tracker.getBaseVersion(itemId)
+      this.deps.tracker.recordSnapshotSuccess(itemId, item.snapshot.modified, item.tick, assignedVersion)
+      this.deps.onSnapshotStored({ itemId, version: assignedVersion ?? baseVersion, baseVersion, heads: item.heads, logSeq })
       fireAndForget(
         this.deps.recoveryManager.unquarantine(item.snapshot.itemId),
         'SnapshotPusher:unquarantine',
@@ -270,6 +286,9 @@ export class SnapshotPusher {
     let total = 0
     let success = true
     let sendFailed = false
+
+    // Log before snapshot: most items have changes the log lacks, and one push carries them all
+    await this.deps.pushToLog(dirtyItemIds, signal)
 
     const accumulator = new SizeAwareBatchAccumulator<PreparedSnapshotItem>({ maxBatchBytes: this.maxPayloadBytes })
 

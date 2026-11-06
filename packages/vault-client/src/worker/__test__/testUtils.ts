@@ -11,8 +11,11 @@ import { spyOnExports } from '../../../test/moduleMocks'
 import type { ItemId } from '@vault/shared'
 import type { SnapshotTracker } from '../SnapshotTracker'
 import type { ItemSyncTimestamps } from '../stores/LastModifiedStore'
-import type { RealtimeBus } from '../RealtimeBus'
+import type { RealtimeBus, TabVisibility } from '../RealtimeBus'
 import type { VaultMetadata } from '../../shared/types'
+
+/** Snapshot coverage that lets every snapshot be built */
+export const noLogCoverage = { check: () => ({ covered: true as const }) }
 
 /** A real local cipher over a fresh one-key keyring */
 export async function createTestLocalCipher(accountId = 'test-account'): Promise<LocalCipher> {
@@ -290,8 +293,9 @@ export function createMockKeyProvider(
   return {
     hasKey: kver => vault.hasVaultKey(kver),
     waitForKey: (kver, timeoutMs) => vault.waitForKeyVersion(kver, timeoutMs),
-    encryptBytes: (bytes, docId) => vault.encryptBytes(bytes, docId),
-    decryptBytes: (data, docId) => vault.decryptBytes(data, docId),
+    // The purpose is passed only when given, so that specs can expect calls without it
+    encryptBytes: (bytes, docId, purpose) => vault.encryptBytes(bytes, docId, ...(purpose ? [purpose] : [])),
+    decryptBytes: (data, docId, purpose) => vault.decryptBytes(data, docId, ...(purpose ? [purpose] : [])),
   }
 }
 
@@ -327,7 +331,7 @@ type TrpcProcedure = (input: any, options?: { signal?: AbortSignal }) => unknown
  * options. Call it in `beforeEach`.
  */
 export function spyOnVaultTrpc(procedures: {
-  pollSync?: TrpcProcedure
+  pollLog?: TrpcProcedure
   putSnapshots?: TrpcProcedure
   fetchManifest?: TrpcProcedure
   fetchSnapshotsByIds?: TrpcProcedure
@@ -337,7 +341,7 @@ export function spyOnVaultTrpc(procedures: {
   }
   const client = {
     sync: {
-      pollSync: { mutate: procedures.pollSync ?? notMocked('sync.pollSync') },
+      pollLog: { mutate: procedures.pollLog ?? notMocked('sync.pollLog') },
     },
     items: {
       putSnapshots: { mutate: procedures.putSnapshots ?? notMocked('items.putSnapshots') },
@@ -387,12 +391,14 @@ export interface FakeRealtimeBus {
   publishItemDirty: Mock<(itemIds: ItemId[]) => void>
   publishIndexUpdated: Mock<(itemIds: ItemId[]) => void>
   publishMetadataUpdated: Mock<(metadata: VaultMetadata) => void>
+  publishTabVisibility: Mock<(visibility: TabVisibility) => void>
   close: Mock<() => void>
   /** Delivers messages as if another tab had published them */
   receiveSyncPing(itemIds: ItemId[]): void
   receiveItemDirty(itemIds: ItemId[]): void
   receiveIndexUpdated(itemIds: ItemId[]): void
   receiveMetadataUpdated(metadata: VaultMetadata): void
+  receiveTabVisibility(visibility: TabVisibility): void
 }
 
 export function createFakeRealtimeBus(): FakeRealtimeBus {
@@ -400,6 +406,7 @@ export function createFakeRealtimeBus(): FakeRealtimeBus {
   const itemDirty = new Set<(itemIds: ItemId[]) => void>()
   const index = new Set<(itemIds: ItemId[]) => void>()
   const metadata = new Set<(metadata: VaultMetadata) => void>()
+  const tabVisibility = new Set<(visibility: TabVisibility) => void>()
   const subscribe = <T>(listeners: Set<T>) => (listener: T) => {
     listeners.add(listener)
     return () => {
@@ -411,16 +418,19 @@ export function createFakeRealtimeBus(): FakeRealtimeBus {
     publishItemDirty: vi.fn(),
     publishIndexUpdated: vi.fn(),
     publishMetadataUpdated: vi.fn(),
+    publishTabVisibility: vi.fn(),
     close: vi.fn(() => {
       syncPing.clear()
       itemDirty.clear()
       index.clear()
       metadata.clear()
+      tabVisibility.clear()
     }),
     receiveSyncPing: (itemIds: ItemId[]) => syncPing.forEach(listener => listener(itemIds)),
     receiveItemDirty: (itemIds: ItemId[]) => itemDirty.forEach(listener => listener(itemIds)),
     receiveIndexUpdated: (itemIds: ItemId[]) => index.forEach(listener => listener(itemIds)),
     receiveMetadataUpdated: (value: VaultMetadata) => metadata.forEach(listener => listener(value)),
+    receiveTabVisibility: (value: TabVisibility) => tabVisibility.forEach(listener => listener(value)),
   }
   const bus = {
     ...fake,
@@ -428,6 +438,7 @@ export function createFakeRealtimeBus(): FakeRealtimeBus {
     subscribeItemDirty: subscribe(itemDirty),
     subscribeIndexUpdated: subscribe(index),
     subscribeMetadataUpdated: subscribe(metadata),
+    subscribeTabVisibility: subscribe(tabVisibility),
   } as unknown as RealtimeBus
   return { ...fake, bus }
 }

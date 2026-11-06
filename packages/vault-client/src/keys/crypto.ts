@@ -142,19 +142,26 @@ export async function decryptWithKey(key: CryptoKey, payload: CryptoResult): Pro
   return new TextDecoder().decode(plaintext)
 }
 
-function docAssociatedData(docId: string): Uint8Array<ArrayBuffer> {
-  return new TextEncoder().encode(`vault-doc:${docId}`)
+/**
+ * What a doc-bound ciphertext holds: the document itself (snapshots and log rows) or a
+ * snapshot's heads. Each purpose has its own associated data, so one can't stand in for the other.
+ */
+export type DocBindingPurpose = 'doc' | 'heads'
+
+function docAssociatedData(docId: string, purpose: DocBindingPurpose): Uint8Array<ArrayBuffer> {
+  return new TextEncoder().encode(`vault-${purpose}:${docId}`)
 }
 
 /**
- * Encrypts bytes. With a `docId`, the ciphertext is bound to that document and only decrypts when
- * the same `docId` is given.
+ * Encrypts bytes. With a `docId`, the ciphertext is bound to that document (and `purpose`) and only
+ * decrypts when the same ones are given.
  */
 export async function encryptBytesWithKey(
   key: CryptoKey,
   bytes: Uint8Array,
   kver?: string,
   docId?: string,
+  purpose: DocBindingPurpose = 'doc',
 ): Promise<CryptoResult> {
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const normalizedBytes = new Uint8Array(bytes.byteLength)
@@ -162,7 +169,7 @@ export async function encryptBytesWithKey(
   const cipher = await crypto.subtle.encrypt(
     docId === undefined
       ? { name: 'AES-GCM', iv }
-      : { name: 'AES-GCM', iv, additionalData: docAssociatedData(docId) },
+      : { name: 'AES-GCM', iv, additionalData: docAssociatedData(docId, purpose) },
     key,
     normalizedBytes,
   )
@@ -176,20 +183,21 @@ export async function encryptBytesWithKey(
 }
 
 /**
- * Decrypts bytes. A doc-bound ciphertext needs the `docId` it was written for. Unbound ciphertexts
- * written before binding still decrypt.
+ * Decrypts bytes. A doc-bound ciphertext needs the `docId` and `purpose` it was written for. Unbound
+ * ciphertexts written before binding still decrypt.
  */
 export async function decryptBytesWithKey(
   key: CryptoKey,
   payload: CryptoResult,
   docId?: string,
+  purpose: DocBindingPurpose = 'doc',
 ): Promise<Uint8Array> {
   let additionalData: Uint8Array<ArrayBuffer> | undefined
   if (payload.format === DOC_BOUND_FORMAT) {
     if (docId === undefined) {
       throw new Error('A doc-bound ciphertext needs its document ID to decrypt')
     }
-    additionalData = docAssociatedData(docId)
+    additionalData = docAssociatedData(docId, purpose)
   } else if (payload.format !== undefined) {
     throw new Error(`Unsupported ciphertext format ${String(payload.format)}`)
   }

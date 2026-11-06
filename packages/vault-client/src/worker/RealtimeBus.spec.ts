@@ -75,6 +75,25 @@ describe('RealtimeBus', () => {
     expect(metadata.mock.calls).toEqual([[{ prayerGoal: 5 }]])
   })
 
+  it("sends and delivers tabs' visibility on the sync channel", () => {
+    bus = new RealtimeBus('acc-1')
+    const visibility = vi.fn()
+    const ping = vi.fn()
+    bus.subscribeTabVisibility(visibility)
+    bus.subscribeSyncPing(ping)
+    const syncChannel = channelNamed(getSyncPingChannelName('acc-1'))
+
+    bus.publishTabVisibility({ tabId: 'tab-a', visible: true, returned: false })
+    expect(syncChannel.postMessage).toHaveBeenCalledWith({
+      type: 'tab_visibility', tabId: 'tab-a', visible: true, returned: false,
+    })
+
+    syncChannel.receive({ type: 'tab_visibility', tabId: 'tab-b', visible: true, returned: true })
+    syncChannel.receive({ type: 'tab_visibility', visible: true })
+    expect(visibility.mock.calls).toEqual([[{ tabId: 'tab-b', visible: true, returned: true }]])
+    expect(ping).not.toHaveBeenCalled()
+  })
+
   it('ignores malformed messages', () => {
     bus = new RealtimeBus('acc-1')
     const ping = vi.fn()

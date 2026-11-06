@@ -27,6 +27,7 @@ import {
   startMigration,
 } from './migration'
 import { getSyncState, MigrationBridge, subscribeSyncState } from './migrationBridge'
+import { getClientOutdatedWarning, subscribeClientOutdatedWarning } from './clientOutdatedWarning'
 
 const log = createLogger('MigrateApp')
 
@@ -67,6 +68,7 @@ export default function MigrateApp() {
   const reencryptionRunningRef = useRef(false)
   const { score: newPasswordScore, error: newPasswordStrengthError } = usePasswordStrength(newPassword)
   const syncState = useSyncExternalStore(subscribeSyncState, getSyncState)
+  const clientOutdatedWarning = useSyncExternalStore(subscribeClientOutdatedWarning, getClientOutdatedWarning)
   const syncStatusRef = useRef(syncState.status)
   useEffect(() => {
     syncStatusRef.current = syncState.status
@@ -406,6 +408,7 @@ export default function MigrateApp() {
 
             {error && <Alert severity="error">{error}</Alert>}
             {syncState.fatalError && <Alert severity="error">{syncState.fatalError}</Alert>}
+            {clientOutdatedWarning && <Alert severity="warning">{clientOutdatedWarning}</Alert>}
           </Stack>
         </Paper>
       </Box>

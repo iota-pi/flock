@@ -1,4 +1,62 @@
+import * as Automerge from '@automerge/automerge/slim'
+
 export type AutomergeListItem = { id?: string; [key: string]: unknown }
+
+/**
+ * Where an object sits in the Automerge doc being changed, and which keys hold merged text, so those
+ * fields can be edited with `Automerge.updateText`. Absent for plain objects outside a change.
+ */
+export type DocLocation = {
+  root: Automerge.Doc<unknown>
+  path: Automerge.Prop[]
+  mergedTextFields: ReadonlySet<string>
+}
+
+function childLocation(at: DocLocation | undefined, key: Automerge.Prop): DocLocation | undefined {
+  return at && { ...at, path: [...at.path, key] }
+}
+
+function rootLocation(draft: Record<string, unknown>, mergedTextFields: readonly string[]): DocLocation | undefined {
+  return Automerge.isAutomerge(draft)
+    ? { root: draft, path: [], mergedTextFields: new Set(mergedTextFields) }
+    : undefined
+}
+
+/** An object written as an Automerge map, as opposed to a list or a scalar such as a date, bytes or a counter */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return (
+    value != null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    !(value instanceof Date) &&
+    !(value instanceof Uint8Array) &&
+    !Automerge.isCounter(value) &&
+    !Automerge.isImmutableString(value)
+  )
+}
+
+/**
+ * Writes one field, skipping unchanged values. Every write is a new op that beats concurrent edits from
+ * other devices, and assigning a string or object replaces its Text object or map, so a whole-item save
+ * would otherwise undo remote edits to fields it didn't change. Nested objects are updated field by field.
+ * Changed strings in `mergedTextFields` are diffed into the existing Text object. Other strings are replaced
+ * whole so that one concurrent edit wins, because merging characters garbles names and invalidates enums.
+ */
+function setField(obj: Record<string, unknown>, key: string, value: unknown, at: DocLocation | undefined): void {
+  const current = obj[key]
+  if (current === value) return
+  if (value === undefined) {
+    if (key in obj) delete obj[key]
+  } else if (Array.isArray(value) && Array.isArray(current)) {
+    reconcileAutomergeList(current, value, childLocation(at, key))
+  } else if (isPlainObject(value) && isPlainObject(current)) {
+    updateObjectInPlace(current, value, childLocation(at, key))
+  } else if (at?.mergedTextFields.has(key) && typeof value === 'string' && typeof current === 'string') {
+    Automerge.updateText(at.root, [...at.path, key], value)
+  } else {
+    obj[key] = value
+  }
+}
 
 /**
  * Resolves the reconciliation key for a list element.
@@ -19,15 +77,10 @@ export function getElementKey(item: unknown): unknown {
 export function updateObjectInPlace(
   existingObj: Record<string, unknown>,
   targetObj: Record<string, unknown>,
+  at?: DocLocation,
 ): void {
   for (const [key, value] of Object.entries(targetObj)) {
-    if (existingObj[key] !== value) {
-      if (value === undefined) {
-        delete existingObj[key]
-      } else {
-        existingObj[key] = value
-      }
-    }
+    setField(existingObj, key, value, at)
   }
   for (const key of Object.keys(existingObj)) {
     if (!(key in targetObj)) {
@@ -46,6 +99,7 @@ export function updateObjectInPlace(
 export function reconcileAutomergeList<T = unknown>(
   currentList: T[],
   targetArray: T[],
+  at?: DocLocation,
 ): void {
   if (!Array.isArray(currentList) || !Array.isArray(targetArray)) {
     return
@@ -64,7 +118,7 @@ export function reconcileAutomergeList<T = unknown>(
     const curr = currentList[prefix]
     const tgt = targetArray[prefix]
     if (curr != null && typeof curr === 'object' && tgt != null && typeof tgt === 'object') {
-      updateObjectInPlace(curr as Record<string, unknown>, tgt as Record<string, unknown>)
+      updateObjectInPlace(curr as Record<string, unknown>, tgt as Record<string, unknown>, childLocation(at, prefix))
     }
     prefix += 1
   }
@@ -81,7 +135,11 @@ export function reconcileAutomergeList<T = unknown>(
     const curr = currentList[currentSuffix]
     const tgt = targetArray[targetSuffix]
     if (curr != null && typeof curr === 'object' && tgt != null && typeof tgt === 'object') {
-      updateObjectInPlace(curr as Record<string, unknown>, tgt as Record<string, unknown>)
+      updateObjectInPlace(
+        curr as Record<string, unknown>,
+        tgt as Record<string, unknown>,
+        childLocation(at, currentSuffix),
+      )
     }
     currentSuffix -= 1
     targetSuffix -= 1
@@ -107,7 +165,7 @@ export function reconcileAutomergeList<T = unknown>(
         tgt != null &&
         typeof tgt === 'object'
       ) {
-        updateObjectInPlace(curr as Record<string, unknown>, tgt as Record<string, unknown>)
+        updateObjectInPlace(curr as Record<string, unknown>, tgt as Record<string, unknown>, childLocation(at, prefix))
         return
       }
     }
@@ -158,13 +216,17 @@ export function reconcileAutomergeList<T = unknown>(
     }
   }
 
-  // For kept items in the middle, update properties in place on the object proxy
+  // For kept items in the middle, update properties in place on the object proxy (before any splice moves them)
   for (const op of ops) {
     if (op.type === 'keep') {
       const curr = currentMiddle[op.oldIdx]
       const tgt = incomingMiddle[op.newIdx]
       if (curr != null && typeof curr === 'object' && tgt != null && typeof tgt === 'object') {
-        updateObjectInPlace(curr as Record<string, unknown>, tgt as Record<string, unknown>)
+        updateObjectInPlace(
+          curr as Record<string, unknown>,
+          tgt as Record<string, unknown>,
+          childLocation(at, prefix + op.oldIdx),
+        )
       }
     }
   }
@@ -193,27 +255,31 @@ export function reconcileAutomergeList<T = unknown>(
 
 /**
  * Applies updates to an Automerge document draft in place.
- * Ensures array fields are reconciled in place
- * on existing Automerge list proxies rather than replaced with new objects.
+ * Unchanged fields are left alone, lists are reconciled on their existing proxies and changed strings in
+ * `mergedTextFields` are diffed into their Text objects, so concurrent edits to other fields (or other parts
+ * of a merged string) survive. Other changed strings are replaced whole.
  */
 export function applyItemUpdatesToDraft(
   draft: Record<string, unknown>,
   updates: Record<string, unknown>,
+  mergedTextFields: readonly string[] = [],
 ): void {
+  const at = rootLocation(draft, mergedTextFields)
   for (const [key, value] of Object.entries(updates)) {
-    if (value === undefined) {
+    setField(draft, key, value, at)
+  }
+}
+
+/** Makes a draft match a snapshot, dropping the fields it lacks and writing only the ones that differ */
+export function mutateDraftToMatchSnapshot(
+  draft: Record<string, unknown>,
+  snapshot: Record<string, unknown>,
+  mergedTextFields: readonly string[] = [],
+): void {
+  for (const key of Object.keys(draft)) {
+    if (!(key in snapshot) || snapshot[key] === undefined) {
       delete draft[key]
-    } else if (Array.isArray(value)) {
-      if (Array.isArray(draft[key])) {
-        // Reconcile existing Automerge list proxy in place
-        reconcileAutomergeList(draft[key] as unknown[], value)
-      } else {
-        // Initialize list
-        draft[key] = value
-      }
-    } else {
-      // Scalar assignment
-      draft[key] = value
     }
   }
+  applyItemUpdatesToDraft(draft, snapshot, mergedTextFields)
 }

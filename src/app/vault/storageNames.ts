@@ -22,6 +22,7 @@ export const FLOCK_STORAGE_NAMES: VaultStorageNames = {
     walDatabase: 'FlockVault_SyncWAL_',
     sealedWalDatabase: 'FlockVault_SyncWAL_sealed_',
     manualRecoveryDatabase: 'FlockVault_ManualRecoveryDB_',
+    syncLogDatabase: 'flock-sync-log-',
     accountStoreDatabase: 'FlockVault_',
   },
 }

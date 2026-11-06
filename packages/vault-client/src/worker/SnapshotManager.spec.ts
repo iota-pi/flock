@@ -8,7 +8,7 @@ import type { Repo } from '@automerge/automerge-repo/slim'
 import { SyncApiClient } from './SyncApiClient'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 import { setApiAuthToken } from '../keys/runtime'
-import { createMockKeyProvider, createMockVault, spyOnVaultTrpc } from './__test__/testUtils'
+import { createMockKeyProvider, createMockVault, noLogCoverage, spyOnVaultTrpc } from './__test__/testUtils'
 import { spyOnExports } from '../../test/moduleMocks'
 import type { KeyProvider } from '../keys/Keyring'
 import * as manualRecoveryStoreModule from '../shared/manualRecoveryStore'
@@ -46,7 +46,7 @@ function createManager(
   const { isLeader, ...managerOptions } = options
   const { repo, keys, codec = passthroughCodec, ...deps } = context
   const session = new SyncSessionState({ isLeader })
-  const builder = new SnapshotBuilder(repo, keys, codec)
+  const builder = new SnapshotBuilder(repo, keys, codec, noLogCoverage)
   const created = new SnapshotManager({ ...deps, session, lastModifiedStore, builder }, managerOptions)
   sessions.set(created, session)
   return created
@@ -74,12 +74,6 @@ function shutDown(target: SnapshotManager, options?: { clearLocalData?: boolean 
 
 function isLeader(target: SnapshotManager): boolean {
   return sessions.get(target)!.isLeader
-}
-
-function createMockBroker() {
-  return {
-    confirmSnapshot: vi.fn(),
-  } as any
 }
 
 /**
@@ -124,7 +118,8 @@ describe('SnapshotManager', () => {
   let context: {
     accountId: string | null
     repo: any
-    broker: any
+    pushToLog: any
+    onSnapshotStored: any
     eventHub: any
     recoveryManager: RecoveryManager
     apiClient: SyncApiClient
@@ -155,7 +150,8 @@ describe('SnapshotManager', () => {
     context = {
       accountId: 'test-account',
       repo: mockRepo,
-      broker: createMockBroker(),
+      pushToLog: vi.fn().mockResolvedValue(undefined),
+      onSnapshotStored: vi.fn(),
       eventHub: mockEventHub,
       recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: mockEventHub as any }),
       apiClient: new SyncApiClient(),

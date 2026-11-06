@@ -1,4 +1,4 @@
-import type { BatchGetCommand, BatchWriteCommand } from '@aws-sdk/lib-dynamodb'
+import type { BatchGetCommand } from '@aws-sdk/lib-dynamodb'
 import type { ItemId } from '@vault/shared'
 import DynamoDriver from './driver'
 import { BATCH_MAX_RETRIES, sendBatchWithRetry } from './batchRetry'
@@ -128,30 +128,5 @@ describe('DynamoDriver batch operations', () => {
   it('fetchByIds sends nothing for no IDs', async () => {
     expect(await driver.fetchByIds({ account: 'acc1', itemIds: [] })).toEqual([])
     expect(mockSend).not.toHaveBeenCalled()
-  })
-
-  it('pushSyncMessagesBatch resends unprocessed items', async () => {
-    mockSend.mockImplementation(async (command: BatchWriteCommand) => {
-      const [table, requests] = Object.entries(command.input.RequestItems!)[0]
-      if (requests.length === 2) {
-        return { UnprocessedItems: { [table]: [requests[1]] } }
-      }
-      return { UnprocessedItems: {} }
-    })
-
-    const promise = driver.pushSyncMessagesBatch({
-      account: 'acc1',
-      messages: [1, 2].map(cursor => ({
-        itemId: 'item1' as ItemId,
-        entry: { cursor, encryptedMessage: { iv: 'iv', cipher: 'cipher' }, createdAt: 1 },
-        lastModified: 1,
-      })),
-    })
-    await vi.runAllTimersAsync()
-    await promise
-
-    expect(mockSend).toHaveBeenCalledTimes(2)
-    const resent = Object.values(mockSend.mock.calls[1][0].input.RequestItems)[0] as { PutRequest: { Item: { cursor: number } } }[]
-    expect(resent.map(request => request.PutRequest.Item.cursor)).toEqual([2])
   })
 })

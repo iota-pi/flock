@@ -1,27 +1,24 @@
 import { StorageRecoveryService } from './StorageRecoveryService'
 import { ClientEventHub } from './SyncEventHub'
 import type { ItemId } from '@vault/shared'
-import { toDocumentIdFromItemId } from './utils/automerge'
 import * as storageManager from '../utils/storageManager'
 import { SyncSessionState } from './SyncSessionState'
 
 describe('StorageRecoveryService', () => {
   let clientEventHub: ClientEventHub
-  let mockWal: any
+  let mockOutbox: any
   let mockDocStore: any
   let mockSnapshotManager: any
   let mockSnapshotTracker: any
   let mockLastModifiedStore: any
-  let mockBroker: any
-  let mockAdapter: any
   let mockOrchestrator: any
   let session: SyncSessionState
   let service: StorageRecoveryService
 
   beforeEach(() => {
     clientEventHub = new ClientEventHub()
-    mockWal = {
-      handleQuotaExceeded: vi.fn().mockResolvedValue(5),
+    mockOutbox = {
+      markAll: vi.fn().mockResolvedValue(undefined),
     }
     mockDocStore = {
       saveDocToStorage: vi.fn().mockResolvedValue(true),
@@ -37,14 +34,6 @@ describe('StorageRecoveryService', () => {
     mockLastModifiedStore = {
       testStorageAvailable: vi.fn().mockResolvedValue(undefined),
     }
-    mockBroker = {
-      unblockAllItems: vi.fn(),
-      getBlockedItemIds: vi.fn().mockReturnValue([]),
-    }
-    mockAdapter = {
-      resetReNegotiationCircuit: vi.fn(),
-      triggerReNegotiation: vi.fn(),
-    }
     session = new SyncSessionState()
     mockOrchestrator = {
       flush: vi.fn(),
@@ -53,12 +42,10 @@ describe('StorageRecoveryService', () => {
     service = new StorageRecoveryService({
       session,
       clientEventHub,
-      wal: mockWal,
+      outbox: mockOutbox,
       docStore: mockDocStore,
       snapshotManager: mockSnapshotManager,
       lastModifiedStore: mockLastModifiedStore,
-      broker: mockBroker,
-      adapter: mockAdapter,
       orchestrator: mockOrchestrator,
     })
   })
@@ -73,29 +60,12 @@ describe('StorageRecoveryService', () => {
   describe('Quota handling', () => {
     const quotaError = () => new DOMException('Quota exceeded', 'QuotaExceededError')
 
-    it('prunes the WAL once and retries a write that hits the quota, without reporting it', async () => {
-      const emitSpy = vi.spyOn(clientEventHub, 'emit')
-      service.start()
-
-      let attempts = 0
-      const result = await storageManager.runStorageOperation(async () => {
-        attempts += 1
-        if (attempts === 1) throw quotaError()
-        return 'saved'
-      })
-
-      expect(result).toBe('saved')
-      expect(mockWal.handleQuotaExceeded).toHaveBeenCalledTimes(1)
-      expect(emitSpy).not.toHaveBeenCalled()
-    })
-
-    it('emits quotaExceeded without pruning again when the retry also hits the quota', async () => {
+    it('emits quotaExceeded when the retry also hits the quota', async () => {
       const emitSpy = vi.spyOn(clientEventHub, 'emit')
       service.start()
 
       await expect(storageManager.runStorageOperation(async () => { throw quotaError() })).rejects.toThrow()
 
-      expect(mockWal.handleQuotaExceeded).toHaveBeenCalledTimes(1)
       expect(emitSpy).toHaveBeenCalledWith({
         type: 'quotaExceeded',
         message: expect.stringContaining('Storage quota exceeded'),
@@ -109,7 +79,6 @@ describe('StorageRecoveryService', () => {
 
       await expect(storageManager.runStorageOperation(async () => { throw quotaError() })).rejects.toThrow()
 
-      expect(mockWal.handleQuotaExceeded).not.toHaveBeenCalled()
       expect(emitSpy).not.toHaveBeenCalled()
     })
   })
@@ -123,16 +92,10 @@ describe('StorageRecoveryService', () => {
 
       expect(result.success).toBe(true)
       expect(mockLastModifiedStore.testStorageAvailable).toHaveBeenCalled()
-      expect(mockBroker.unblockAllItems).toHaveBeenCalled()
-      expect(mockAdapter.resetReNegotiationCircuit).toHaveBeenCalled()
-
       expect(mockDocStore.saveDocToStorage).toHaveBeenCalledWith('item-1')
       expect(mockDocStore.saveDocToStorage).toHaveBeenCalledWith('item-2')
 
-      const doc1 = toDocumentIdFromItemId('item-1' as ItemId)
-      const doc2 = toDocumentIdFromItemId('item-2' as ItemId)
-      expect(mockAdapter.triggerReNegotiation).toHaveBeenCalledWith(doc1)
-      expect(mockAdapter.triggerReNegotiation).toHaveBeenCalledWith(doc2)
+      expect(mockOutbox.markAll).toHaveBeenCalledWith(['item-1', 'item-2'])
 
       expect(mockSnapshotTracker.saveLastModified).toHaveBeenCalled()
       expect(mockSnapshotManager.flushPendingSnapshots).toHaveBeenCalled()
@@ -140,22 +103,6 @@ describe('StorageRecoveryService', () => {
 
       expect(resetSpy).toHaveBeenCalledTimes(1)
       expect(emitSpy).toHaveBeenCalledWith({ type: 'quotaResolved' })
-    })
-
-    it('includes blocked items from broker in dirtyIds during retrySave', async () => {
-      mockSnapshotTracker.getDirtyItemIds.mockReturnValue(['item-1' as ItemId])
-      mockBroker.getBlockedItemIds.mockReturnValue(['item-blocked' as ItemId])
-
-      const result = await service.retrySave()
-
-      expect(result.success).toBe(true)
-      expect(mockDocStore.saveDocToStorage).toHaveBeenCalledWith('item-1')
-      expect(mockDocStore.saveDocToStorage).toHaveBeenCalledWith('item-blocked')
-
-      const doc1 = toDocumentIdFromItemId('item-1' as ItemId)
-      const docBlocked = toDocumentIdFromItemId('item-blocked' as ItemId)
-      expect(mockAdapter.triggerReNegotiation).toHaveBeenCalledWith(doc1)
-      expect(mockAdapter.triggerReNegotiation).toHaveBeenCalledWith(docBlocked)
     })
 
     it('returns failure when storage probe fails with QuotaExceededError', async () => {

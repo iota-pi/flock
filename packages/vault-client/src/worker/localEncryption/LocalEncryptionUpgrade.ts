@@ -1,10 +1,8 @@
 import type { StorageKey } from '@automerge/automerge-repo/slim'
 import { VaultIndexedDBStorageAdapter } from '../VaultIndexedDBStorageAdapter'
 import { getAutomergeDBName } from '../AutomergeRepoManager'
-import { SyncWriteAheadLog } from '../SyncWriteAheadLog'
 import { IndexStore } from '../stores/IndexStore'
 import { mergeIndexDocuments } from '../docStore/AutomergeIndexManager'
-import { getAccountDatabaseName } from '../../shared/createAccountStore'
 import { databaseExists as defaultDatabaseExists } from '../../utils/databaseExists'
 import { retireLegacyStores as defaultRetireLegacyStores, type RetireLegacyStoresOptions } from './retireLegacyStores'
 import type { LocalCipher } from './LocalCipher'
@@ -32,7 +30,6 @@ export interface LocalEncryptionUpgradeDeps {
  *
  * Every step is idempotent, so a crash at any point resumes at the next start:
  * - Automerge chunks are keyed by content hash, so copying one again writes the same bytes.
- * - WAL entries keep their IDs, and ones already copied are skipped.
  * - The index is merged, never replaced.
  */
 export class LocalEncryptionUpgrade {
@@ -48,17 +45,15 @@ export class LocalEncryptionUpgrade {
   async run(): Promise<{ retired: boolean }> {
     const { accountId, sealed } = this.deps
     const hasAutomerge = await this.databaseExists(getAutomergeDBName(accountId))
-    const hasWal = await this.databaseExists(getAccountDatabaseName('wal-entries', accountId))
     const plaintextIndex = await new IndexStore(accountId).getIndex()
 
     if (hasAutomerge) await this.copyChunks()
-    if (hasWal) await this.copyWal()
     if (plaintextIndex) await this.mergeIndex()
     if ((await sealed.getMeta(UPGRADED_AT_KEY)) === undefined) {
       await sealed.putMeta(UPGRADED_AT_KEY, Date.now())
     }
 
-    if (!hasAutomerge && !hasWal && !plaintextIndex) return { retired: true }
+    if (!hasAutomerge && !plaintextIndex) return { retired: true }
     const retired = await this.retireLegacyStores({ accountId, onRetiring: this.deps.onRetiring })
     return { retired }
   }
@@ -89,16 +84,6 @@ export class LocalEncryptionUpgrade {
     } finally {
       await plaintext.close()
     }
-  }
-
-  /** Copies the plaintext WAL, which may hold changes no snapshot carries yet */
-  private async copyWal(): Promise<void> {
-    const { accountId, cipher } = this.deps
-    // Runs before the session's components exist, so nothing listens for the WAL's callbacks yet
-    const byItem = await new SyncWriteAheadLog(accountId).readAll()
-    const entries = Array.from(byItem.values()).flat()
-    if (entries.length === 0) return
-    await new SyncWriteAheadLog(accountId, { cipher }).importEntries(entries)
   }
 
   /**

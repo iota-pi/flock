@@ -1,17 +1,10 @@
-import { toDocumentIdFromItemId } from './utils/automerge'
 import { isQuotaError } from '../utils/storageQuota'
-import {
-  resetQuotaExceededStatus,
-  registerQuotaRecoveryHandler,
-  registerQuotaReporter,
-} from '../utils/storageManager'
+import { resetQuotaExceededStatus, registerQuotaReporter } from '../utils/storageManager'
 import type { ClientEventHub } from './SyncEventHub'
-import type { SyncWriteAheadLog } from './SyncWriteAheadLog'
+import type { ChangeOutbox } from './ChangeOutbox'
 import type { AutomergeDocStore } from './docStore'
 import type { SnapshotManager } from './SnapshotManager'
 import type { LastModifiedStore } from './stores/LastModifiedStore'
-import type { SyncMessageBroker } from './SyncMessageBroker'
-import type { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import type { SyncOrchestrator } from './SyncOrchestrator'
 import type { RetrySaveResult } from './syncProtocol'
 import { fireAndForget } from '../utils/fireAndForget'
@@ -31,46 +24,34 @@ class QuotaExceededRetryError extends Error {
 export interface StorageRecoveryServiceDeps {
   session: SyncSessionState
   clientEventHub: ClientEventHub
-  wal: SyncWriteAheadLog
+  outbox: Pick<ChangeOutbox, 'markAll'>
   docStore: AutomergeDocStore
   snapshotManager: SnapshotManager
   lastModifiedStore: LastModifiedStore
-  broker: SyncMessageBroker
-  adapter: VaultNetworkAdapter
   orchestrator: SyncOrchestrator
 }
 
 export class StorageRecoveryService {
-  private unregisterQuotaRecovery: (() => void) | null = null
   private unregisterQuotaReporter: (() => void) | null = null
 
   constructor(private readonly deps: StorageRecoveryServiceDeps) {}
 
-  /**
-   * Registers the global storage handlers: a quota error prunes the WAL before its one retry, and a
-   * quota error that persists is reported to the client.
-   */
+  /** Registers the global storage handler that reports a quota error to the client */
   start(): void {
-    this.unregisterQuotaRecovery = registerQuotaRecoveryHandler(async () => {
-      await this.deps.wal.handleQuotaExceeded()
-    })
     this.unregisterQuotaReporter = registerQuotaReporter(message => {
       log.warn('Storage quota exceeded')
       this.deps.clientEventHub.emit({ type: 'quotaExceeded', message })
     })
   }
 
-  /**
-   * Unregisters the global storage handlers.
-   */
+  /** Unregisters the global storage handler */
   stop(): void {
-    this.unregisterQuotaRecovery?.()
     this.unregisterQuotaReporter?.()
   }
 
   /**
-   * Saves what failed to save while storage was full, once it has room again: the dirty and blocked
-   * documents, then the timestamps, and queues their sync messages into the WAL
+   * Saves what failed to save while storage was full, once it has room again: the dirty documents,
+   * then the timestamps. Their pending marks may have failed too, so they're written again.
    */
   async retrySave(): Promise<RetrySaveResult> {
     try {
@@ -78,13 +59,7 @@ export class StorageRecoveryService {
         this.deps.lastModifiedStore.testStorageAvailable(),
         'Storage quota is still exceeded. Please free up more space on your device.',
       )
-      const blockedIds = this.deps.broker.getBlockedItemIds()
-      this.deps.broker.unblockAllItems()
-      this.deps.adapter.resetReNegotiationCircuit()
-
-      const dirtyIds = Array.from(
-        new Set([...this.deps.snapshotManager.tracker.getDirtyItemIds(), ...blockedIds])
-      )
+      const dirtyIds = this.deps.snapshotManager.tracker.getDirtyItemIds()
       for (const itemId of dirtyIds) {
         try {
           await this.deps.docStore.saveDocToStorage(itemId)
@@ -95,9 +70,7 @@ export class StorageRecoveryService {
           log.warn(`Failed to save doc for item ${itemId} during retrySave`, saveErr)
         }
       }
-      for (const itemId of dirtyIds) {
-        this.deps.adapter.triggerReNegotiation(toDocumentIdFromItemId(itemId))
-      }
+      await rethrowQuota(this.deps.outbox.markAll(dirtyIds), 'Storage quota is still exceeded while saving changes.')
 
       await rethrowQuota(
         this.deps.snapshotManager.tracker.saveLastModified(),

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { DOC_BOUND_FORMAT, KdfParamsSchema } from './crypto'
+import { CryptoResultSchema, DOC_BOUND_FORMAT, KdfParamsSchema } from './crypto'
 
 export const VaultKeySchema = z.object({
   account: z.string(),
@@ -52,18 +52,8 @@ export const VaultItemSchema = VaultKeySchema.extend({
   metadata: VaultMetaDataSchema,
   cipher: z.string().optional(),
   snapshot: VaultItemSnapshotSchema.optional(),
+  /** The snapshot's encrypted heads. Written or removed with every write, so they never outlive it. */
+  heads: CryptoResultSchema.optional(),
   ttl: z.number().optional(),
   version: z.number().optional(),
-})
-
-export const StoredSyncMessageSchema = z.object({
-  cursor: z.number(),
-  encryptedMessage: z.object({
-    iv: z.string(),
-    cipher: z.string(),
-    kver: z.string().optional(),
-    format: z.literal(DOC_BOUND_FORMAT).optional(),
-    version: z.string().optional(),
-  }),
-  createdAt: z.number(),
 })

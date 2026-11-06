@@ -8,7 +8,7 @@ import {
   type VaultSnapshotInput,
   type ItemId,
   type ManifestEntry,
-  type SyncPollBatchSchema,
+  type PollLogSchema,
 } from '@vault/shared'
 import { getApiAuthToken } from '../keys/runtime'
 import { assertSuccess } from '../keys/clientUtils'
@@ -20,9 +20,7 @@ import { createLogger } from '../utils/logger'
 
 type VaultOutputs = inferRouterOutputs<VaultRouter>
 
-export type PollSyncBatchResponse = VaultOutputs['sync']['pollSync']
-export type PullSyncMessagesResponse = PollSyncBatchResponse['pullResults'][number]
-export type PushResultItem = PollSyncBatchResponse['pushResults'][number]
+export type PollLogResponse = VaultOutputs['sync']['pollLog']
 export type PutSnapshotsResponse = VaultOutputs['items']['putSnapshots']
 
 const log = createLogger('SyncApiClient')
@@ -83,7 +81,8 @@ export class SyncApiClient {
 
   /**
    * Gets a new session token. If the refresh fails, returns whichever token the realm holds by
-   * then, since one may have arrived in the meantime.
+   * then, since one may have arrived in the meantime. A refresh that couldn't reach the server
+   * rethrows, so callers see an outage rather than an auth failure, which would pause polling.
    */
   private async refreshToken(): Promise<string | null> {
     let refreshed: string | null = null
@@ -91,6 +90,9 @@ export class SyncApiClient {
       try {
         refreshed = await this.refreshAuth()
       } catch (refreshErr) {
+        if (classifySyncError(refreshErr).isNetwork) {
+          throw refreshErr
+        }
         log.warn('Token refresh callback failed:', refreshErr)
       }
     }
@@ -176,10 +178,10 @@ export class SyncApiClient {
     })
   }
 
-  async pollSyncBatch(
-    input: z.infer<typeof SyncPollBatchSchema>,
+  async pollLog(
+    input: z.input<typeof PollLogSchema>,
     options?: { signal?: AbortSignal }
-  ): Promise<PollSyncBatchResponse> {
-    return this.executeWithAuth(() => getUntrackedVaultTrpcClient().sync.pollSync.mutate(input, options))
+  ): Promise<PollLogResponse> {
+    return this.executeWithAuth(() => getUntrackedVaultTrpcClient().sync.pollLog.mutate(input, options))
   }
 }

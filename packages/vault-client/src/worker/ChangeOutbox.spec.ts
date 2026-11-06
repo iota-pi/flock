@@ -1,0 +1,286 @@
+import type { Mock } from 'vitest'
+import { IDBFactory } from 'fake-indexeddb'
+import { MAX_INCREMENTAL_MESSAGE_BYTES, type ItemId } from '@vault/shared'
+import { ChangeOutbox, type ChangeOutboxDeps, type LogExchange } from './ChangeOutbox'
+import { ServerHeads } from './ServerHeads'
+import { SyncLogDatabase } from './stores/SyncLogDatabase'
+import { SyncSessionState } from './SyncSessionState'
+import { SYNC_LOG_STORES } from '../shared/syncLogStorage'
+import { SYNC_BATCH_SIZES, SYNC_TIMEOUTS } from '../shared/syncConfig'
+import type { KeyProvider } from '../keys/Keyring'
+
+type AnyMock = Mock<(...args: any[]) => any>
+
+const ITEM = 'item-1' as ItemId
+
+function bytes(length: number): Uint8Array {
+  return new Uint8Array(length).fill(1)
+}
+
+describe('ChangeOutbox', () => {
+  let db: SyncLogDatabase
+  let session: SyncSessionState
+  let serverHeads: ServerHeads
+  let docStore: { [K in keyof ChangeOutboxDeps['docStore']]: AnyMock }
+  let exchange: Mock<LogExchange>
+  let encryptBytes: AnyMock
+  let requestSnapshot: AnyMock
+  let onMarked: AnyMock
+  let awaitingFirstStart: Set<ItemId>
+  let canPush: boolean
+  let outbox: ChangeOutbox
+
+  /** The server acknowledges every row */
+  const acknowledge: LogExchange = async (push, onResults) => {
+    await onResults(push.map((message, index) => ({ itemId: message.itemId, seq: index + 1 })))
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal('indexedDB', new IDBFactory())
+    db = new SyncLogDatabase('account-1')
+    session = new SyncSessionState({ isLeader: true })
+    serverHeads = new ServerHeads({
+      loadSyncedHeads: async () => [],
+      saveSyncedHeads: async () => {},
+    })
+    docStore = {
+      readChangesSince: vi.fn().mockResolvedValue({ changes: [bytes(10)], heads: ['head-2'] }),
+      hasChangesSince: vi.fn().mockReturnValue(false),
+      hasDataInStorage: vi.fn().mockResolvedValue(true),
+    }
+    exchange = vi.fn(acknowledge)
+    encryptBytes = vi.fn(async (data: Uint8Array) => ({ iv: 'iv', cipher: 'c'.repeat(data.byteLength), kver: '1', format: 2 }))
+    requestSnapshot = vi.fn()
+    onMarked = vi.fn()
+    awaitingFirstStart = new Set()
+    canPush = true
+    outbox = new ChangeOutbox({
+      db,
+      docStore: docStore as unknown as ChangeOutboxDeps['docStore'],
+      keys: { encryptBytes } as unknown as KeyProvider,
+      session,
+      serverHeads,
+      isAwaitingFirstStart: itemId => awaitingFirstStart.has(itemId),
+      canPush: () => canPush,
+      exchange,
+      requestSnapshot,
+      onMarked,
+    })
+  })
+
+  afterEach(async () => {
+    outbox.shutdown()
+    await serverHeads.shutdown({ clearLocalData: true })
+    await db.close()
+  })
+
+  it('marks an item pending and asks for a push', async () => {
+    await outbox.mark(ITEM)
+
+    expect(await outbox.listPending()).toEqual([ITEM])
+    expect(await outbox.isPending(ITEM)).toBe(true)
+    expect(onMarked).toHaveBeenCalledTimes(1)
+  })
+
+  it('pushes changes encrypted with the item ID, then records the heads and clears the mark', async () => {
+    await outbox.mark(ITEM)
+
+    await outbox.pushPending()
+
+    expect(encryptBytes).toHaveBeenCalledWith(expect.any(Uint8Array), ITEM)
+    expect(exchange).toHaveBeenCalledTimes(1)
+    expect(serverHeads.get(ITEM)).toEqual(['head-2'])
+    expect(await outbox.listPending()).toEqual([])
+  })
+
+  it('reads changes after the server heads', async () => {
+    serverHeads.set(ITEM, ['head-1'])
+    await outbox.mark(ITEM)
+
+    await outbox.pushPending()
+
+    expect(docStore.readChangesSince).toHaveBeenCalledWith(ITEM, ['head-1'])
+  })
+
+  it('clears a false mark without a request', async () => {
+    docStore.readChangesSince.mockResolvedValue({ changes: [], heads: ['head-1'] })
+    await outbox.mark(ITEM)
+
+    await outbox.pushPending()
+
+    expect(exchange).not.toHaveBeenCalled()
+    expect(await outbox.listPending()).toEqual([])
+  })
+
+  it('keeps the mark of an edit made while a push was in flight', async () => {
+    await outbox.mark(ITEM)
+    exchange.mockImplementationOnce(async (push, onResults) => {
+      await outbox.mark(ITEM)
+      await acknowledge(push, onResults)
+    })
+
+    await outbox.pushPending()
+
+    expect(await outbox.listPending()).toEqual([ITEM])
+  })
+
+  it('changes nothing locally when a push fails', async () => {
+    await outbox.mark(ITEM)
+    exchange.mockRejectedValueOnce(new Error('offline'))
+
+    await expect(outbox.pushPending()).rejects.toThrow('offline')
+
+    expect(serverHeads.has(ITEM)).toBe(false)
+    expect(await outbox.listPending()).toEqual([ITEM])
+  })
+
+  it('groups changes in order into rows under the limit', async () => {
+    const half = MAX_INCREMENTAL_MESSAGE_BYTES / 2
+    docStore.readChangesSince.mockResolvedValue({
+      changes: [bytes(half), bytes(half), bytes(half)],
+      heads: ['head-2'],
+    })
+    await outbox.mark(ITEM)
+
+    await outbox.pushPending()
+
+    expect(exchange.mock.calls[0][0]).toHaveLength(2)
+    expect(encryptBytes.mock.calls.map(([row]) => row.byteLength)).toEqual([half * 2, half])
+  })
+
+  it('records nothing until every row of a split set is acknowledged, and a retry resends it all', async () => {
+    const rowCount = Math.ceil(SYNC_BATCH_SIZES.logPushChars / MAX_INCREMENTAL_MESSAGE_BYTES) + 2
+    const changes = Array.from({ length: rowCount }, () => bytes(MAX_INCREMENTAL_MESSAGE_BYTES))
+    docStore.readChangesSince.mockResolvedValue({ changes, heads: ['head-2'] })
+    await outbox.mark(ITEM)
+    exchange.mockImplementationOnce(acknowledge).mockRejectedValueOnce(new Error('offline'))
+
+    await expect(outbox.pushPending()).rejects.toThrow('offline')
+
+    expect(serverHeads.has(ITEM)).toBe(false)
+    expect(await outbox.listPending()).toEqual([ITEM])
+
+    await outbox.pushPending()
+
+    expect(serverHeads.get(ITEM)).toEqual(['head-2'])
+    expect(await outbox.listPending()).toEqual([])
+    const sent = exchange.mock.calls.slice(2).flatMap(([push]) => push)
+    expect(sent).toHaveLength(rowCount)
+  })
+
+  it('throws when the server leaves rows unacknowledged', async () => {
+    await outbox.mark(ITEM)
+    exchange.mockImplementationOnce(async (_push, onResults) => onResults([]))
+
+    await expect(outbox.pushPending()).rejects.toThrow("didn't acknowledge")
+
+    expect(await outbox.listPending()).toEqual([ITEM])
+  })
+
+  it('sends a single oversized change by snapshot instead, keeping the mark', async () => {
+    docStore.readChangesSince.mockResolvedValue({ changes: [bytes(MAX_INCREMENTAL_MESSAGE_BYTES + 1)], heads: ['head-2'] })
+    await outbox.mark(ITEM)
+
+    await outbox.pushPending()
+
+    expect(exchange).not.toHaveBeenCalled()
+    expect(requestSnapshot).toHaveBeenCalledWith(ITEM)
+    expect(outbox.isSnapshotOnly(ITEM)).toBe(true)
+    expect(await outbox.listPending()).toEqual([ITEM])
+
+    outbox.confirmSnapshotOnly(ITEM, ['head-2'])
+
+    expect(outbox.isSnapshotOnly(ITEM)).toBe(false)
+    expect(serverHeads.get(ITEM)).toEqual(['head-2'])
+  })
+
+  it('never pushes an item waiting on first start, which would send its whole history', async () => {
+    awaitingFirstStart.add(ITEM)
+    await outbox.mark(ITEM)
+
+    await outbox.pushPending()
+
+    expect(docStore.readChangesSince).not.toHaveBeenCalled()
+    expect(await outbox.listPending()).toEqual([ITEM])
+  })
+
+  it('pushes nothing until first start allows it', async () => {
+    canPush = false
+    await outbox.mark(ITEM)
+
+    await outbox.pushPending()
+
+    expect(docStore.readChangesSince).not.toHaveBeenCalled()
+  })
+
+  it('keeps the mark of a doc that exists but will not load, and clears one with no doc', async () => {
+    docStore.readChangesSince.mockResolvedValue(null)
+    await outbox.mark(ITEM)
+
+    await outbox.pushPending()
+    expect(await outbox.listPending()).toEqual([ITEM])
+
+    docStore.hasDataInStorage.mockResolvedValue(false)
+    await outbox.pushPending()
+    expect(await outbox.listPending()).toEqual([])
+  })
+
+  it('pushes the given items whether or not they are marked', async () => {
+    await outbox.pushItems([ITEM])
+
+    expect(exchange).toHaveBeenCalledTimes(1)
+    expect(serverHeads.get(ITEM)).toEqual(['head-2'])
+  })
+
+  describe('doc changes', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    async function settleCheck() {
+      await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.docChangeCheck)
+      vi.useRealTimers()
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+
+    it('marks an item the leader finds unpushed, such as a follower\'s change arriving late', async () => {
+      docStore.hasChangesSince.mockReturnValue(true)
+
+      outbox.onDocChanged(ITEM)
+      await settleCheck()
+
+      expect(await outbox.listPending()).toEqual([ITEM])
+    })
+
+    it('leaves an item with nothing unpushed', async () => {
+      outbox.onDocChanged(ITEM)
+      await settleCheck()
+
+      expect(await outbox.listPending()).toEqual([])
+    })
+
+    it('does nothing in a follower', async () => {
+      session.setLeader(false)
+      docStore.hasChangesSince.mockReturnValue(true)
+
+      outbox.onDocChanged(ITEM)
+      await settleCheck()
+
+      expect(docStore.hasChangesSince).not.toHaveBeenCalled()
+    })
+
+    it('leaves the mark an item already has, so its tick stays', async () => {
+      await db.put(SYNC_LOG_STORES.outbox, { itemId: ITEM, tick: 5 })
+      docStore.hasChangesSince.mockReturnValue(true)
+
+      outbox.onDocChanged(ITEM)
+      await settleCheck()
+
+      expect(await db.get(SYNC_LOG_STORES.outbox, ITEM)).toEqual({ itemId: ITEM, tick: 5 })
+    })
+  })
+})

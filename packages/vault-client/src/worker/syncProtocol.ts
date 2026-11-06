@@ -1,4 +1,4 @@
-import type { DataVersionStatus, ReencryptResult, VaultDoc, VaultMetadata } from '../shared/types'
+import type { DataVersionStatus, ReencryptResult, UnsyncedChanges, VaultDoc, VaultMetadata } from '../shared/types'
 import type { ManualRecoveryEntry, ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
 import type { BackupSyncState } from '../shared/backupSyncState'
 import type { ItemId } from '@vault/shared'
@@ -43,6 +43,8 @@ export interface SyncApi<TDoc extends VaultDoc = VaultDoc, TMeta extends VaultMe
   flushSync: () => Promise<void>
   fullResync: () => Promise<boolean>
   pushSnapshots: () => Promise<SnapshotPushResult>
+  /** Tries to push pending changes (briefly), then counts what still hasn't reached the server */
+  getUnsyncedChanges: () => Promise<UnsyncedChanges>
   retrySave: () => Promise<RetrySaveResult>
   retryRecoveryItem: (itemId: ItemId) => Promise<void>
   /** Replaces an item whose local copy can't be decrypted with the server's copy */
@@ -54,10 +56,17 @@ export interface SyncApi<TDoc extends VaultDoc = VaultDoc, TMeta extends VaultMe
   listRecoveryItems: (options?: ReadManualRecoveryOptions) => Promise<ManualRecoveryEntry[]>
   updateVaultKey: (vaultKey: string) => Promise<void>
   updateAuthToken: (token: string | null) => Promise<void>
+  failAuthTokenRefresh: () => Promise<void>
   reencryptAllItems: () => Promise<ReencryptResult>
   exportSyncState: () => Promise<BackupSyncState>
   restoreSyncState: (state: Partial<BackupSyncState>) => Promise<void>
   claimLeader: () => Promise<void>
+  /**
+   * Records whether the page is visible, so polling slows while none of the account's tabs is.
+   * `returned` says the user just came back to it (it became visible or got focus), so the leader
+   * polls now if its last poll is stale or polling is backing off.
+   */
+  setVisibility: (visible: boolean, returned?: boolean) => Promise<void>
   /**
    * Reports this device's data level and asks the server to raise the account's, which it does only
    * once the account's data has none of the app's blockers. For an app's migration app.

@@ -172,16 +172,18 @@ function CreateAccountPage() {
           </Typography>
 
           <Typography>
-            Please ensure that you
+            Flock encrypts your data on this device before it syncs, so only you can read it.
+            That also means
             {' '}
-            <b>store your account ID and password</b>
-            {' '}
-            in a secure location.
+            <b>nobody, including us, can reset your password or look up your account ID</b>.
           </Typography>
 
           <Typography>
-            Because your data is client-side encrypted, it will not be possible to recover your data
-            if you forget your account ID or password.
+            Use a password manager to create and save your password.
+            Once you&apos;ve set your password,
+            you&apos;ll get an account ID: save it
+            {' '}
+            <b>in the same entry as the username</b>.
           </Typography>
 
           <form>

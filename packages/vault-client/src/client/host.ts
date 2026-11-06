@@ -1,5 +1,5 @@
 import type { ItemId } from '@vault/shared'
-import type { MigrationRequiredReason, SyncStatus, VaultDoc, VaultMetadata } from '../shared/types'
+import type { MigrationRequiredReason, SyncProgress, SyncStatus, VaultDoc, VaultMetadata } from '../shared/types'
 
 /**
  * Where the main-thread sync client writes the state it receives from the sync worker.
@@ -15,6 +15,11 @@ export interface SyncStateSink<TDoc extends VaultDoc = VaultDoc, TMeta extends V
    * client sets it itself only when no session can report one (starting, stopped or crashed).
    */
   setSyncStatus(status: SyncStatus): void
+  /**
+   * Shows how many items are waiting to sync and when this device last synced. Sent when either
+   * changes while a session runs.
+   */
+  setSyncProgress?(progress: SyncProgress): void
   getSyncWarning(): string | null
   setSyncWarning(message: string): void
   clearSyncWarning(): void

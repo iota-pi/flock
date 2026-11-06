@@ -7,7 +7,7 @@ import {
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { classifySyncError, TRANSIENT_VAULT_ERROR_SUBSTRINGS } from '../utils/errorClassifier'
 import { VaultNotInitializedError } from '../keys/Keyring'
-import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
+import { createMockKeyProvider, createMockVault, noLogCoverage } from './__test__/testUtils'
 import { spyOnExports } from '../../test/moduleMocks'
 import { passthroughCodec, type DocCodec } from './domain'
 import * as docStoreModule from './docStore'
@@ -64,11 +64,22 @@ describe('SnapshotBuilder', () => {
       type: 'topic',
     })
 
-    builder = new SnapshotBuilder(mockRepo, keys, passthroughCodec)
+    builder = new SnapshotBuilder(mockRepo, keys, passthroughCodec, noLogCoverage)
+  })
+
+  it('defers an item whose changes have not reached the log, without saving it', async () => {
+    const coverage = { check: vi.fn().mockReturnValue({ covered: false, reason: 'unpushed' }) }
+    const deferring = new SnapshotBuilder(mockRepo, keys, passthroughCodec, coverage)
+
+
+    const result = await deferring.build('item-1' as ItemId, 42)
+
+    expect(result).toEqual({ type: 'deferred', reason: 'unpushed' })
+    expect(mockSave).not.toHaveBeenCalled()
   })
 
   it('builds a snapshot successfully under normal conditions', async () => {
-    const result = await new SnapshotBuilder(mockRepo, keys, testCodec).build('item-1' as ItemId, 42)
+    const result = await new SnapshotBuilder(mockRepo, keys, testCodec, noLogCoverage).build('item-1' as ItemId, 42)
 
     expect(result).toEqual({
       type: 'success',
@@ -78,6 +89,7 @@ describe('SnapshotBuilder', () => {
         snapshotCursor: 42,
         modified: expect.any(Number),
         deleted: undefined,
+        heads: { iv: 'mock-iv', cipher: 'mock-cipher', kver: '1' },
       },
       heads: ['mock-head'],
     })
@@ -86,6 +98,7 @@ describe('SnapshotBuilder', () => {
     expect(mockRepo.find).toHaveBeenCalledWith('automerge:item-1', { signal: expect.any(AbortSignal) })
     expect(mockSave).toHaveBeenCalledWith({ id: 'item-1', type: 'topic' })
     expect(mockEncryptBytes).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]), 'item-1')
+    expect(mockEncryptBytes).toHaveBeenCalledWith(new TextEncoder().encode('["mock-head"]'), 'item-1', 'heads')
     expect(mockNormalizeItemSnapshot).toHaveBeenCalledWith('item-1', { id: 'item-1', type: 'topic' }, testCodec)
   })
 

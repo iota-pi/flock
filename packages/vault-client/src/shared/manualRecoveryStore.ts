@@ -12,6 +12,7 @@ const MANUAL_RECOVERY_KINDS = [
   'snapshotFailure',
   'pushFailure',
   'localDecryption',
+  'missingChanges',
   'unknown',
 ] as const
 export type ManualRecoveryKind = typeof MANUAL_RECOVERY_KINDS[number]

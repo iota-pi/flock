@@ -1,6 +1,8 @@
 import { SyncWorker, exposeSyncWorker, type SyncWorkerConfig } from './sync.worker'
 import { getVaultStorageNames } from '../shared/storageNames'
 import { getApiAuthToken } from '../keys/runtime'
+import { classifySyncError } from '../utils/errorClassifier'
+import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import type { ItemId } from '@vault/shared'
 import * as keyring from '../keys/Keyring'
 import * as docStoreModule from './docStore'
@@ -86,6 +88,7 @@ beforeEach(() => {
           }),
         },
         repo: { find: mockRepoFind, handles: {} },
+        changeOutbox: { onDocChanged: vi.fn() },
         indexManager: {
           listItemIds: mockIndexManagerListItemIds,
           addItemIds: mockIndexManagerAddItemIds,
@@ -109,11 +112,6 @@ beforeEach(() => {
         orchestrator: {
           flush: mockOrchestratorFlush,
           shutdown: vi.fn().mockResolvedValue(undefined),
-        },
-        pullQueueManager: {
-          onKeyringUpdated: vi.fn(),
-          exportCursors: vi.fn().mockReturnValue([]),
-          importCursors: vi.fn(),
         },
         manifestSyncManager: {
           sync: vi.fn().mockResolvedValue(undefined),
@@ -149,6 +147,8 @@ beforeEach(() => {
       claimLeader = mockContextClaimLeader
       retrySave = mockContextRetrySave
       rewrapDeviceKey = vi.fn().mockResolvedValue(undefined)
+      markRestored = vi.fn().mockResolvedValue(undefined)
+      onKeyringUpdated = vi.fn()
     }
   })
 })
@@ -638,6 +638,33 @@ describe('SyncWorker readiness and queueing before initialization', () => {
 
       expect(token).toBe('new-session-token-xyz')
       expect(getApiAuthToken()).toBe('new-session-token-xyz')
+    })
+
+    it('fails the refresh in flight as a network error when the main thread cannot reach the server', async () => {
+      const worker = new SyncWorker(workerConfig)
+      await worker.initRepo('account-1', 'vault-key-1')
+
+      const first = worker.requestAuthTokenRefresh().catch(err => err)
+      const second = worker.requestAuthTokenRefresh().catch(err => err)
+      await worker.failAuthTokenRefresh()
+
+      expect(classifySyncError(await first)).toMatchObject({ isAuth: false, isNetwork: true })
+      expect(await second).toBe(await first)
+    })
+
+    it('fails a refresh the main thread never answers as a network error, as it does during startup', async () => {
+      const worker = new SyncWorker(workerConfig)
+      await worker.initRepo('account-1', 'vault-key-1')
+
+      vi.useFakeTimers()
+      try {
+        const refresh = worker.requestAuthTokenRefresh().catch(err => err)
+        await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.tokenRefresh)
+
+        expect(classifySyncError(await refresh)).toMatchObject({ isAuth: false, isNetwork: true })
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('shares one main-thread round trip between concurrent refresh requests', async () => {

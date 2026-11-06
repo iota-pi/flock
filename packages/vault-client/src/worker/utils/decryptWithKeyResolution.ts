@@ -1,4 +1,4 @@
-import type { CryptoResult } from '../../keys/crypto'
+import type { CryptoResult, DocBindingPurpose } from '../../keys/crypto'
 import type { KeyProvider } from '../../keys/Keyring'
 import { SYNC_TIMEOUTS } from '../../shared/syncConfig'
 
@@ -15,6 +15,8 @@ export class MissingKeyError extends Error {
 export interface DecryptKeyResolutionOptions {
   /** The document the ciphertext belongs to. Required to decrypt doc-bound ciphertexts. */
   docId?: string
+  /** What the ciphertext holds, when it isn't the document itself */
+  purpose?: DocBindingPurpose
   timeoutMs?: number
   onKeyVersionMissing?: (kver: string) => void
   timedOutKeys?: Set<string>
@@ -48,5 +50,5 @@ export async function decryptWithKeyResolution(
     }
   }
 
-  return await keys.decryptBytes({ ...payload, kver: resolvedKver }, options?.docId)
+  return await keys.decryptBytes({ ...payload, kver: resolvedKver }, options?.docId, options?.purpose)
 }

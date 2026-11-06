@@ -9,11 +9,13 @@ export interface PersistSnapshotsResult {
   persisted: number
   total: number
   results: Array<{ itemId: ItemId; version: number }>
+  /** The log's head, read after the writes */
+  logSeq: number
 }
 
 /**
  * Persists a batch of encrypted item snapshots, each written on its own. Logs any write that fails
- * and reports which ones were persisted.
+ * and reports which ones were persisted, with the log's head once the writes are done.
  */
 export async function persistSnapshots(
   vault: VaultDriver,
@@ -31,6 +33,8 @@ export async function persistSnapshots(
         },
         // Payload-less tombstones intentionally omit the snapshot so the previous one is kept
         ...(snapshot.snapshot ? { snapshot: snapshot.snapshot } : {}),
+        // Without heads, the driver removes any stored ones, which belonged to an older snapshot
+        ...(snapshot.snapshot && snapshot.heads ? { heads: snapshot.heads } : {}),
       }
 
       const setResult = await vault.set(item)
@@ -52,11 +56,13 @@ export async function persistSnapshots(
     return []
   })
   const persisted = persistedResults.length
+  const logSeq = await vault.readLogHead({ account: input.account })
 
   return {
     success: persisted === input.snapshots.length,
     persisted,
     total: input.snapshots.length,
     results: persistedResults,
+    logSeq,
   }
 }

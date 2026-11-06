@@ -4,3 +4,13 @@ import { getVaultStorageNames } from './storageNames'
 export function getSealedAutomergeDBName(accountId: string): string {
   return `${getVaultStorageNames().accountPrefixes.sealedAutomergeDatabase}${accountId}`
 }
+
+/** The IndexedDB database older builds kept an account's plaintext write-ahead log in */
+export function getWalDBName(accountId: string): string {
+  return `${getVaultStorageNames().accountPrefixes.walDatabase}${accountId}`
+}
+
+/** The IndexedDB database older builds kept an account's sealed write-ahead log in */
+export function getSealedWalDBName(accountId: string): string {
+  return `${getVaultStorageNames().accountPrefixes.sealedWalDatabase}${accountId}`
+}

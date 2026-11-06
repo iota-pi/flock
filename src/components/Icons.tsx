@@ -4,7 +4,10 @@ import type { OverridableComponent } from '@mui/material/OverridableComponent'
 import AddIcon from '@mui/icons-material/Add'
 import ArchiveIcon from '@mui/icons-material/Archive'
 import BackIcon from '@mui/icons-material/ChevronLeft'
+import CloudIcon from '@mui/icons-material/Cloud'
+import CloudDoneIcon from '@mui/icons-material/CloudDone'
 import CloudOffIcon from '@mui/icons-material/CloudOff'
+import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import CollapseIcon from '@mui/icons-material/ExpandLess'
 import DeleteIcon from '@mui/icons-material/DeleteOutlineOutlined'
 import DownloadIcon from '@mui/icons-material/Download'
@@ -39,6 +42,7 @@ import VisibilityIcon from '@mui/icons-material/Visibility'
 import WarningIcon from '@mui/icons-material/Warning'
 import TopicIcon from '@mui/icons-material/Lightbulb'
 import SyncIcon from '@mui/icons-material/Sync'
+import SyncProblemIcon from '@mui/icons-material/SyncProblem'
 
 import { FaPrayingHands } from 'react-icons/fa'
 
@@ -55,7 +59,10 @@ export {
   ArchiveIcon,
   BackIcon,
   BackIcon as ContractMenuIcon,
+  CloudDoneIcon,
+  CloudIcon,
   CloudOffIcon,
+  CloudUploadIcon,
   CollapseIcon,
   DeleteIcon,
   DownloadIcon,
@@ -93,6 +100,7 @@ export {
   WarningIcon,
   TopicIcon,
   SyncIcon,
+  SyncProblemIcon,
 }
 
 export function getIconType(itemType: Item['type']): MuiIconType {

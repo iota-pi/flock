@@ -59,6 +59,36 @@ describe('SyncDOMListeners', () => {
     expect(callbacks.onVisibilityHidden).toHaveBeenCalledTimes(2)
   })
 
+  it('reports the page visibility at start, on changes and on focus', () => {
+    const onVisibilityChange = vi.fn<(visible: boolean, returned: boolean) => void>()
+    const visibilitySpy = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+    listeners.start({ ...callbacks, onVisibilityChange })
+    expect(onVisibilityChange.mock.calls).toEqual([[false, false]])
+
+    visibilitySpy.mockReturnValue('visible')
+    document.dispatchEvent(new Event('visibilitychange'))
+    window.dispatchEvent(new Event('focus'))
+    // Leaving the page while it's still visible isn't the user coming back
+    window.dispatchEvent(new Event('pagehide'))
+    expect(onVisibilityChange.mock.calls).toEqual([[false, false], [true, true], [true, true]])
+
+    visibilitySpy.mockReturnValue('hidden')
+    document.dispatchEvent(new Event('visibilitychange'))
+    window.dispatchEvent(new Event('focus'))
+    expect(onVisibilityChange.mock.calls.at(-1)).toEqual([false, false])
+    expect(onVisibilityChange).toHaveBeenCalledTimes(4)
+  })
+
+  it('stops reporting focus once stopped', () => {
+    const onVisibilityChange = vi.fn<(visible: boolean, returned: boolean) => void>()
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    listeners.start({ ...callbacks, onVisibilityChange })
+    listeners.stop()
+
+    window.dispatchEvent(new Event('focus'))
+    expect(onVisibilityChange).toHaveBeenCalledTimes(1)
+  })
+
   it('handles storage events for the keyring cache key', () => {
     listeners.start(callbacks)
 

@@ -3,6 +3,7 @@ import { RecoveryManager } from './RecoveryManager'
 import { ClientEventHub } from './SyncEventHub'
 import { SyncApiClient } from './SyncApiClient'
 import type { ItemId } from '@vault/shared'
+import * as Automerge from '@automerge/automerge/slim'
 
 // Mock dependencies
 const mockListItemIds = vi.fn()
@@ -117,6 +118,10 @@ describe('ManifestSyncManager', () => {
       migrateLegacySettings: migrateLegacySettingsSpy,
       recoveryManager: new RecoveryManager({ accountId: 'acc-123', eventHub: new ClientEventHub() }),
       apiClient: new SyncApiClient(),
+      coverage: {
+        listUnconfirmedPulls: vi.fn().mockResolvedValue(new Map()),
+        confirmPulledChanges: vi.fn().mockResolvedValue(undefined),
+      },
     } as any
 
     manifestSyncManager = new ManifestSyncManager(depsObj as any)
@@ -135,11 +140,68 @@ describe('ManifestSyncManager', () => {
     mockReadManualRecoveryEntries.mockResolvedValue([])
   })
 
+  describe('syncNow', () => {
+    it('runs inside the minimum gap and says it fetched the manifest', async () => {
+      mockListItemIds.mockResolvedValue(['item-1'])
+      mockGetLastManifestSyncTime.mockResolvedValue(Date.now())
+      mockFetchManifest.mockResolvedValue({ manifest: [], serverTime: Date.now() })
+      const onManifestProcessed = vi.fn().mockResolvedValue(undefined)
+      const manager = new ManifestSyncManager({ ...depsObj, onManifestProcessed } as any)
+
+      expect(await manager.syncNow()).toBe(true)
+
+      expect(mockFetchManifest).toHaveBeenCalledTimes(1)
+      expect(onManifestProcessed).toHaveBeenCalledWith([])
+    })
+
+    it('says so when it could not fetch the manifest', async () => {
+      mockListItemIds.mockResolvedValue(['item-1'])
+      mockFetchManifest.mockRejectedValue(new TypeError('Failed to fetch'))
+
+      expect(await manifestSyncManager.syncNow()).toBe(false)
+    })
+
+    it('counts a sync that merged only some items', async () => {
+      mockFetchManifest.mockResolvedValue({
+        manifest: [{ itemId: 'item-1', version: 1, modifiedAt: 1 }],
+        serverTime: Date.now(),
+      })
+      mockFetchSnapshotsByIds.mockRejectedValue(new Error('server error'))
+
+      expect(await manifestSyncManager.syncNow()).toBe(true)
+    })
+
+    it('still counts as run when processing the manifest fails, which the next sync retries', async () => {
+      mockFetchManifest.mockResolvedValue({ manifest: [], serverTime: Date.now() })
+      const onManifestProcessed = vi.fn().mockRejectedValue(new Error('failed'))
+      const manager = new ManifestSyncManager({ ...depsObj, onManifestProcessed } as any)
+
+      expect(await manager.syncNow()).toBe(true)
+    })
+  })
+
+  describe('fetchSnapshots', () => {
+    it('hydrates the given items without the manifest', async () => {
+      mockListItemIds.mockResolvedValue(['item-1'])
+      mockFetchSnapshotsByIds.mockResolvedValue({
+        items: [{ item: 'item-1', version: 3, snapshot: { iv: 'iv-1', cipher: 'cipher-1', kver: '1' } }],
+        serverTime: Date.now(),
+      })
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+      mockHydrateAutomergeDocumentBinary.mockResolvedValue({ hasLocalChanges: false, incomingHeads: ['head'] })
+
+      await manifestSyncManager.fetchSnapshots(['item-1' as ItemId])
+
+      expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-1', new Uint8Array([1, 2, 3]), { knownToExist: true })
+      expect(depsObj.snapshotManager.tracker.importVersions).toHaveBeenCalledWith([['item-1', 3]])
+    })
+  })
+
   describe('gating & lifecycle', () => {
 
-    it('skips sync if known items exist and last sync was within 24 hours', async () => {
+    it('skips sync if known items exist and the last sync was within the minimum gap', async () => {
       mockListItemIds.mockResolvedValue(['item-1'])
-      mockGetLastManifestSyncTime.mockResolvedValue(Date.now() - 3600 * 1000) // 1 hour ago
+      mockGetLastManifestSyncTime.mockResolvedValue(Date.now() - 49 * 60 * 1000)
 
       const result = await manifestSyncManager.sync(false)
 
@@ -147,7 +209,7 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchManifest).not.toHaveBeenCalled()
     })
 
-    it('forces sync when force=true even within 24 hours', async () => {
+    it('forces sync when force=true even within the minimum gap', async () => {
       mockListItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(Date.now() - 3600 * 1000)
       mockFetchManifest.mockResolvedValue({ manifest: [{ itemId: 'item-1', modifiedAt: 100 }], serverTime: Date.now() })
@@ -157,10 +219,9 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchManifest).toHaveBeenCalledWith({ account: 'acc-123' }, { signal: expect.any(AbortSignal) })
     })
 
-    it('forces sync when offline for > 7 days even when force=false', async () => {
+    it('syncs once the minimum gap has passed, so the hourly interval always runs', async () => {
       mockListItemIds.mockResolvedValue(['item-1'])
-      const EIGHT_DAYS_MS = 8 * 24 * 60 * 60 * 1000
-      mockGetLastManifestSyncTime.mockResolvedValue(Date.now() - EIGHT_DAYS_MS)
+      mockGetLastManifestSyncTime.mockResolvedValue(Date.now() - 51 * 60 * 1000)
       mockFetchManifest.mockResolvedValue({ manifest: [{ itemId: 'item-1', modifiedAt: 100 }], serverTime: Date.now() })
 
       await manifestSyncManager.sync(false)
@@ -838,6 +899,91 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
       expect(result).toEqual({ added: [], success: true })
       expect(depsObj.snapshotManager.tracker.markItemDirty).toHaveBeenCalledWith('item-1', 2000)
+    })
+  })
+
+  describe('snapshots the device already has', () => {
+    const localDoc = Automerge.change(Automerge.init<{ name?: string }>(), d => { d.name = 'local' })
+    // The mock key provider decrypts a payload to its `cipher`
+    const headsPayload = (heads: string[]) => ({
+      iv: 'iv',
+      cipher: new TextEncoder().encode(JSON.stringify(heads)),
+      kver: '1',
+    }) as any
+    let onSnapshotCovered: ReturnType<typeof vi.fn>
+
+    beforeEach(() => {
+      onSnapshotCovered = vi.fn()
+      depsObj.docStore.findHandle = vi.fn().mockResolvedValue({ isReady: () => true, doc: () => localDoc })
+      manifestSyncManager = new ManifestSyncManager({ ...depsObj, onSnapshotCovered } as any)
+      mockListItemIds.mockResolvedValue(['item-1'])
+      depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([['item-1', 100]])
+      mockFetchSnapshotsByIds.mockResolvedValue({ items: [], serverTime: Date.now() })
+    })
+
+    it('raises the base version instead of fetching when the local doc has the snapshot heads', async () => {
+      const heads = Automerge.getHeads(localDoc)
+      mockFetchManifest.mockResolvedValue({
+        manifest: [{ itemId: 'item-1', version: 3, modifiedAt: 100, heads: headsPayload(heads) }],
+        serverTime: Date.now(),
+      })
+
+      const result = await manifestSyncManager.sync()
+
+      expect(result).toEqual({ added: [], success: true })
+      expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
+      expect(mockDecryptBytes).toHaveBeenCalledWith(expect.anything(), 'item-1', 'heads')
+      expect(depsObj.snapshotManager.tracker.importVersions).toHaveBeenCalledWith([['item-1', 3]])
+      expect(onSnapshotCovered).toHaveBeenCalledWith('item-1', heads)
+    })
+
+    it('fetches the snapshot when the local doc lacks its heads', async () => {
+      const remoteDoc = Automerge.change(Automerge.clone(localDoc), d => { d.name = 'remote' })
+      mockFetchManifest.mockResolvedValue({
+        manifest: [{ itemId: 'item-1', version: 3, modifiedAt: 100, heads: headsPayload(Automerge.getHeads(remoteDoc)) }],
+        serverTime: Date.now(),
+      })
+
+      await manifestSyncManager.sync()
+
+      expect(mockFetchSnapshotsByIds).toHaveBeenCalled()
+      expect(onSnapshotCovered).not.toHaveBeenCalled()
+    })
+
+    it('fetches the snapshot when its heads fail to decrypt', async () => {
+      mockFetchManifest.mockResolvedValue({
+        manifest: [{ itemId: 'item-1', version: 3, modifiedAt: 100, heads: { iv: 'iv', cipher: 'corrupt-cipher', kver: '1' } }],
+        serverTime: Date.now(),
+      })
+
+      await manifestSyncManager.sync()
+
+      expect(mockFetchSnapshotsByIds).toHaveBeenCalled()
+    })
+
+    it('fetches the snapshot on a forced sync', async () => {
+      mockFetchManifest.mockResolvedValue({
+        manifest: [{ itemId: 'item-1', version: 3, modifiedAt: 100, heads: headsPayload(Automerge.getHeads(localDoc)) }],
+        serverTime: Date.now(),
+      })
+
+      await manifestSyncManager.sync(true)
+
+      expect(depsObj.docStore.findHandle).not.toHaveBeenCalled()
+      expect(mockFetchSnapshotsByIds).toHaveBeenCalled()
+    })
+
+    it('still pushes a dirty item whose snapshot it already has', async () => {
+      depsObj.snapshotManager.tracker.exportItemVersions.mockReturnValue(new Map([['item-1', { baseVersion: 1, isDirty: true }]]))
+      mockFetchManifest.mockResolvedValue({
+        manifest: [{ itemId: 'item-1', version: 3, modifiedAt: 100, heads: headsPayload(Automerge.getHeads(localDoc)) }],
+        serverTime: Date.now(),
+      })
+
+      await manifestSyncManager.sync()
+
+      expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
+      expect(depsObj.snapshotManager.tracker.markItemDirty).toHaveBeenCalledWith('item-1', expect.any(Number))
     })
   })
 

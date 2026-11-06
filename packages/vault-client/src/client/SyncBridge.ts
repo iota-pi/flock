@@ -117,6 +117,9 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
           onVisibilityHidden: () => {
             this.withSyncApi(api => fireAndForget(api.pushSnapshots(), 'SyncBridge:pushSnapshots'))
           },
+          onVisibilityChange: (visible, returned) => {
+            this.withSyncApi(api => fireAndForget(api.setVisibility(visible, returned), 'SyncBridge:setVisibility'))
+          },
           onKeyringChange: () => {
             fireAndForget(this.handleKeyringUpdate(), 'SyncBridge:handleKeyringUpdate')
           },
@@ -260,9 +263,16 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
   }
 
   private handleTokenRefresh = async () => {
+    const hadSession = Boolean(getVaultSession())
+    let restored = false
     try {
-      await handleSessionExpired()
-      await this.sendAuthToken(getVaultSession() || null)
+      if (await handleSessionExpired() === 'unreachable') {
+        await this.withSyncApi(api => api.failAuthTokenRefresh())
+        return
+      }
+      const token = getVaultSession() || null
+      await this.sendAuthToken(token)
+      restored = Boolean(token) && !hadSession
     } catch (err) {
       log.error('Failed to handle token refresh:', err)
       try {
@@ -271,6 +281,10 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
       } catch {
         // Ignore
       }
+    }
+    // Any request can bring a lost session back, and polling may be paused for it
+    if (restored) {
+      await this.handleReconnect()
     }
   }
 
@@ -326,6 +340,7 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
   readonly flushSync = this.forward('flushSync')
   readonly fullResync = this.forward('fullResync')
   readonly pushSnapshots = this.forward('pushSnapshots')
+  readonly getUnsyncedChanges = this.forward('getUnsyncedChanges')
   readonly retrySave = this.forward('retrySave')
   readonly checkDataVersion = this.forward('checkDataVersion')
   readonly retryRecoveryItem = this.forward('retryRecoveryItem')

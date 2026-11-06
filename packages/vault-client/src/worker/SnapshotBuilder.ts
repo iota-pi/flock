@@ -9,12 +9,16 @@ import type { DocCodec } from './domain'
 import { classifySyncError } from '../utils/errorClassifier'
 import { createLogger } from '../utils/logger'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
+import { encryptSnapshotHeads } from './snapshotHeads'
+import type { SnapshotCoverage } from './SnapshotCoverage'
 
 const log = createLogger('SnapshotBuilder')
 
 export type BuildSnapshotResult =
   | { type: 'success'; snapshot: VaultSnapshotInput; heads?: string[] }
   | { type: 'not-ready' }
+  /** The item can't have a snapshot yet: its changes must reach the log first, or its server heads be known */
+  | { type: 'deferred'; reason: 'unpushed' | 'awaitingHeads' }
   | { type: 'error'; reason?: string }
 
 export interface PreparedSnapshotItem {
@@ -33,7 +37,8 @@ export function estimateSnapshotSize(snapshot: VaultSnapshotInput): number {
   const cipherBytes = snapshot.snapshot?.cipher?.length ?? 0
   const ivBytes = snapshot.snapshot?.iv?.length ?? 0
   const idBytes = snapshot.itemId?.length ?? 0
-  return cipherBytes + ivBytes + idBytes + BASE_OVERHEAD_BYTES
+  const headsBytes = (snapshot.heads?.cipher.length ?? 0) + (snapshot.heads?.iv.length ?? 0)
+  return cipherBytes + ivBytes + idBytes + headsBytes + BASE_OVERHEAD_BYTES
 }
 
 /**
@@ -59,6 +64,7 @@ export class SnapshotBuilder {
     private readonly repo: Repo,
     private readonly keys: KeyProvider,
     private readonly codec: DocCodec,
+    private readonly coverage: Pick<SnapshotCoverage, 'check'>,
   ) {}
 
   /** Reports failures as results; only an abort of `signal` throws */
@@ -106,6 +112,12 @@ export class SnapshotBuilder {
       return { type: 'error', reason: 'Document data not available' }
     }
 
+    // In the same synchronous section as the save, so the snapshot holds exactly what was checked
+    const coverage = this.coverage.check(itemId, doc)
+    if (!coverage.covered) {
+      return { type: 'deferred', reason: coverage.reason }
+    }
+
     const snapshotTimestamp = Date.now()
     const heads = Automerge.getHeads(doc)
     const binary = Automerge.save(doc)
@@ -114,6 +126,7 @@ export class SnapshotBuilder {
     }
 
     const encryptedDoc = await this.keys.encryptBytes(binary, itemId)
+    const encryptedHeads = heads.length > 0 ? await encryptSnapshotHeads(this.keys, itemId, heads) : undefined
 
     const itemSnapshot = normalizeItemSnapshot(itemId, doc as Record<string, unknown>, this.codec)
     if (!itemSnapshot) {
@@ -128,6 +141,7 @@ export class SnapshotBuilder {
         snapshotCursor,
         modified: snapshotTimestamp,
         deleted: !!itemSnapshot.deleted || undefined,
+        ...(encryptedHeads ? { heads: encryptedHeads } : {}),
       },
       heads,
     }

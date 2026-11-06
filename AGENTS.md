@@ -34,7 +34,7 @@ The vault (sync engine, client crypto and server) is a reusable library in three
 
 - `packages/vault-client/src/worker/` contains the sync engine, which runs in a Web Worker. `sync.worker.ts` is the Comlink API surface (started with `exposeSyncWorker`) and `SyncWorkerContext.ts` wires the components together.
 - `packages/vault-client/src/client/` is the main-thread side: `SyncBridge`, worker lifecycle and health/restart.
-- `packages/vault-client/src/worker/docStore/` handles Automerge doc find/create/change/hydrate plus the account item index.
+- `packages/vault-client/src/worker/docStore/` handles Automerge doc find/create/change/hydrate, applying log changes, plus the account item index.
 - `packages/vault-client/src/utils/` holds the general helpers (`logger`, `errorMessage`, `abort`) and the concurrency primitives (`SingleFlightGuard`, `AsyncMutex`, `AsyncQueue`, `RetryStrategy`, bounded collections). Use them; don't hand-roll new ones. The logger is private to the library: Flock's client code (including the migration app) logs through `createLogger` from `src/utils/logger.ts`.
 - `packages/vault-client/src/shared/storageNames.ts` names every IndexedDB database, BroadcastChannel, Web Lock and localStorage key. Flock's names (`src/app/vault/storageNames.ts`, pinned by its spec) must never change. Library specs use `createVaultStorageNames('test')`.
 - `packages/vault-client/src/keys/` holds accounts and keys: client crypto, the keyring (`Keyring`, which the worker receives as a `KeyProvider`), KDF, sessions, biometrics, and the account and tRPC calls they make.
@@ -44,31 +44,28 @@ The vault (sync engine, client crypto and server) is a reusable library in three
 - `src/migrate/` is the migration app, a second page served at `/migrate/`. It holds the compatibility code for legacy formats (`legacy/`) and runs it for devices and accounts below `MIN_DATA_VERSION`, which the main app sends there. The main app may only import `src/migrate/detection.ts`, and lint enforces this. See "Backwards compatibility" in the extraction doc.
 - `src/state/` is the Zustand store (composed slices).
 - `packages/vault-server/src/` is the vault's server code: tRPC routers (`accounts`, `items`, `sync`), services and the DynamoDB driver. `src/vault/` is Flock's server: `flockAccounts.ts` (reminders and push subscriptions), `migration.ts` (the migration app's legacy procedures), `root.ts`, `flockDriver.ts`, `flockDataVersion.ts` (what counts as migrated), the notifier and migrations are Flock's.
-- DynamoDB has three tables. `FlockAccounts` is keyed by `account`. `FlockItems` is keyed by `account` + `item`. `FlockSyncMessages` is keyed by `syncId` + `cursor` and has a 90-day TTL.
+- DynamoDB has three tables. `FlockAccounts` is keyed by `account`. `FlockItems` is keyed by `account` + `item`. `FlockSyncLog` is keyed by `account` + `seq` and has a 30-day TTL. `FlockSyncMessages` is the table it replaced, which nothing reads now and which can go once its rows have expired.
 
 ## Sync: rules that must hold
 
 Read [docs/sync-design.md](docs/sync-design.md) before changing or reviewing anything in `packages/vault-client/src/{worker,client,shared,utils}/` or `packages/vault-server/src/services/`. It explains why each rule below exists.
 
-1. **The local Automerge doc in IndexedDB is the source of truth.** The WAL (incremental messages) and snapshots (full binaries) only deliver it. The server is a blind relay and never merges.
+1. **The local Automerge doc in IndexedDB is the source of truth.** The log (incremental changes) and snapshots (full binaries) only deliver it. The server is a blind relay and never merges.
 2. **Never reuse an item ID or recreate a doc under an existing ID.** Deletes are terminal soft-deletes (tombstones). Oversized items (>350 KB) are handled by `recreateOversizedItem` with a new ID, never by in-place compaction. Keep the `hasDataInStorage` guard in `findOrCreateHandle`. The one exception is the account settings document, whose fixed ID devices may create concurrently; it is never deleted or recreated.
 3. **Never hard-delete server items.** Manifest sync would treat a missing item as an offline creation and re-upload it.
-4. **`SyncPoller.executePoll` must return `'failure'` if anything threw.** Reporting `'success'` resets backoff and can cause a 0ms re-poll loop.
+4. **`SyncPoller.executePoll` must return `'failure'` if anything threw.** Reporting `'success'` resets backoff and can cause a 0ms re-poll loop. Waiting on a gap is never an immediate pull.
 5. **Shut down the Repo before clearing IndexedDB.** Don't run `clearSyncMetadataStorage` concurrently with per-store `.clear()` calls.
 6. **DocHandle listeners must use the same function reference** for `.on()` and `.off()`.
 7. **`ClientEventHub.emit` doesn't await listeners.** Async listeners must synchronize themselves.
 8. **Snapshot reconciliation compares server-assigned `version` with the local `baseVersion`**, not timestamps.
-9. **Encrypt and decrypt snapshots and sync messages with the ID of the item they belong to** (`encryptBytes(bytes, itemId)`, `decryptWithKeyResolution(payload, { docId })`). Every server path must keep the ciphertext's `format` field.
+9. **Encrypt and decrypt snapshots and log rows with the ID of the item they belong to** (`encryptBytes(bytes, itemId)`, `decryptWithKeyResolution(payload, { docId })`), and snapshot heads with purpose `heads` as well. Every server path must keep the ciphertext's `format` field, and every item write must set or remove `heads`.
 10. **Never write user content to local storage unsealed.** Seal and open outside IndexedDB transactions (awaiting WebCrypto inside one throws `TransactionInactiveError`). A record that fails to decrypt throws; it's never treated as missing, and local data is never reset without the user confirming (docs/local-encryption.md).
 
 ## Intentional designs (don't "fix" or flag these)
 
 - Snapshot uploads are unconditional last-write-wins (LWW) with no OCC. Hydration is a CRDT merge, so stale snapshots are harmless.
-- Pull queries are strictly `cursor > from` with no lookback window. A lookback previously caused infinite re-downloads.
-- Per-item pulls are filtered out of the global pull result.
-- WAL pruning can drop unpushed entries, because snapshots carry the full state.
+- Pull queries are strictly `seq > after` with no lookback window. A lookback previously caused infinite re-downloads.
 - The cross-tab adapter waits inline for a missing key version, buffering after 5s.
-- Random cursor offsets can collide, but only within the same item and the same second.
 - Password change invalidates all other sessions.
 - Oversized deleted items upload a payload-less tombstone snapshot.
 - Lambda runs in UTC. The client converts with `date-fns-tz`.

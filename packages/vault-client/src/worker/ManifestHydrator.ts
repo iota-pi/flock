@@ -75,6 +75,8 @@ export interface ManifestHydratorDeps {
   /** `serverVersion` is the manifest version of the snapshot that failed, when known */
   onDecryptionFailure?: (itemId: ItemId, error: unknown, serverVersion?: number) => void
   onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void
+  /** Called with an item whose doc has changes the snapshot merged into it lacks */
+  onLocalChangesFound?: (itemId: ItemId) => void
   onKeyVersionMissing?: (kver: string) => void
   isShutdown: () => boolean
   hydrationConcurrency?: number
@@ -347,6 +349,7 @@ export class ManifestHydrator {
 
     if (hydrationResult?.hasLocalChanges) {
       this.deps.snapshotTracker.markItemDirty(itemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
+      this.deps.onLocalChangesFound?.(itemId)
     }
 
     return {

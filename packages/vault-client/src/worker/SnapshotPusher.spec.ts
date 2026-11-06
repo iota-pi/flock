@@ -9,7 +9,7 @@ import { RecoveryManager } from './RecoveryManager'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 import { getApiAuthToken, setApiAuthToken } from '../keys/runtime'
 import { fireAndForget } from '../utils/fireAndForget'
-import { createMockKeyProvider, createMockVault, getTimestamps, spyOnVaultTrpc } from './__test__/testUtils'
+import { createMockKeyProvider, createMockVault, getTimestamps, noLogCoverage, spyOnVaultTrpc } from './__test__/testUtils'
 import { spyOnExports } from '../../test/moduleMocks'
 import { passthroughCodec } from './domain'
 import * as manualRecoveryStoreModule from '../shared/manualRecoveryStore'
@@ -24,7 +24,8 @@ describe('SnapshotPusher', () => {
   let pusher: SnapshotPusher
   let mockTracker: any
   let mockBuilder: any
-  let mockBroker: any
+  let mockPushToLog: any
+  let mockOnSnapshotStored: any
   let mockApiClient: any
   let mockRecoveryManager: any
   let mockEventHub: any
@@ -42,6 +43,7 @@ describe('SnapshotPusher', () => {
       clearOversized: vi.fn(),
       removeDirtyItemIfTickMatches: vi.fn(),
       clearDebounceTimers: vi.fn(),
+      getBaseVersion: vi.fn().mockReturnValue(1),
     }
 
     mockBuilder = {
@@ -57,9 +59,8 @@ describe('SnapshotPusher', () => {
       }),
     }
 
-    mockBroker = {
-      confirmSnapshot: vi.fn(),
-    }
+    mockPushToLog = vi.fn().mockResolvedValue(undefined)
+    mockOnSnapshotStored = vi.fn()
 
     mockApiClient = {
       putSnapshots: vi.fn().mockResolvedValue({
@@ -83,7 +84,8 @@ describe('SnapshotPusher', () => {
       session: new SyncSessionState({ isLeader: true }),
       tracker: mockTracker as unknown as SnapshotTracker,
       builder: mockBuilder as unknown as SnapshotBuilder,
-      broker: mockBroker,
+      pushToLog: mockPushToLog,
+      onSnapshotStored: mockOnSnapshotStored,
       apiClient: mockApiClient,
       recoveryManager: mockRecoveryManager,
       eventHub: mockEventHub,
@@ -106,13 +108,78 @@ describe('SnapshotPusher', () => {
     heads: ['head-1'],
   })
 
-  it('pushes snapshots successfully and notifies tracker and broker', async () => {
+  it('pushes dirty items to the log before it builds their snapshots', async () => {
+    const order: string[] = []
+    mockPushToLog.mockImplementation(async () => { order.push('log') })
+    const built = await mockBuilder.build()
+    mockBuilder.build.mockImplementation(async () => {
+      order.push('build')
+      return built
+    })
+
+    await pusher.triggerSnapshotPush()
+
+    expect(mockPushToLog).toHaveBeenCalledWith(['item-1'], expect.any(AbortSignal))
+    expect(order).toEqual(['log', 'build'])
+  })
+
+  it('pushes again and rebuilds an item that changed after the first push', async () => {
+    const built = await mockBuilder.build()
+    mockBuilder.build.mockReset()
+    mockBuilder.build.mockResolvedValueOnce({ type: 'deferred', reason: 'unpushed' }).mockResolvedValueOnce(built)
+
+    await pusher.triggerSnapshotPush()
+
+    expect(mockPushToLog).toHaveBeenCalledTimes(2)
+    expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries an item still deferred after the push, counting no failure', async () => {
+    mockBuilder.build.mockResolvedValue({ type: 'deferred', reason: 'unpushed' })
+
+    await pusher.triggerSnapshotPush()
+
+    expect(mockApiClient.putSnapshots).not.toHaveBeenCalled()
+    expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
+    expect(pusher.isRetryActive).toBe(true)
+    pusher.cancelRetry()
+  })
+
+  it('skips an item waiting for its server heads, without retrying', async () => {
+    mockBuilder.build.mockResolvedValue({ type: 'deferred', reason: 'awaitingHeads' })
+
+    await pusher.triggerSnapshotPush()
+
+    expect(mockApiClient.putSnapshots).not.toHaveBeenCalled()
+    expect(pusher.isRetryActive).toBe(false)
+  })
+
+  it('reports the version the snapshot jumped from, and the log head, for rechecking', async () => {
+    mockApiClient.putSnapshots.mockResolvedValue({
+      success: true,
+      persisted: 1,
+      results: [{ itemId: 'item-1', version: 5 }],
+      logSeq: 42,
+    })
+
+    await pusher.triggerSnapshotPush()
+
+    expect(mockOnSnapshotStored).toHaveBeenCalledWith({
+      itemId: 'item-1',
+      version: 5,
+      baseVersion: 1,
+      heads: ['head-1'],
+      logSeq: 42,
+    })
+  })
+
+  it('pushes snapshots successfully and reports each stored snapshot', async () => {
     const result = await pusher.triggerSnapshotPush()
 
     expect(result).toEqual({ persisted: 1, total: 1 })
     expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
     expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1000, 1, 2)
-    expect(mockBroker.confirmSnapshot).toHaveBeenCalledWith('item-1', ['head-1'])
+    expect(mockOnSnapshotStored).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'item-1', heads: ['head-1'] }))
     expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith('item-1')
   })
 
@@ -180,7 +247,7 @@ describe('SnapshotPusher', () => {
       expect(mockEventHub.emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'quotaExceeded' }))
       expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1000, 1, 2)
       expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith('item-1')
-      expect(mockBroker.confirmSnapshot).toHaveBeenCalledWith('item-1', undefined)
+      expect(mockOnSnapshotStored).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'item-1', heads: undefined }))
       expect(mockTracker.clearOversized).toHaveBeenCalledWith('item-1')
     })
 
@@ -212,9 +279,9 @@ describe('SnapshotPusher', () => {
       expect(mockApiClient.putSnapshots.mock.calls[0][0].snapshots).toHaveLength(2)
       expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1000, 1, 3)
       expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-2', 2000, 1, 4)
-      expect(mockBroker.confirmSnapshot).toHaveBeenCalledTimes(2)
-      expect(mockBroker.confirmSnapshot).toHaveBeenCalledWith('item-1', undefined)
-      expect(mockBroker.confirmSnapshot).toHaveBeenCalledWith('item-2', ['head-2'])
+      expect(mockOnSnapshotStored).toHaveBeenCalledTimes(2)
+      expect(mockOnSnapshotStored).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'item-1', heads: undefined }))
+      expect(mockOnSnapshotStored).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'item-2', heads: ['head-2'] }))
     })
   })
 
@@ -328,8 +395,9 @@ describe('SnapshotPusher', () => {
         accountId: 'test-acc',
         session: new SyncSessionState({ isLeader: true }),
         tracker: mockTracker as unknown as SnapshotTracker,
-        builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec),
-        broker: mockBroker,
+        builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec, noLogCoverage),
+        pushToLog: mockPushToLog,
+        onSnapshotStored: mockOnSnapshotStored,
         apiClient: mockApiClient,
         recoveryManager: mockRecoveryManager,
         eventHub: mockEventHub,
@@ -456,8 +524,9 @@ describe('SnapshotPusher', () => {
         accountId: 'test-account',
         session,
         tracker,
-        builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec),
-        broker: mockBroker,
+        builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec, noLogCoverage),
+        pushToLog: mockPushToLog,
+        onSnapshotStored: mockOnSnapshotStored,
         recoveryManager: mockRecoveryManager,
         apiClient: new SyncApiClient(),
         eventHub: mockEventHub,

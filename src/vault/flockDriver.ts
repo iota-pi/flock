@@ -5,7 +5,7 @@ import type { FlockAccountFields } from './types'
 export const FLOCK_TABLES = resolveVaultTableNames({}, {
   accounts: 'FlockAccounts',
   items: 'FlockItems',
-  syncMessages: 'FlockSyncMessages',
+  syncLog: 'FlockSyncLog',
 })
 
 const FLOCK_ACCOUNT_DEFAULTS: FlockAccountFields & { dataVersion: number } = {

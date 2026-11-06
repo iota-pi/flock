@@ -2,7 +2,7 @@ import { SyncedHeadsStore } from './SyncedHeadsStore'
 import {
   SYNC_METADATA_KEYS,
 } from './syncMetadataStorage'
-import type { DocumentId } from '@automerge/automerge-repo/slim'
+import type { ItemId } from '@vault/shared'
 
 import { createMockLocalForagePool, mockLocalForage } from '../__test__/testUtils'
 import { clearAccountStoreInstancesCacheForTesting } from '../../shared/createAccountStore'
@@ -23,9 +23,9 @@ describe('SyncedHeadsStore', () => {
   })
 
   it('saves and loads synced heads correctly using consolidated key', async () => {
-    const input: [DocumentId, string[]][] = [
-      ['doc-1' as DocumentId, ['head-1a', 'head-1b']],
-      ['doc-2' as DocumentId, ['head-2a']],
+    const input: [ItemId, string[]][] = [
+      ['doc-1' as ItemId, ['head-1a', 'head-1b']],
+      ['doc-2' as ItemId, ['head-2a']],
     ]
 
     await store.saveSyncedHeads(input)
@@ -49,7 +49,7 @@ describe('SyncedHeadsStore', () => {
     const consolidatedStore = instances.get(`test-vault-sync-metadata-${accountId}#sync-metadata`)
     await consolidatedStore?.setItem(SYNC_METADATA_KEYS.CURSORS, [['item-1', 10]])
 
-    await store.saveSyncedHeads([['doc-1' as DocumentId, ['head-1']]])
+    await store.saveSyncedHeads([['doc-1' as ItemId, ['head-1']]])
     await store.clear()
 
     const loaded = await store.loadSyncedHeads()

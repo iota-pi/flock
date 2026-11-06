@@ -1,10 +1,12 @@
 import type { StateCreator } from 'zustand'
 import type { AppStore } from '../store'
-import type { SyncStatus } from '@vault/client'
+import type { SyncProgress, SyncStatus } from '@vault/client'
 
 
 interface SyncState {
   syncStatus: SyncStatus
+  /** How many items are waiting to sync and when this device last synced, once the worker has said */
+  syncProgress: SyncProgress | null
   fatalError: string | null
   syncWarning: string | null
   generation: number
@@ -12,10 +14,13 @@ interface SyncState {
   isLeaderConflict: boolean
   /** Set when this device's local data can't be opened (see LocalDataUnavailableDialog) */
   localDataUnavailable: { unpushedChanges: number } | null
+  /** Whether the browser agreed to keep this site's storage from eviction; null until it has said */
+  isStoragePersisted: boolean | null
 }
 
 export interface SyncSlice extends SyncState {
   setSyncStatus: (status: SyncState['syncStatus']) => void
+  setSyncProgress: (progress: SyncProgress | null) => void
   setFatalError: (message: string) => void
   clearFatalError: () => void
   setSyncWarning: (message: string) => void
@@ -25,16 +30,19 @@ export interface SyncSlice extends SyncState {
   clearQuotaExceeded: () => void
   setLeaderConflict: (isConflict: boolean) => void
   setLocalDataUnavailable: (details: SyncState['localDataUnavailable']) => void
+  setStoragePersisted: (persisted: boolean) => void
 }
 
 const initialSyncState: SyncState = {
   syncStatus: 'idle',
+  syncProgress: null,
   fatalError: null,
   syncWarning: null,
   generation: 0,
   isQuotaExceeded: false,
   isLeaderConflict: false,
   localDataUnavailable: null,
+  isStoragePersisted: null,
 }
 
 export const createSyncSlice: StateCreator<
@@ -46,6 +54,9 @@ export const createSyncSlice: StateCreator<
   ...initialSyncState,
   setSyncStatus: status => {
     set(() => ({ syncStatus: status }))
+  },
+  setSyncProgress: progress => {
+    set(() => ({ syncProgress: progress }))
   },
   setFatalError: message => {
     set(() => ({ fatalError: message }))
@@ -79,5 +90,8 @@ export const createSyncSlice: StateCreator<
   },
   setLocalDataUnavailable: details => {
     set(() => ({ localDataUnavailable: details }))
+  },
+  setStoragePersisted: persisted => {
+    set(() => ({ isStoragePersisted: persisted }))
   },
 })

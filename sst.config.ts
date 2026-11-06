@@ -64,7 +64,9 @@ export default $config({
         },
       },
     });
-    const syncMessagesTable = new sst.aws.Dynamo("FlockSyncMessages", {
+    // Nothing reads or writes this since the sync log replaced it. It stays for repairs until its
+    // rows expire (docs/sync-log-plan.md), and no function links to it.
+    new sst.aws.Dynamo("FlockSyncMessages", {
       fields: {
         syncId: "string",
         cursor: "number",
@@ -77,6 +79,22 @@ export default $config({
       transform: {
         table: (args) => {
           args.name = `FlockSyncMessages_${stage}`;
+          args.ttl = {
+            attributeName: "expiresAt",
+            enabled: true,
+          };
+        },
+      },
+    });
+    const syncLogTable = new sst.aws.Dynamo("FlockSyncLog", {
+      fields: {
+        account: "string",
+        seq: "number",
+      },
+      primaryIndex: { hashKey: "account", rangeKey: "seq" },
+      transform: {
+        table: (args) => {
+          args.name = `FlockSyncLog_${stage}`;
           args.ttl = {
             attributeName: "expiresAt",
             enabled: true,
@@ -102,11 +120,11 @@ export default $config({
       environment: {
         ACCOUNTS_TABLE: accountsTable.name,
         ITEMS_TABLE: itemsTable.name,
-        SYNC_MESSAGES_TABLE: syncMessagesTable.name,
+        SYNC_LOG_TABLE: syncLogTable.name,
         SENTRY_DSN: process.env.SENTRY_DSN || process.env.VITE_SENTRY_DSN || "",
         UNKNOWN_ACCOUNT_SECRET: unknownAccountSecret.value,
       },
-      link: [accountsTable, itemsTable, syncMessagesTable, unknownAccountSecret],
+      link: [accountsTable, itemsTable, syncLogTable, unknownAccountSecret],
     });
     // -----------------------------------------------------------------
     // Migrations Lambda (invoked manually or via CI)
@@ -119,9 +137,9 @@ export default $config({
       environment: {
         ACCOUNTS_TABLE: accountsTable.name,
         ITEMS_TABLE: itemsTable.name,
-        SYNC_MESSAGES_TABLE: syncMessagesTable.name,
+        SYNC_LOG_TABLE: syncLogTable.name,
       },
-      link: [accountsTable, itemsTable, syncMessagesTable],
+      link: [accountsTable, itemsTable, syncLogTable],
     });
     // -----------------------------------------------------------------
     // Push Notifications (Queue + Worker)

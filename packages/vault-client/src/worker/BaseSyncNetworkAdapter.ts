@@ -43,7 +43,7 @@ export abstract class BaseSyncNetworkAdapter extends NetworkAdapter {
   /**
    * Evaluates whether outbound messages can be dispatched immediately.
    * By default, returns true if not explicitly disconnected and not paused.
-   * Specialized adapters (e.g. VaultNetworkAdapter) can extend this to require
+   * Specialized adapters can extend this to require
    * active peer connection, valid account, and send enabled flags.
    */
   protected canSend(): boolean {

@@ -1,14 +1,9 @@
 import type { CreateTableCommandInput } from '@aws-sdk/client-dynamodb'
 import type { VaultTableNames } from './config'
 
-export const ACCOUNT_CURSOR_INDEX = 'AccountCursorIndex'
+export type VaultTableDefinition = Pick<CreateTableCommandInput, 'TableName' | 'KeySchema' | 'AttributeDefinitions'>
 
-export type VaultTableDefinition = Pick<
-  CreateTableCommandInput,
-  'TableName' | 'KeySchema' | 'AttributeDefinitions' | 'GlobalSecondaryIndexes'
->
-
-/** The key schemas and indexes of the vault's tables, for creating them */
+/** The key schemas of the vault's tables, for creating them */
 export function getVaultTableDefinitions(tables: VaultTableNames): VaultTableDefinition[] {
   return [
     {
@@ -32,25 +27,14 @@ export function getVaultTableDefinitions(tables: VaultTableNames): VaultTableDef
       ],
     },
     {
-      TableName: tables.syncMessages,
+      TableName: tables.syncLog,
       KeySchema: [
-        { AttributeName: 'syncId', KeyType: 'HASH' },
-        { AttributeName: 'cursor', KeyType: 'RANGE' },
+        { AttributeName: 'account', KeyType: 'HASH' },
+        { AttributeName: 'seq', KeyType: 'RANGE' },
       ],
       AttributeDefinitions: [
-        { AttributeName: 'syncId', AttributeType: 'S' },
-        { AttributeName: 'cursor', AttributeType: 'N' },
         { AttributeName: 'account', AttributeType: 'S' },
-      ],
-      GlobalSecondaryIndexes: [
-        {
-          IndexName: ACCOUNT_CURSOR_INDEX,
-          KeySchema: [
-            { AttributeName: 'account', KeyType: 'HASH' },
-            { AttributeName: 'cursor', KeyType: 'RANGE' },
-          ],
-          Projection: { ProjectionType: 'ALL' },
-        },
+        { AttributeName: 'seq', AttributeType: 'N' },
       ],
     },
   ]

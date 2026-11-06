@@ -4,12 +4,12 @@ import type {
   ItemId,
   KdfParams,
   ManifestEntry,
-  PageToken,
+  SyncLogEntry,
+  SyncLogMessage,
   VaultSessionRecordSchema,
   VaultAccountSchema,
   VaultAccountWithAuthSchema,
   VaultItemSchema,
-  StoredSyncMessageSchema,
 } from '@vault/shared'
 import type { FailedLoginRecord } from '../loginThrottle'
 
@@ -17,7 +17,6 @@ export type VaultSessionRecord = z.infer<typeof VaultSessionRecordSchema>
 export type VaultAccount = z.infer<typeof VaultAccountSchema>
 export type VaultAccountWithAuth = z.infer<typeof VaultAccountWithAuthSchema>
 export type VaultItem = z.infer<typeof VaultItemSchema>
-export type StoredSyncMessage = z.infer<typeof StoredSyncMessageSchema>
 /** An item as `fetchByIds` returns it, with any snapshot ciphertext as base64 */
 export type FetchedVaultItem = Omit<VaultItem, 'snapshot'> & {
   snapshot?: Omit<NonNullable<VaultItem['snapshot']>, 'cipher'> & { cipher?: string }
@@ -57,46 +56,26 @@ export interface ItemFormatSummary {
   hasCipher: boolean
 }
 
-export interface PushSyncMessagesInput {
+export interface AppendLogInput {
   account: string
-  messages: Array<{
-    itemId: ItemId
-    entry: StoredSyncMessage
-  }>
+  messages: SyncLogMessage[]
 }
 
-export interface GetSyncMessagesInput {
-  account: string
+/** Where a message landed in the account's log */
+export interface LogPushResult {
   itemId: ItemId
-  fromCursor?: number
-  pageToken?: PageToken
+  seq: number
 }
 
-export interface SyncMessagesPage {
-  messages: StoredSyncMessage[]
-  hasMore: boolean
-  nextPageToken?: PageToken
-}
-
-export interface ValidatePageTokenInput {
+export interface ReadLogInput {
   account: string
-  itemId?: ItemId
-  cursor?: number
-  pageToken: PageToken
+  /** Returns rows strictly after this seq */
+  after: number
 }
 
-export interface GetGlobalSyncMessagesInput {
-  account: string
-  cursor?: number
-  pageToken?: PageToken
-}
-
-export interface GlobalSyncMessagesPage {
-  items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>
+export interface SyncLogPage {
+  entries: SyncLogEntry[]
   hasMore: boolean
-  nextPageToken?: PageToken
-  /** The highest cursor the page examined */
-  scannedThroughCursor: number
 }
 
 /**
@@ -149,27 +128,17 @@ export interface VaultDriver {
   /** Loads the given items. Items that don't exist are left out. */
   fetchByIds(data: BaseData & { itemIds: ItemId[] }): Promise<FetchedVaultItem[]>
 
-  /** Stores sync messages, each under its own item */
-  pushSyncMessagesBatch(input: PushSyncMessagesInput): Promise<void>
-
   /**
-   * Returns an item's messages with a cursor after `fromCursor`, in pages. Pass a page's
-   * `nextPageToken` back as `pageToken` (with the same `fromCursor`) to get the next page. Throws
-   * `InvalidPageTokenError` for a token this driver didn't issue for this item, or one that
-   * starts before `fromCursor`.
+   * Appends messages to the account's log, in order, and reports each one's seq. Seqs are contiguous
+   * and commit in order. A push too big for one transaction becomes several in a row, so another
+   * device's rows can fall between them, and a failure can leave the earlier ones committed. Clients
+   * resend a push that fails, which only delivers changes twice.
    */
-  getSyncMessages(input: GetSyncMessagesInput): Promise<SyncMessagesPage>
+  appendLog(input: AppendLogInput): Promise<LogPushResult[]>
 
-  /**
-   * Throws `InvalidPageTokenError` if the matching query would reject `pageToken`: the per-item
-   * query when `itemId` is given, otherwise the account-wide one. Lets callers reject a request
-   * before acting on any of it.
-   */
-  validatePageToken(input: ValidatePageTokenInput): void
+  /** Returns the account's rows after a seq, oldest first, in one strongly consistent page */
+  readLog(input: ReadLogInput): Promise<SyncLogPage>
 
-  /**
-   * Returns the account's messages with a cursor after `cursor`, across items, in pages. Paging works
-   * as in `getSyncMessages`, except that a token is not checked against `cursor`.
-   */
-  getGlobalSyncMessagesAfterCursor(input: GetGlobalSyncMessagesInput): Promise<GlobalSyncMessagesPage>
+  /** Returns the last seq the account's log has used, by a strongly consistent read (0 when it's empty) */
+  readLogHead(data: BaseData): Promise<number>
 }

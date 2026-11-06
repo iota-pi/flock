@@ -108,6 +108,8 @@ export class SyncWorker implements SyncApi {
   private clientEventHub = new ClientEventHub()
   /** Whether the device is online, kept between sessions. Each session's state starts from it. */
   private isOnline = true
+  /** Whether this tab is visible, kept between sessions like `isOnline` */
+  private isVisible = true
   private unsubscribeRealtimeBus: (() => void) | null = null
   private readonly subscriptions = new ItemSubscriptions(
     () => this.context.services.repo,
@@ -115,8 +117,8 @@ export class SyncWorker implements SyncApi {
   )
 
   private readonly tokenRefresh = new SingleFlightGuard<string | null>()
-  /** Settles the refresh in flight with the token the main thread sends (or null) */
-  private settleTokenRefresh: ((token: string | null) => void) | null = null
+  /** Settles the refresh in flight with the token the main thread sends (or null), or fails it */
+  private settleTokenRefresh: ((result: string | null | Error) => void) | null = null
   private readonly keyring = new Keyring()
   private readonly automergeWasmUrl: string
   /** The settings every session's context is built with */
@@ -133,19 +135,30 @@ export class SyncWorker implements SyncApi {
    * Concurrent requests share one round trip.
    */
   requestAuthTokenRefresh = (): Promise<string | null> =>
-    this.tokenRefresh.run(() => withTimeout(SYNC_TIMEOUTS.tokenRefresh, signal => new Promise<string | null>(resolve => {
+    this.tokenRefresh.run(() => withTimeout(SYNC_TIMEOUTS.tokenRefresh, signal => new Promise<string | null>((resolve, reject) => {
       signal.addEventListener('abort', () => {
         log.warn('Token refresh timed out waiting for main thread')
-        this.resolveTokenRefresh(null)
+        this.failTokenRefresh('Timed out waiting for the main thread to refresh the session')
       }, { once: true })
-      this.settleTokenRefresh = resolve
+      this.settleTokenRefresh = result => (result instanceof Error ? reject(result) : resolve(result))
       this.clientEventHub.emit({ type: 'tokenRefreshNeeded' })
     })))
 
-  private resolveTokenRefresh(token: string | null): void {
+  private resolveTokenRefresh(result: string | null | Error): void {
     const settle = this.settleTokenRefresh
     this.settleTokenRefresh = null
-    settle?.(token)
+    settle?.(result)
+  }
+
+  /**
+   * Fails the refresh in flight with a network error, because nothing has been said about the session.
+   * Requests then retry as they do in any outage, where a missing token would pause polling. A refresh
+   * during startup always ends here: the bridge can't answer until the session is ready.
+   */
+  private failTokenRefresh(message: string): void {
+    const error = new Error(message)
+    error.name = 'NetworkError'
+    this.resolveTokenRefresh(error)
   }
 
   /** Runs `fn` with the session's context, waiting for `initRepo` if it's still running */
@@ -269,6 +282,7 @@ export class SyncWorker implements SyncApi {
         accountId,
         clientEventHub: this.clientEventHub,
         isOnline: this.isOnline,
+        isVisible: this.isVisible,
         apiClient: new SyncApiClient({ refreshAuthToken: () => this.requestAuthTokenRefresh() }),
         onDocumentReceived: itemId => this.subscriptions.subscribe([itemId]),
         onDocHandleReplaced: (itemId, handle) => this.subscriptions.rebind(itemId, handle),
@@ -307,7 +321,8 @@ export class SyncWorker implements SyncApi {
 
   /** Sends a subscribed item's state to the app and keeps the index in step with it */
   private handleItemChange(id: ItemId, doc: RepoDoc | null): void {
-    const { accountSettings, docStore, indexManager } = this.context.services
+    const { accountSettings, changeOutbox, docStore, indexManager } = this.context.services
+    changeOutbox.onDocChanged(id)
     if (accountSettings.isSettingsDoc(id)) {
       accountSettings.handleSettingsDoc(doc)
       return
@@ -350,7 +365,11 @@ export class SyncWorker implements SyncApi {
     this.withContext(ctx => exportAllBinaries(ctx.services.docStore, ctx.services.indexManager))
 
   restoreFromBinaries = (documents: Partial<Record<string, string>>) =>
-    this.withContext(ctx => restoreFromBinaries(ctx.services.docStore, documents, ctx.services.indexManager))
+    this.withContext(async ctx => {
+      const restored = await restoreFromBinaries(ctx.services.docStore, documents, ctx.services.indexManager)
+      await ctx.markRestored(restored)
+      return restored
+    })
 
   flushSync = (): Promise<void> =>
     this.withContext(ctx => ctx.services.orchestrator.flush())
@@ -366,6 +385,9 @@ export class SyncWorker implements SyncApi {
 
   pushSnapshots = () =>
     this.withContext(ctx => ctx.services.snapshotManager.flushPendingSnapshots())
+
+  getUnsyncedChanges = () =>
+    this.withContext(ctx => ctx.getUnsyncedChanges())
 
   retrySave = () =>
     this.withContext(ctx => ctx.retrySave()).catch(() => ({
@@ -399,9 +421,7 @@ export class SyncWorker implements SyncApi {
 
   updateVaultKey = async (vaultKey: string) => {
     await this.keyring.load(vaultKey)
-    return this.withContext(ctx => {
-      ctx.services.pullQueueManager.onKeyringUpdated()
-    })
+    return this.withContext(ctx => ctx.onKeyringUpdated())
   }
 
   /**
@@ -412,6 +432,11 @@ export class SyncWorker implements SyncApi {
   updateAuthToken = async (token: string | null): Promise<void> => {
     setApiAuthToken(token || '')
     this.resolveTokenRefresh(token)
+  }
+
+  /** Tells the worker the main thread couldn't reach the server to refresh the session */
+  failAuthTokenRefresh = async (): Promise<void> => {
+    this.failTokenRefresh('The server could not be reached to refresh the session')
   }
 
   reencryptAllItems = () =>
@@ -427,15 +452,18 @@ export class SyncWorker implements SyncApi {
     })
 
   exportSyncState = (): Promise<BackupSyncState> =>
-    this.withContext(({ services }) =>
-      exportSyncState(services.pullQueueManager, services.wal, services.snapshotManager))
+    this.withContext(({ services }) => exportSyncState(services.snapshotManager))
 
   restoreSyncState = (state: Partial<BackupSyncState>) =>
-    this.withContext(({ services }) =>
-      restoreSyncState(services.pullQueueManager, services.wal, services.snapshotManager, state))
+    this.withContext(({ services }) => restoreSyncState(services.snapshotManager, state))
 
   claimLeader = () =>
     this.withContext(ctx => ctx.claimLeader())
+
+  setVisibility = (visible: boolean, returned?: boolean) => {
+    this.isVisible = visible
+    return this.withContext(ctx => ctx.setVisibility(visible, returned))
+  }
 
   async shutdown(options?: { clearLocalData?: boolean }) {
     setApiAuthToken('')

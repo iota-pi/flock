@@ -37,6 +37,12 @@ describe('SyncEventProcessor', () => {
     expect(sink.state.syncStatus).toBe('syncing')
   })
 
+  it('passes syncProgress to the sink', () => {
+    const progress = { pendingItems: 2, quarantinedItems: 1, lastSyncedAt: 1000 }
+    processor.handleSyncEvent({ type: 'syncProgress', progress })
+    expect(sink.state.syncProgress).toEqual(progress)
+  })
+
   it('batches item updates below ITEM_UPDATE_BATCH_MAX via setTimeout', async () => {
     vi.useFakeTimers()
 
