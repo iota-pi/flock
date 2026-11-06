@@ -3,17 +3,23 @@ import * as Automerge from '@automerge/automerge/slim'
 export type AutomergeListItem = { id?: string; [key: string]: unknown }
 
 /**
- * Where an object sits in the Automerge doc being changed, so string fields can be edited with
- * `Automerge.updateText`. Absent for plain objects outside a change.
+ * Where an object sits in the Automerge doc being changed, and which keys hold merged text, so those
+ * fields can be edited with `Automerge.updateText`. Absent for plain objects outside a change.
  */
-export type DocLocation = { root: Automerge.Doc<unknown>; path: Automerge.Prop[] }
-
-function childLocation(at: DocLocation | undefined, key: Automerge.Prop): DocLocation | undefined {
-  return at && { root: at.root, path: [...at.path, key] }
+export type DocLocation = {
+  root: Automerge.Doc<unknown>
+  path: Automerge.Prop[]
+  mergedTextFields: ReadonlySet<string>
 }
 
-function rootLocation(draft: Record<string, unknown>): DocLocation | undefined {
-  return Automerge.isAutomerge(draft) ? { root: draft, path: [] } : undefined
+function childLocation(at: DocLocation | undefined, key: Automerge.Prop): DocLocation | undefined {
+  return at && { ...at, path: [...at.path, key] }
+}
+
+function rootLocation(draft: Record<string, unknown>, mergedTextFields: readonly string[]): DocLocation | undefined {
+  return Automerge.isAutomerge(draft)
+    ? { root: draft, path: [], mergedTextFields: new Set(mergedTextFields) }
+    : undefined
 }
 
 /** An object written as an Automerge map, as opposed to a list or a scalar such as a date, bytes or a counter */
@@ -32,8 +38,9 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 /**
  * Writes one field, skipping unchanged values. Every write is a new op that beats concurrent edits from
  * other devices, and assigning a string or object replaces its Text object or map, so a whole-item save
- * would otherwise undo remote edits to fields it didn't change. Changed strings are diffed into the existing
- * Text object, and nested objects are updated field by field.
+ * would otherwise undo remote edits to fields it didn't change. Nested objects are updated field by field.
+ * Changed strings in `mergedTextFields` are diffed into the existing Text object. Other strings are replaced
+ * whole so that one concurrent edit wins, because merging characters garbles names and invalidates enums.
  */
 function setField(obj: Record<string, unknown>, key: string, value: unknown, at: DocLocation | undefined): void {
   const current = obj[key]
@@ -44,7 +51,7 @@ function setField(obj: Record<string, unknown>, key: string, value: unknown, at:
     reconcileAutomergeList(current, value, childLocation(at, key))
   } else if (isPlainObject(value) && isPlainObject(current)) {
     updateObjectInPlace(current, value, childLocation(at, key))
-  } else if (at && typeof value === 'string' && typeof current === 'string') {
+  } else if (at?.mergedTextFields.has(key) && typeof value === 'string' && typeof current === 'string') {
     Automerge.updateText(at.root, [...at.path, key], value)
   } else {
     obj[key] = value
@@ -248,14 +255,16 @@ export function reconcileAutomergeList<T = unknown>(
 
 /**
  * Applies updates to an Automerge document draft in place.
- * Unchanged fields are left alone, lists are reconciled on their existing proxies and changed strings are
- * diffed into their Text objects, so concurrent edits to other fields (or other parts of a string) survive.
+ * Unchanged fields are left alone, lists are reconciled on their existing proxies and changed strings in
+ * `mergedTextFields` are diffed into their Text objects, so concurrent edits to other fields (or other parts
+ * of a merged string) survive. Other changed strings are replaced whole.
  */
 export function applyItemUpdatesToDraft(
   draft: Record<string, unknown>,
   updates: Record<string, unknown>,
+  mergedTextFields: readonly string[] = [],
 ): void {
-  const at = rootLocation(draft)
+  const at = rootLocation(draft, mergedTextFields)
   for (const [key, value] of Object.entries(updates)) {
     setField(draft, key, value, at)
   }
@@ -265,11 +274,12 @@ export function applyItemUpdatesToDraft(
 export function mutateDraftToMatchSnapshot(
   draft: Record<string, unknown>,
   snapshot: Record<string, unknown>,
+  mergedTextFields: readonly string[] = [],
 ): void {
   for (const key of Object.keys(draft)) {
     if (!(key in snapshot) || snapshot[key] === undefined) {
       delete draft[key]
     }
   }
-  applyItemUpdatesToDraft(draft, snapshot)
+  applyItemUpdatesToDraft(draft, snapshot, mergedTextFields)
 }

@@ -1,4 +1,4 @@
-import { flockItemCodec, flockSyncHooks } from './syncDomain'
+import { flockItemCodec, flockSyncDomain, flockSyncHooks } from './syncDomain'
 import { getBlankGroup, getBlankPerson, type Item } from '../../state/items'
 import type { ErrorItem } from '../../shared/schemas/items'
 import type { ItemId } from '@vault/shared'
@@ -97,5 +97,11 @@ describe('flockSyncHooks', () => {
 
     expect(recreated.created).toBeGreaterThan(1)
     expect(recreated.id).toBe('person-1')
+  })
+})
+
+describe('flockSyncDomain', () => {
+  it('merges only long free text, so names and enums stay whole', () => {
+    expect(flockSyncDomain.mergedTextFields).toEqual(['description', 'text'])
   })
 })

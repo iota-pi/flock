@@ -399,6 +399,7 @@ export class SyncWorkerContext {
       recoveryManager,
       bus: realtimeBus,
       hooks: this.domain.hooks,
+      mergedTextFields: this.domain.mergedTextFields,
     })
 
     const accountSettings = new AccountSettings({

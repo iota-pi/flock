@@ -24,6 +24,7 @@ export interface ItemOperationsDeps {
   /** Tells the account's other tabs which items changed */
   bus?: RealtimeBus
   hooks?: SyncDomainHooks
+  mergedTextFields?: readonly string[]
 }
 
 export interface StoreItemsOptions {
@@ -74,7 +75,7 @@ export class ItemOperations {
           refusedDeleted = true
           return
         }
-        applyItemUpdatesToDraft(doc, changes)
+        applyItemUpdatesToDraft(doc, changes, this.deps.mergedTextFields)
       },
       options,
     )
@@ -231,7 +232,7 @@ export class ItemOperations {
     const overwritten = await this.deps.docStore.changeDocument(
       itemId,
       doc => {
-        mutateDraftToMatchSnapshot(doc, localSnapshot)
+        mutateDraftToMatchSnapshot(doc, localSnapshot, this.deps.mergedTextFields)
         ensureDocId(doc, itemId)
       },
       { createIfMissing: true },

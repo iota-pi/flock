@@ -72,5 +72,6 @@ export const flockSyncDomain: SyncDomain = {
   codec: flockItemCodec,
   hooks: flockSyncHooks,
   syncedMetadataKeys: SYNCED_METADATA_KEYS,
+  mergedTextFields: ['description', 'text'],
   dataVersion: FLOCK_DATA_VERSION,
 }

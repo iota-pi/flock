@@ -84,6 +84,12 @@ export interface SyncDomain {
    * that first set the same nested object concurrently keep only one of them.
    */
   syncedMetadataKeys?: readonly string[]
+  /**
+   * Keys of string fields, at any depth of an item, that merge concurrent edits character by character.
+   * Suits long free text, where keeping both edits matters more than a clean result. Every other string
+   * is replaced whole and one concurrent edit wins, which is what names, enums and IDs need.
+   */
+  mergedTextFields?: readonly string[]
   legacySettings?: LegacySettingsSource
   /**
    * The app's current data version: the level of migrations its stored data should have had. The

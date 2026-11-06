@@ -366,12 +366,47 @@ describe('crdtReconcile', () => {
         d.description = 'one two'
       })
       const docA = Automerge.change(Automerge.clone(doc0), d => {
-        applyItemUpdatesToDraft(d, { description: 'zero one two' })
+        applyItemUpdatesToDraft(d, { description: 'zero one two' }, ['description'])
       })
       const docB = Automerge.change(Automerge.clone(doc0), d => {
-        applyItemUpdatesToDraft(d, { description: 'one two three' })
+        applyItemUpdatesToDraft(d, { description: 'one two three' }, ['description'])
       })
       expect(Automerge.merge(docA, docB).description).toBe('zero one two three')
+    })
+
+    it('lets one concurrent edit win for a string that is not merged text', () => {
+      const doc0 = createBaseDoc()
+      const docA = Automerge.change(Automerge.clone(doc0), d => {
+        applyItemUpdatesToDraft(d, { name: 'Test Item A' }, ['description'])
+      })
+      const docB = Automerge.change(Automerge.clone(doc0), d => {
+        applyItemUpdatesToDraft(d, { name: 'Test Item B' }, ['description'])
+      })
+
+      const merged = Automerge.merge(Automerge.clone(docA), docB)
+      expect(['Test Item A', 'Test Item B']).toContain(merged.name)
+      expect(Automerge.merge(Automerge.clone(docB), docA).name).toBe(merged.name)
+    })
+
+    it('keeps a value that two devices set concurrently intact', () => {
+      const doc0 = Automerge.change(createBaseDoc(), d => {
+        d.frequency = 'one'
+      })
+      const setToAll = () => Automerge.change(Automerge.clone(doc0), d => {
+        applyItemUpdatesToDraft(d, { frequency: 'all' })
+      })
+      expect(Automerge.merge(setToAll(), setToAll()).frequency).toBe('all')
+    })
+
+    it('merges text in a listed field of a list element', () => {
+      const doc0 = createBaseDoc()
+      const docA = Automerge.change(Automerge.clone(doc0), d => {
+        applyItemUpdatesToDraft(d, { notes: [{ id: 'n1', text: 'A: Note 1', archived: false, time: 100 }] }, ['text'])
+      })
+      const docB = Automerge.change(Automerge.clone(doc0), d => {
+        applyItemUpdatesToDraft(d, { notes: [{ id: 'n1', text: 'Note 1 from B', archived: false, time: 100 }] }, ['text'])
+      })
+      expect(Automerge.merge(docA, docB).notes[0].text).toBe('A: Note 1 from B')
     })
 
     it('merges concurrent edits to the same note texts while notes are inserted around them', () => {
@@ -387,7 +422,7 @@ describe('crdtReconcile', () => {
             { id: 'n4', text: 'Note 4', archived: false, time: 400 },
             { id: 'n2', text: 'Note 2 from A', archived: false, time: 200 },
           ],
-        })
+        }, ['text'])
       })
       const docB = Automerge.change(Automerge.clone(doc0), d => {
         applyItemUpdatesToDraft(d, {
@@ -395,7 +430,7 @@ describe('crdtReconcile', () => {
             { id: 'n1', text: 'B: Note 1', archived: false, time: 100 },
             { id: 'n2', text: 'B: Note 2', archived: false, time: 200 },
           ],
-        })
+        }, ['text'])
       })
       const merged = Automerge.merge(docA, docB)
       expect(merged.notes.map(n => n.text)).toEqual([
@@ -447,10 +482,10 @@ describe('crdtReconcile', () => {
         const whole = plain(doc0)
         const details = whole.details as NestedDoc['details']
         const docA = Automerge.change(Automerge.clone(doc0), d => {
-          applyItemUpdatesToDraft(d, { ...whole, details: { ...details, bio: 'zero one two' } })
+          applyItemUpdatesToDraft(d, { ...whole, details: { ...details, bio: 'zero one two' } }, ['bio'])
         })
         const docB = Automerge.change(Automerge.clone(doc0), d => {
-          applyItemUpdatesToDraft(d, { ...whole, details: { ...details, bio: 'one two three' } })
+          applyItemUpdatesToDraft(d, { ...whole, details: { ...details, bio: 'one two three' } }, ['bio'])
         })
 
         expect(Automerge.merge(docA, docB).details.bio).toBe('zero one two three')

@@ -165,6 +165,15 @@ OCC would be harmful. A blind relay cannot resolve conflicts, so concurrent or o
 - `AutomergeDocStore.findOrCreateHandle` refuses to create a blank doc when `hasDataInStorage(itemId)`. This guard prevents data loss: without it, a handle-lookup timeout would overwrite an existing doc.
 - Selectors filter `!item.deleted`, and `AutomergeIndexManager` excludes tombstones from the active index.
 
+## Concurrent string edits
+
+Item writes are diffs: `applyItemUpdatesToDraft` skips unchanged fields, so a whole-item save doesn't overwrite remote edits to fields it didn't change. Changed strings are handled in one of two ways:
+
+- **Merged text.** Keys listed in `SyncDomain.mergedTextFields` go through `Automerge.updateText`, so concurrent edits merge character by character. This suits long free text, where keeping both edits matters more than a clean result. Edits to the same spot can interleave, and identical edits duplicate.
+- **Everything else is replaced whole.** One concurrent edit wins, chosen by Automerge's op ordering rather than by time, so every device agrees but the older edit can win. Merging characters here would garble names, and would turn enums into invalid values: two devices both setting `all` would merge to `allall`, which fails validation.
+
+New string fields are replaced whole unless the app lists them. A field that moves between the two needs no migration, because assignment and `updateText` both work on either kind of value.
+
 ## Account settings document
 
 Account settings the app syncs (`SyncDomain.syncedMetadataKeys`) live in an encrypted Automerge document managed by `AccountSettings`. Other metadata keys stay in the device's local index. The worker merges both and emits them as `metadataUpdated`, with the document's values winning.
