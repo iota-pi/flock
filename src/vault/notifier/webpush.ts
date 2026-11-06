@@ -29,8 +29,8 @@ function ensureVapidConfigured() {
 export async function sendPushNotification(
   subscription: WebPushSubscription,
   payload: { title: string, body: string },
-  { topic }: { topic?: string } = {},
+  { topic, ttl }: { topic?: string, ttl?: number } = {},
 ) {
   ensureVapidConfigured()
-  await sendNotification(subscription, JSON.stringify(payload), { timeout: PUSH_TIMEOUT_MS, topic })
+  await sendNotification(subscription, JSON.stringify(payload), { timeout: PUSH_TIMEOUT_MS, topic, TTL: ttl })
 }

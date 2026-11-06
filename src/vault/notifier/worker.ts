@@ -56,6 +56,12 @@ const REMINDER_PAYLOAD = {
   badge: '/badge-96x96.png',
 }
 
+/**
+ * How long a push service holds a reminder for an offline device. After this it's dropped, because a
+ * daily reminder arriving hours late (or days, at the 4 week default) is just noise.
+ */
+const REMINDER_TTL_SECONDS = 6 * 60 * 60
+
 /** What FCM answers (403) for a subscription the browser made with a different VAPID key */
 const VAPID_MISMATCH_BODY = 'do not correspond to the credentials used to create the subscriptions'
 
@@ -73,7 +79,7 @@ function isSubscriptionGone(error: unknown) {
 
 export async function processMessage({ accountId, subscription, topic }: ReminderMessage) {
   try {
-    await sendPushNotification(subscription, REMINDER_PAYLOAD, { topic })
+    await sendPushNotification(subscription, REMINDER_PAYLOAD, { topic, ttl: REMINDER_TTL_SECONDS })
   } catch (error) {
     if (!isSubscriptionGone(error)) {
       throw error
