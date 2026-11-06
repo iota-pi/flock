@@ -7,6 +7,7 @@ import Typography from '@mui/material/Typography'
 import BasePage from './BasePage'
 import type { Item } from 'src/state/items'
 import useSettings from 'src/hooks/useSettings'
+import { BACKUP_FILE_NAME } from 'src/hooks/useBackupAndRestore'
 import { useDialogState } from 'src/hooks/useDialogState'
 import type { BackupPayloadV2 } from 'src/types/backup'
 import SettingsItemsList from './settings/SettingsItemsList'
@@ -38,7 +39,7 @@ function SettingsPage() {
     async () => {
       try {
         const json = await actions.handleExport()
-        download(json, 'flock.backup.json')
+        download(json, BACKUP_FILE_NAME)
       } catch (err) {
         log.error('Export failed', err)
       }

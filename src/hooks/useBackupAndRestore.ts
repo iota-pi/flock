@@ -8,11 +8,14 @@ import { createLogger } from 'src/utils/logger'
 import type { BackupPayloadV2 } from '../types/backup'
 import type { BackupSyncState } from '@vault/client'
 import type { Item } from '../state/items'
+import { quietBackupReminder } from '../app/vault/backupReminderStore'
 import { SyncBridge } from '../app/vault/syncBridge'
 import { useAppStore } from '../state/store'
 import type { BaseToastMessage } from '../state/slices/toastSlice'
 
 const log = createLogger('useBackupAndRestore')
+
+export const BACKUP_FILE_NAME = 'flock.backup.json'
 
 type SetMessage = (payload: BaseToastMessage) => void
 
@@ -34,7 +37,7 @@ export default function useBackupAndRestore({
   const handleExport = useCallback(
     async () => {
       try {
-        const currentMetadata = useAppStore.getState().metadata
+        const { account, metadata: currentMetadata } = useAppStore.getState()
         const { documents, skipped } = await SyncBridge.exportAllBinaries()
         let syncState: BackupSyncState | undefined
         try {
@@ -57,6 +60,9 @@ export default function useBackupAndRestore({
           log.error('Failed to count unsynced changes', e)
           return null
         })
+
+        // A backup missing items doesn't count, so the reminder keeps suggesting a complete one
+        if (!skipped?.length) quietBackupReminder(account)
 
         if (skipped && skipped.length > 0) {
           setMessage({
