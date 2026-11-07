@@ -28,7 +28,11 @@ export default $config({
     const domain = isProd
       ? "flock.cross-code.org"
       : `flock-${stage}.cross-code.org`;
-    const publicUrl = `https://${domain}`;
+    const { DEPLOYMENTS } = await import("./src/deployments");
+    const deployment = DEPLOYMENTS[domain];
+    if (!isDev && !deployment) {
+      throw new Error(`Add ${domain} to src/deployments.ts before deploying it`);
+    }
     // -----------------------------------------------------------------
     // DynamoDB Tables
     // -----------------------------------------------------------------
@@ -121,7 +125,7 @@ export default $config({
         ACCOUNTS_TABLE: accountsTable.name,
         ITEMS_TABLE: itemsTable.name,
         SYNC_LOG_TABLE: syncLogTable.name,
-        SENTRY_DSN: process.env.SENTRY_DSN || process.env.VITE_SENTRY_DSN || "",
+        SENTRY_DSN: deployment?.sentryDsn ?? "",
         UNKNOWN_ACCOUNT_SECRET: unknownAccountSecret.value,
       },
       link: [accountsTable, itemsTable, syncLogTable, unknownAccountSecret],
@@ -251,17 +255,26 @@ export default $config({
     const app = isDev
       ? undefined
       : new sst.cloudflare.StaticSiteV2("FlockApp", {
-          path: ".",
-          build: {
-            command: "yarn build",
-            output: "dist/app",
-          },
+          path: "dist/app",
           domain,
           notFound: "single-page-application",
           environment: {
-            VITE_VAULT_ENDPOINT: vaultApi.url,
-            VITE_VAPID_PUBLIC_KEY: vapidPublicKey.value,
-            VITE_PUBLIC_URL: publicUrl,
+            // Nothing reads this variable. It's here because the site waits for its environment, so
+            // a failed check stops the upload, and the API deploys before the site, which clients
+            // rely on. The site is built beforehand, without deploy credentials
+            // (.github/workflows/deploy.yml), so it only knows these values from src/deployments.ts.
+            DEPLOY_CHECK: $resolve([vaultApi.url, vapidPublicKey.value]).apply(
+              ([url, vapidKey]) => {
+                const endpoint = url.replace(/\/$/, "");
+                if (endpoint !== deployment?.vaultEndpoint) {
+                  throw new Error(`src/deployments.ts has the wrong API for ${domain}: it should be ${endpoint}`);
+                }
+                if (vapidKey !== deployment.vapidPublicKey) {
+                  throw new Error(`src/deployments.ts has the wrong VAPID public key for ${domain}`);
+                }
+                return "passed";
+              },
+            ),
           },
         });
     return {

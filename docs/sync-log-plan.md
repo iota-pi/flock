@@ -262,7 +262,7 @@ The WAL isn't migrated. Its entries are never read, and nothing replays them, be
 
 ### Deploying
 
-- **Order:** `sst deploy` builds the site after the API, because the site needs the API's URL. For those few minutes old builds are refused with no new build to load. `handleClientOutdated` reloads at most once per 5 minutes and then shows its warning. Edits stay local.
+- **Order:** `sst deploy` uploads the site after the API, because it first checks the site's settings against the API's URL. For those few minutes old builds are refused with no new build to load. `handleClientOutdated` reloads at most once per 5 minutes and then shows its warning. Edits stay local.
 - **Rollback:** there isn't a supported one. Old builds can't read the log, so anything since the cut would reach them only through snapshots. Test the release on a stage with real data, and fix forward.
 
 ### Afterwards

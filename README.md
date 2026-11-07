@@ -143,8 +143,10 @@ npx cypress open
 # Type-check + frontend build
 yarn build
 
-# Deploy with SST
+# Deploy with SST, uploading what `yarn build` left in dist/app
 yarn deploy --stage <stage>
 ```
+
+CI builds the site once, in a job with no secrets, and deploys that same build to staging and then production. The app picks each site's public settings by hostname from `src/deployments.ts`, and a deploy fails if they don't match the stage's real API URL and VAPID key.
 
 `sst.config.ts` provisions DynamoDB, Lambda (Vault API), Cloudflare Pages, and backup resources.
