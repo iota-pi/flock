@@ -293,7 +293,8 @@ describe('first start', () => {
       expect(order).toEqual(['manifest', 'push, can push: true'])
       expect(onManifestSynced).toHaveBeenCalledTimes(1)
       expect(await getSyncMetadataStorage(ACCOUNT).getItem(SYNC_METADATA_KEYS.FIRST_START_SYNCED)).toBe(true)
-      await firstStart.whenSynced()
+      expect(firstStart.synced).toBe(true)
+      await firstStart.whenReadyToPush()
     })
 
     it('blocks pushes until the manifest sync has run', async () => {
@@ -324,6 +325,28 @@ describe('first start', () => {
       expect(syncManifest).toHaveBeenCalledTimes(2)
     })
 
+    it('allows pushes once the manifest sync has run, even while its push keeps failing', async () => {
+      await start()
+      pushPending.mockRejectedValue(new Error('BAD_REQUEST'))
+
+      await expect(firstStart.ensureSynced()).rejects.toThrow('BAD_REQUEST')
+
+      await firstStart.whenReadyToPush()
+      expect(firstStart.canPush).toBe(true)
+      expect(firstStart.synced).toBe(false)
+    })
+
+    it('records why the network part failed, until it finishes', async () => {
+      await start()
+      pushPending.mockRejectedValueOnce(new Error('The server refused item x'))
+
+      await expect(firstStart.ensureSynced()).rejects.toThrow()
+      expect(firstStart.error).toBe('The server refused item x')
+
+      await firstStart.ensureSynced()
+      expect(firstStart.error).toBeNull()
+    })
+
     it('runs once, and skips the work for a device that has finished', async () => {
       await start()
       await firstStart.ensureSynced()
@@ -335,7 +358,7 @@ describe('first start', () => {
     it('honours the caller\'s signal while waiting', async () => {
       await start()
       const controller = new AbortController()
-      const waiting = firstStart.whenSynced(controller.signal)
+      const waiting = firstStart.whenReadyToPush(controller.signal)
 
       controller.abort()
 

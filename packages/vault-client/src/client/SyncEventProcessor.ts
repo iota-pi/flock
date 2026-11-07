@@ -1,5 +1,5 @@
 import type { ClientEvent } from '../worker/SyncEventHub'
-import type { VaultDoc, VaultMetadata } from '../shared/types'
+import type { ReencryptStage, VaultDoc, VaultMetadata } from '../shared/types'
 import { noopTelemetry, type SyncStateSink, type SyncTelemetry } from './host'
 import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
@@ -22,6 +22,7 @@ export class SyncEventProcessor<TDoc extends VaultDoc = VaultDoc, TMeta extends 
   private recoveryEntries: ManualRecoveryEntry[] = []
   private recoveryEntriesListeners = new Set<(entries: ManualRecoveryEntry[]) => void>()
   private reencryptProgressListeners = new Set<(done: number, total: number) => void>()
+  private reencryptStageListeners = new Set<(stage: ReencryptStage | null) => void>()
 
   /**
    * The warning a quotaExceeded event set, so quotaResolved clears only that warning. Anything else
@@ -60,6 +61,13 @@ export class SyncEventProcessor<TDoc extends VaultDoc = VaultDoc, TMeta extends 
     this.reencryptProgressListeners.add(listener)
     return () => {
       this.reencryptProgressListeners.delete(listener)
+    }
+  }
+
+  subscribeReencryptStage(listener: (stage: ReencryptStage | null) => void): () => void {
+    this.reencryptStageListeners.add(listener)
+    return () => {
+      this.reencryptStageListeners.delete(listener)
     }
   }
 
@@ -176,6 +184,15 @@ export class SyncEventProcessor<TDoc extends VaultDoc = VaultDoc, TMeta extends 
           }
         }
         break
+      case 'reencryptStage':
+        for (const listener of Array.from(this.reencryptStageListeners)) {
+          try {
+            listener(event.stage)
+          } catch (err) {
+            log.error('Error in reencryptStage listener:', err)
+          }
+        }
+        break
       case 'migrationRequired':
         this.telemetry.addBreadcrumb({
           category: 'sync',
@@ -217,6 +234,7 @@ export class SyncEventProcessor<TDoc extends VaultDoc = VaultDoc, TMeta extends 
     }
     this.pendingItemUpdates.clear()
     this.reencryptProgressListeners.clear()
+    this.reencryptStageListeners.clear()
     this.quotaWarning = null
 
     this.recoveryEntries = []

@@ -6,7 +6,7 @@ import type { InitRepoOptions, SyncApi } from './syncProtocol'
 import type { ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
 import { ClientEventHub, type ClientEvent } from './SyncEventHub'
 
-import type { VaultDoc, VaultMetadata } from '../shared/types'
+import type { ReencryptOptions, VaultDoc, VaultMetadata } from '../shared/types'
 import { Keyring } from '../keys/Keyring'
 import { setApiAuthToken } from '../keys/runtime'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
@@ -439,9 +439,10 @@ export class SyncWorker implements SyncApi {
     this.failTokenRefresh('The server could not be reached to refresh the session')
   }
 
-  reencryptAllItems = () =>
+  reencryptAllItems = (options: ReencryptOptions = {}) =>
     this.withContext(async ctx => {
       const result = await ctx.services.itemReencryptor.run({
+        ...options,
         onProgress: (done, total) => {
           this.clientEventHub.emit({ type: 'reencryptProgress', done, total })
         },
@@ -450,6 +451,15 @@ export class SyncWorker implements SyncApi {
       await ctx.rewrapDeviceKey()
       return result
     })
+
+  prepareReencryption = (options: ReencryptOptions = {}) =>
+    this.withContext(ctx => ctx.services.itemReencryptor.prepare(options))
+
+  cancelReencryption = () =>
+    this.withContext(ctx => ctx.services.itemReencryptor.cancel())
+
+  getSyncDiagnostics = () =>
+    this.withContext(ctx => ctx.getSyncDiagnostics())
 
   exportSyncState = (): Promise<BackupSyncState> =>
     this.withContext(({ services }) => exportSyncState(services.snapshotManager))

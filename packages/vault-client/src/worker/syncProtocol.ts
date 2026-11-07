@@ -1,4 +1,4 @@
-import type { DataVersionStatus, ReencryptResult, UnsyncedChanges, VaultDoc, VaultMetadata } from '../shared/types'
+import type { DataVersionStatus, ReencryptOptions, ReencryptResult, SyncDiagnostics, UnsyncedChanges, VaultDoc, VaultMetadata } from '../shared/types'
 import type { ManualRecoveryEntry, ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
 import type { BackupSyncState } from '../shared/backupSyncState'
 import type { ItemId } from '@vault/shared'
@@ -57,7 +57,13 @@ export interface SyncApi<TDoc extends VaultDoc = VaultDoc, TMeta extends VaultMe
   updateVaultKey: (vaultKey: string) => Promise<void>
   updateAuthToken: (token: string | null) => Promise<void>
   failAuthTokenRefresh: () => Promise<void>
-  reencryptAllItems: () => Promise<ReencryptResult>
+  reencryptAllItems: (options?: ReencryptOptions) => Promise<ReencryptResult>
+  /** Waits until a re-encryption could push, without rewriting anything (see ItemReencryptor.prepare) */
+  prepareReencryption: (options?: ReencryptOptions) => Promise<void>
+  /** Stops the re-encryption in flight and any scheduled retry */
+  cancelReencryption: () => Promise<void>
+  /** What the session is waiting on, for a migration app to report when it stalls */
+  getSyncDiagnostics: () => Promise<SyncDiagnostics>
   exportSyncState: () => Promise<BackupSyncState>
   restoreSyncState: (state: Partial<BackupSyncState>) => Promise<void>
   claimLeader: () => Promise<void>
