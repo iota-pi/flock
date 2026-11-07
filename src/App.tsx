@@ -24,6 +24,7 @@ import QuotaExceededDialog from './components/dialogs/QuotaExceededDialog'
 import LeaderConflictDialog from './components/dialogs/LeaderConflictDialog'
 import LocalDataUnavailableDialog from './components/dialogs/LocalDataUnavailableDialog'
 import AppUpdateSnackbar from './components/AppUpdateSnackbar'
+import BackupReminderSnackbar from './components/BackupReminderSnackbar'
 import StoragePersistenceNotice from './components/StoragePersistenceNotice'
 
 
@@ -122,6 +123,7 @@ function RootLayout() {
 
       <QuotaWarningSnackbar onOpenDetails={() => setIsQuotaDialogOpen(true)} />
       <AppUpdateSnackbar />
+      {loggedIn && <BackupReminderSnackbar />}
       <QuotaExceededDialog
         open={isQuotaDialogOpen}
         onClose={() => setIsQuotaDialogOpen(false)}

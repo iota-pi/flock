@@ -22,7 +22,7 @@ export interface SyncProgressTrackerDeps {
   eventHub: ClientEventHub
   store: LastSyncedStore
   /** Counts what hasn't reached the server, without pushing anything first */
-  countUnsyncedChanges: () => Promise<UnsyncedChanges>
+  countUnpushedChanges: () => Promise<UnsyncedChanges>
   now?: () => number
 }
 
@@ -103,7 +103,7 @@ export class SyncProgressTracker {
     let changes: UnsyncedChanges
     let stored: number | null
     try {
-      [changes, stored] = await Promise.all([this.deps.countUnsyncedChanges(), this.deps.store.load()])
+      [changes, stored] = await Promise.all([this.deps.countUnpushedChanges(), this.deps.store.load()])
     } catch (error) {
       log.warn('Could not count the changes waiting to sync', error)
       return

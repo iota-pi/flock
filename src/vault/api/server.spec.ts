@@ -1,7 +1,7 @@
 import * as Sentry from '@sentry/node'
 import { CURRENT_SALT_VERSION, getDefaultKdf, PROTOCOL_VERSION_HEADER, VAULT_PROTOCOL_VERSION } from '@vault/shared'
 import DynamoDriver from '@vault/server/dynamo'
-import createServer, { getUnknownAccountParams } from './index'
+import createServer, { getUnknownAccountParams, MIN_PROTOCOL_VERSION } from './index'
 import { FLOCK_DATA_VERSION } from '../../shared/flockDataVersion'
 import { spyOnExports } from '../../utils/testUtils'
 
@@ -52,9 +52,16 @@ describe('createServer error reporting', () => {
 
       expect(response.statusCode).toBe(412)
       expect(response.json().error.message).toBe('CLIENT_OUTDATED')
+      expect(Sentry.captureException).not.toHaveBeenCalled()
+      expect(console.error).not.toHaveBeenCalled()
     } finally {
       await server.close()
     }
+  })
+
+  // CLIENT_OUTDATED isn't reported, so nothing else would show a minimum that turns away current builds
+  it('never turns away the current build', () => {
+    expect(MIN_PROTOCOL_VERSION).toBeLessThanOrEqual(VAULT_PROTOCOL_VERSION)
   })
 
   it('suppresses expected UNAUTHORIZED client errors from Sentry', async () => {

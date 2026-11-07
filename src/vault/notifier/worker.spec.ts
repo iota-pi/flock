@@ -38,7 +38,7 @@ describe('notifier worker', () => {
     topic: 'reminder-2026-10-17',
   })
 
-  it('sends the reminder payload with the message topic', async () => {
+  it('sends the reminder payload with the message topic and a TTL', async () => {
     const mockSend = sendPushNotification as unknown as ReturnType<typeof vi.fn>
     mockSend.mockResolvedValue(undefined)
 
@@ -54,7 +54,7 @@ describe('notifier worker', () => {
         icon: '/android-chrome-192x192.png',
         badge: '/badge-96x96.png',
       },
-      { topic: 'reminder-2026-10-17' },
+      { topic: 'reminder-2026-10-17', ttl: 21_600 },
     )
   })
 

@@ -119,6 +119,7 @@ Two devices can upload an `awaitingSnapshot` item at once. S2 can't help, becaus
 
 - `SnapshotManager` debounces dirty items (30s default, 5 min max wait) and uploads encrypted full Automerge binaries. Failures back off at 2s → 5s → 10s → 30s → 60s. After `MAX_CONSECUTIVE_SNAPSHOT_FAILURES` (5, `SnapshotPusher`), the item is dropped from the dirty queue.
 - When offline, the orchestrator stops polling and `SnapshotManager` halts retries. On reconnect, backoff resets and a poll runs immediately.
+- **The sync indicator counts pending marks only** (`countUnpushedChanges`). A dirty item's changes are already in the log, so showing it would report edits as waiting for the whole debounce. `getUnsyncedChanges`, for removing an account or exporting a backup, counts dirty items too: a device that hydrates after the TTL has only snapshots to go on.
 - **Poll cadence follows visibility.** The leader polls every 30s while any of the account's tabs on the device is visible, and every `hiddenPollInterval` (5 min) while none is. Failure backoff overrides both, and local edits still flush at once. When the user comes back to a tab (it becomes visible or gets focus), `SyncOrchestrator.onForeground` polls now and resets backoff, unless a poll is running or one finished in the last `foregroundPollMinGap` (10s). There's no server push: Web Push would show a notification for every nudge.
 
 ### Monotonic versions (no clock-based reconciliation)

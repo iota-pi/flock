@@ -25,6 +25,8 @@ export interface UnsyncedChanges {
 
 /** How far this device's changes have reached the server, as the worker's `syncProgress` events report it */
 export interface SyncProgress extends UnsyncedChanges {
+  /** Items with changes not yet pushed. Unlike `UnsyncedChanges`, a snapshot still to upload doesn't count. */
+  pendingItems: number
   /** When any of the account's tabs on this device last completed a sync with the server, or null if none has */
   lastSyncedAt: number | null
 }

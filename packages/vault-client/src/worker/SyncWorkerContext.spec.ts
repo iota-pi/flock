@@ -426,6 +426,16 @@ describe('SyncWorkerContext', () => {
       expect(await context.getUnsyncedChanges()).toEqual({ pendingItems: 3, quarantinedItems: 2 })
     })
 
+    it('leaves pending snapshots out of the count of unpushed changes', async () => {
+      stubPending({
+        marked: ['item-1', 'item-2'],
+        dirty: ['item-2', 'item-3'],
+        quarantined: ['item-1'],
+      })
+
+      expect(await context.countUnpushedChanges()).toEqual({ pendingItems: 1, quarantinedItems: 1 })
+    })
+
     it('still counts when the snapshot push fails', async () => {
       stubPending({ dirty: ['item-1'] })
       vi.spyOn(context.services.snapshotManager, 'flushPendingSnapshots').mockRejectedValue(new Error('offline'))

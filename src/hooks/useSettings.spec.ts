@@ -4,6 +4,7 @@ import useSettings from './useSettings'
 import type { Item } from 'src/state/items'
 import type { BackupSyncState } from '@vault/client'
 import type { ItemId } from '@vault/shared'
+import { clearBackupReminder, readBackupReminderQuietUntil } from '../app/vault/backupReminderStore'
 import * as sessionModule from '../app/vault/session'
 import * as clientModule from '@vault/client'
 import * as itemMutationsModule from '../features/items/mutations/itemMutations'
@@ -141,6 +142,7 @@ describe('useSettings backup portability', () => {
   })
 
   it('warns the user when items were skipped during export', async () => {
+    clearBackupReminder('acct-1')
     mocks.exportData.mockImplementation(async (payload: unknown) => payload)
     mocks.exportAllBinaries.mockResolvedValueOnce({
       documents: { i1: 'base64-doc' },
@@ -157,6 +159,18 @@ describe('useSettings backup portability', () => {
       message: 'Backup created, but 1 item could not be loaded.',
       severity: 'warning',
     })
+    expect(readBackupReminderQuietUntil('acct-1')).toBeNull()
+  })
+
+  it('quiets the backup reminder after a complete backup', async () => {
+    mocks.exportData.mockImplementation(async (payload: unknown) => payload)
+    const { result } = renderHook(() => useSettings(mockItems))
+
+    await act(async () => {
+      await result.current.actions.handleExport()
+    })
+
+    expect(readBackupReminderQuietUntil('acct-1')).toBeGreaterThan(Date.now())
   })
 
   it('restores metadata, binaries and timestamps, ignoring an older backup\'s cursors and pendingSync', async () => {

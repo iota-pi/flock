@@ -2,6 +2,7 @@ import { clearVaultDeviceData, lockVaultKeys, readStoredMetadata } from '@vault/
 import { createLogger } from 'src/utils/logger'
 import { useAppStore } from '../../state/store'
 import { unsubscribe as unsubscribeFromNotifications } from '../../utils/pushNotifications'
+import { clearBackupReminder } from './backupReminderStore'
 import { SyncBridge } from './syncBridge'
 
 const log = createLogger('session')
@@ -42,5 +43,6 @@ export async function removeVaultFromDevice() {
     }
   }
   await clearVaultDeviceData(account || undefined)
+  if (account) clearBackupReminder(account)
   updateAuth({ account: '', loggedIn: false })
 }

@@ -270,7 +270,7 @@ export class SyncWorkerContext {
     const syncProgress = new SyncProgressTracker({
       eventHub: clientEventHub,
       store: new LastSyncedStore(accountId),
-      countUnsyncedChanges: () => this.countUnsyncedChanges(),
+      countUnpushedChanges: () => this.countUnpushedChanges(),
     })
 
     const firstStart = new FirstStart({
@@ -890,18 +890,26 @@ export class SyncWorkerContext {
     } catch (error) {
       log.warn('Pending snapshots did not finish uploading before counting unsynced changes', error)
     }
-    return this.countUnsyncedChanges()
+    return this.countChanges(snapshotManager.tracker.getDirtyItemIds())
   }
 
-  /** Counts the items whose local changes the server may not have, without pushing anything first */
-  async countUnsyncedChanges(): Promise<UnsyncedChanges> {
-    const { snapshotManager, changeOutbox, recoveryManager } = this.services
+  /**
+   * Counts the items whose changes haven't reached the server, without pushing anything first. A
+   * snapshot still to upload doesn't count: its changes are already in the log, for other devices to pull.
+   */
+  async countUnpushedChanges(): Promise<UnsyncedChanges> {
+    return this.countChanges([])
+  }
+
+  /** Counts the items with pending marks or in `otherItemIds` once each, and quarantined items apart */
+  private async countChanges(otherItemIds: ItemId[]): Promise<UnsyncedChanges> {
+    const { changeOutbox, recoveryManager } = this.services
     const [pendingItemIds, recoveryEntries] = await Promise.all([
       changeOutbox.listPending(),
       recoveryManager.listRecoveryItems(),
     ])
     const quarantined = new Set(recoveryEntries.map(entry => entry.itemId))
-    const pending = new Set([...pendingItemIds, ...snapshotManager.tracker.getDirtyItemIds()])
+    const pending = new Set([...pendingItemIds, ...otherItemIds])
     for (const itemId of quarantined) {
       pending.delete(itemId)
     }
