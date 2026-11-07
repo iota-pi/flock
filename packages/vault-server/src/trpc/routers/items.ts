@@ -1,6 +1,6 @@
 import { router, protectedProcedure } from '../trpc'
 import { FetchSnapshotsByIdsInputSchema, PutSnapshotBatchSchema } from '@vault/shared'
-import { toFetchedItem } from '../../services/fetchedItem'
+import { limitFetchedItems, toFetchedItem } from '../../services/fetchedItem'
 import { persistSnapshots } from '../../services/snapshotService'
 
 export const itemsRouter = router({
@@ -13,8 +13,12 @@ export const itemsRouter = router({
   fetchSnapshotsByIds: protectedProcedure
     .input(FetchSnapshotsByIdsInputSchema)
     .query(async ({ ctx, input }) => {
-      const items = await ctx.vault.fetchByIds({ account: input.account, itemIds: input.itemIds })
-      return { success: true, items: items.map(toFetchedItem), serverTime: Date.now() }
+      const items = (await ctx.vault.fetchByIds({ account: input.account, itemIds: input.itemIds })).map(toFetchedItem)
+      if (input.maxResponseChars === undefined) {
+        return { success: true, items, serverTime: Date.now() }
+      }
+      const limited = limitFetchedItems(items, input.maxResponseChars)
+      return { success: true, items: limited.items, deferred: limited.deferred, serverTime: Date.now() }
     }),
 
   putSnapshots: protectedProcedure

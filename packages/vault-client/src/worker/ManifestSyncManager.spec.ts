@@ -1,3 +1,4 @@
+import { MAX_FETCH_RESPONSE_CHARS } from '@vault/shared'
 import { ManifestSyncManager } from './ManifestSyncManager'
 import { RecoveryManager } from './RecoveryManager'
 import { ClientEventHub } from './SyncEventHub'
@@ -314,6 +315,7 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
         account: 'acc-123',
         itemIds: ['item-snap', 'item-legacy', 'item-deleted'],
+        maxResponseChars: MAX_FETCH_RESPONSE_CHARS,
       }, { signal: expect.any(AbortSignal) })
 
       expect(mockDecryptBytes).toHaveBeenCalledWith({ iv: 'iv-1', cipher: 'cipher-1', kver: '1' }, 'item-snap')
@@ -386,6 +388,7 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
         account: 'acc-123',
         itemIds: ['item-3'],
+        maxResponseChars: MAX_FETCH_RESPONSE_CHARS,
       }, { signal: expect.any(AbortSignal) })
       expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-3', new Uint8Array([9, 9]), { knownToExist: false })
       expect(mockAddItemIds).toHaveBeenCalledWith(['item-3'])
@@ -454,14 +457,17 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchSnapshotsByIds).toHaveBeenNthCalledWith(1, {
         account: 'acc-123',
         itemIds: manifestEntries.slice(0, 50).map(e => e.itemId),
+        maxResponseChars: MAX_FETCH_RESPONSE_CHARS,
       }, { signal: expect.any(AbortSignal) })
       expect(mockFetchSnapshotsByIds).toHaveBeenNthCalledWith(2, {
         account: 'acc-123',
         itemIds: manifestEntries.slice(50, 100).map(e => e.itemId),
+        maxResponseChars: MAX_FETCH_RESPONSE_CHARS,
       }, { signal: expect.any(AbortSignal) })
       expect(mockFetchSnapshotsByIds).toHaveBeenNthCalledWith(3, {
         account: 'acc-123',
         itemIds: manifestEntries.slice(100, 120).map(e => e.itemId),
+        maxResponseChars: MAX_FETCH_RESPONSE_CHARS,
       }, { signal: expect.any(AbortSignal) })
     })
 
@@ -730,6 +736,7 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
         account: 'acc-123',
         itemIds: ['item-quarantined'],
+        maxResponseChars: MAX_FETCH_RESPONSE_CHARS,
       }, { signal: expect.any(AbortSignal) })
       expect(result).toEqual({ added: ['item-quarantined'], success: true })
     })
@@ -760,6 +767,7 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
         account: 'acc-123',
         itemIds: ['item-quarantined'],
+        maxResponseChars: MAX_FETCH_RESPONSE_CHARS,
       }, { signal: expect.any(AbortSignal) })
       expect(result).toEqual({ added: ['item-quarantined'], success: true })
     })
@@ -877,6 +885,7 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
         account: 'acc-123',
         itemIds: ['item-1'],
+        maxResponseChars: MAX_FETCH_RESPONSE_CHARS,
       }, { signal: expect.any(AbortSignal) })
       expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-1', new Uint8Array([1, 2, 3]), { knownToExist: true })
       expect(result).toEqual({ added: ['item-1'], success: true })
@@ -1198,6 +1207,7 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
         account: 'acc-123',
         itemIds: ['item-active-1'],
+        maxResponseChars: MAX_FETCH_RESPONSE_CHARS,
       }, { signal: expect.any(AbortSignal) })
 
       // Timestamps for tombstones must be imported so future syncs recognize them

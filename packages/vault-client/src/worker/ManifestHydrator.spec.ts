@@ -514,6 +514,42 @@ describe('ManifestHydrator', () => {
       })
     })
 
+    describe('items over the server\'s response limit', () => {
+      const ids = ['item-1', 'item-2', 'item-3'] as ItemId[]
+      const fetchParams = {
+        missingIds: ids,
+        manifest: ids.map(itemId => ({ itemId, modifiedAt: 1000 })),
+        serverTime: 1000,
+        knownSet: new Set<ItemId>(),
+        tombstoneSet: new Set<ItemId>(),
+      }
+      const tombstone = (item: string) => ({ item, metadata: { deleted: true } })
+
+      it('asks again for the items the server deferred', async () => {
+        mockApiClient.fetchSnapshotsByIds
+          .mockResolvedValueOnce({ items: [tombstone('item-1')], deferred: ['item-2', 'item-3'] })
+          .mockResolvedValueOnce({ items: [tombstone('item-2'), tombstone('item-3')], deferred: [] })
+
+        const result = await hydrator.fetchAndHydrateRemoteItems(fetchParams)
+
+        expect(result.hasFailures).toBe(false)
+        expect(mockApiClient.fetchSnapshotsByIds.mock.calls.map(([input]: any) => input.itemIds)).toEqual([
+          ids,
+          ['item-2', 'item-3'],
+        ])
+        expect(storeItemsSpy.mock.calls[0][0]).toHaveLength(3)
+      })
+
+      it('fails the sync rather than asking forever when the server defers everything', async () => {
+        mockApiClient.fetchSnapshotsByIds.mockResolvedValue({ items: [], deferred: ids })
+
+        const result = await hydrator.fetchAndHydrateRemoteItems(fetchParams)
+
+        expect(result.hasFailures).toBe(true)
+        expect(mockApiClient.fetchSnapshotsByIds).toHaveBeenCalledTimes(1)
+      })
+    })
+
     it('handles batch fetch errors gracefully by setting hasFailures', async () => {
       mockApiClient.fetchSnapshotsByIds.mockRejectedValue(new Error('Network error'))
 

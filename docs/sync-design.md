@@ -270,7 +270,7 @@ Inside the worker, components call each other through plain callbacks that `Sync
 ## Server limits
 
 - `appendLog` writes at most 99 rows and about 3.5 MB per transaction, under the `TransactWriteItems` limits, and retries with jitter on a conflict. `ChangeOutbox` sends requests within `logPushRows` and `logPushChars`.
-- `fetchSnapshotsByIds` chunks reads into groups of 100, the `BatchGetItem` limit.
+- `fetchSnapshotsByIds` chunks reads into groups of 100, the `BatchGetItem` limit. A client sends `maxResponseChars` (`MAX_FETCH_RESPONSE_CHARS`, 4 MiB), because 50 items of up to 350 KB can pass Lambda's 6 MB response limit; the server returns items until the next would pass it, always at least one, and lists the rest in `deferred`, which `ManifestHydrator` asks for next. A request that defers everything fails the sync rather than repeating forever. Requests without the field get every item, as before.
 - `UnprocessedKeys` are retried with jittered exponential backoff.
 
 ## Other recovery

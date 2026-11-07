@@ -189,4 +189,49 @@ describe('itemsRouter.fetchSnapshotsByIds', () => {
       itemIds: ['item-1'],
     })
   })
+
+  describe('with a response limit', () => {
+    const snapshotItem = (item: string, chars: number) => ({
+      account: 'acct-1',
+      item,
+      metadata: { modified: 1 },
+      snapshot: { iv: 'iv', cipher: 'c'.repeat(chars), format: 2 },
+    })
+
+    async function fetchWithLimit(maxResponseChars: number) {
+      const ctx = createContext()
+      ;(ctx.vault as any).fetchByIds = vi.fn().mockResolvedValue([
+        snapshotItem('item-1', 60),
+        snapshotItem('item-2', 60),
+        snapshotItem('item-3', 60),
+      ])
+      const caller = itemsRouter.createCaller(ctx as any)
+      return caller.fetchSnapshotsByIds({
+        account: 'acct-1',
+        itemIds: ['item-1', 'item-2', 'item-3'] as any,
+        maxResponseChars,
+      })
+    }
+
+    it('returns items until the next would pass it, deferring the rest', async () => {
+      const result = await fetchWithLimit(150)
+
+      expect(result.items.map(item => item.item)).toEqual(['item-1', 'item-2'])
+      expect(result).toMatchObject({ deferred: ['item-3'] })
+    })
+
+    it('always returns at least one item, so the client can make progress', async () => {
+      const result = await fetchWithLimit(10)
+
+      expect(result.items.map(item => item.item)).toEqual(['item-1'])
+      expect(result).toMatchObject({ deferred: ['item-2', 'item-3'] })
+    })
+
+    it('defers nothing when everything fits', async () => {
+      const result = await fetchWithLimit(1000)
+
+      expect(result.items).toHaveLength(3)
+      expect(result).toMatchObject({ deferred: [] })
+    })
+  })
 })

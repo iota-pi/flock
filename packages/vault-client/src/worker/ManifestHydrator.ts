@@ -1,4 +1,3 @@
-import { chunk } from 'lodash-es'
 
 import type { VaultDoc } from '../shared/types'
 import type { AutomergeDocStore, AutomergeIndexManager } from './docStore'
@@ -111,12 +110,13 @@ export class ManifestHydrator {
     params: FetchAndHydrateParams,
     signal?: AbortSignal,
   ): Promise<{ added: ItemId[]; hasFailures: boolean }> {
-    const batches = chunk(params.missingIds, SYNC_BATCH_SIZES.hydrationFetch)
+    const queue = [...params.missingIds]
     const fetchedItems: FetchedItem[] = []
     let hasBatchFailures = false
 
-    for (const batch of batches) {
+    while (queue.length > 0) {
       checkAlive(signal, () => this.isAlive())
+      const batch = queue.splice(0, SYNC_BATCH_SIZES.hydrationFetch)
       try {
         const response = await this.deps.apiClient.fetchSnapshotsByIds(
           {
@@ -127,6 +127,15 @@ export class ManifestHydrator {
         )
         if (response?.items && Array.isArray(response.items)) {
           fetchedItems.push(...response.items)
+          // Items over the server's response limit go in the next request
+          const requested = new Set(batch)
+          const deferred = (response.deferred ?? []).filter(itemId => requested.has(itemId))
+          if (deferred.length >= batch.length) {
+            hasBatchFailures = true
+            log.error('The server deferred every item of a snapshot batch', { batch })
+          } else {
+            queue.unshift(...deferred)
+          }
         } else {
           hasBatchFailures = true
         }

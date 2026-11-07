@@ -31,6 +31,13 @@ export const MAX_ITEM_CONTENT_BYTES = MAX_ITEM_CONTENT_KB * 1024
 export const MAX_INCREMENTAL_MESSAGE_BYTES = 256 * 1024
 
 /**
+ * The ciphertext a client asks `fetchSnapshotsByIds` to return at most, in characters. Lambda refuses
+ * responses over 6 MB, and 50 items of up to 350 KB each (more as base64) can pass that, so this
+ * leaves room for everything else in the response.
+ */
+export const MAX_FETCH_RESPONSE_CHARS = 4 * 1024 * 1024
+
+/**
  * How many days a row stays in an account's sync log.
  */
 export const SYNC_LOG_TTL_DAYS = 30
