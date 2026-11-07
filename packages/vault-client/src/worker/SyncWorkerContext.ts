@@ -471,6 +471,13 @@ export class SyncWorkerContext {
           'SyncWorkerContext:reportDecryptionFailure',
         )
       },
+      // Quarantined with the version that failed, so manifest sync skips it until the server has a newer one
+      onRepeatedHydrationError: (itemId, error, serverVersion) => {
+        fireAndForget(
+          recoveryManager.quarantine(itemId, 'unknown', error, { serverVersion }),
+          'SyncWorkerContext:quarantineRepeatedHydrationError',
+        )
+      },
       onItemSnapshotHydrated: (itemId, heads) => serverHeads.set(itemId, heads),
       // Server heads may already be past a snapshot the doc holds
       onSnapshotCovered: (itemId, heads) => {

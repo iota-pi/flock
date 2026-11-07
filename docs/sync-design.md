@@ -148,6 +148,8 @@ V_base advances only when this device pushes or hydrates a snapshot, not when th
 - Anything that can't be checked (no heads, a missing key, a doc that isn't loaded, heads that fail to decrypt) is fetched as before. A heads failure never quarantines an item. Forced syncs skip the check.
 - **Every write sets or removes `heads`** (`updateItemCommand`). Heads left from an older snapshot, paired with a newer version, would make clients skip a snapshot they need. A write without heads (older builds, tombstones, legacy writes) removes them, and the manifest leaves them out for deleted items.
 
+An item whose hydration throws (not a decryption failure, a missing key or a legacy row without a hook) at `REPEATED_ERROR_LIMIT` (3) manifest syncs in a row this session is quarantined as `unknown` with the version that failed. Otherwise it would fail every sync, no sync would count as complete, and the device level (`DataVersionTracker`) would never be recorded.
+
 A quarantined item's manual recovery entry records `serverVersion`, the server version that failed (for example a snapshot that couldn't be decrypted), as V_failed. A failed hydration doesn't advance V_base, so without it the same broken snapshot would be fetched and fail again on every manifest sync. Entries without `serverVersion` (stored before it existed, or quarantines not tied to a server version) fall back to V_base. The comparison never uses the entry's `createdAt`, which comes from this device's clock.
 
 ### Snapshot writes are intentionally LWW (no OCC)

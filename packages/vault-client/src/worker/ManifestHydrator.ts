@@ -86,9 +86,21 @@ export interface ManifestHydratorDeps {
    * rows are skipped rather than quarantined, so the app's migration app can still decode them.
    */
   onMigrationRequired?: () => void
+  /**
+   * Called for an item that failed to hydrate with an error (not a decryption failure or a missing
+   * key) at `REPEATED_ERROR_LIMIT` syncs in a row, to quarantine it. Otherwise it would fail every
+   * sync, and no sync would ever count as complete.
+   */
+  onRepeatedHydrationError?: (itemId: ItemId, error: unknown, serverVersion?: number) => void
 }
 
+/** Syncs in a row an item may fail to hydrate with an error before it's quarantined */
+export const REPEATED_ERROR_LIMIT = 3
+
 export class ManifestHydrator {
+  /** Each item's hydration errors in a row this session. Any other outcome clears its count. */
+  private readonly consecutiveErrors = new Map<ItemId, number>()
+
   constructor(private readonly deps: ManifestHydratorDeps) {}
 
   private isAlive(): boolean {
@@ -168,6 +180,7 @@ export class ManifestHydrator {
     )
 
     for (const result of results) {
+      if (result.status !== 'error') this.consecutiveErrors.delete(result.itemId)
       switch (result.status) {
         case 'success':
           if (result.hydratedId) {
@@ -193,13 +206,21 @@ export class ManifestHydrator {
           )
           this.deps.onDecryptionFailure?.(result.itemId, result.error, manifestById.get(result.itemId)?.version)
           break
-        case 'error':
+        case 'error': {
           hasHydrationFailures = true
           log.error('Failed to hydrate fetched item envelope', {
             itemId: result.itemId,
             error: result.error,
           })
+          const errors = (this.consecutiveErrors.get(result.itemId) ?? 0) + 1
+          if (errors >= REPEATED_ERROR_LIMIT) {
+            this.consecutiveErrors.delete(result.itemId)
+            this.deps.onRepeatedHydrationError?.(result.itemId, result.error, manifestById.get(result.itemId)?.version)
+          } else {
+            this.consecutiveErrors.set(result.itemId, errors)
+          }
           break
+        }
         case 'key_unavailable':
           // Not quarantined, and this sync doesn't count as complete, so the next one fetches it again
           hasHydrationFailures = true

@@ -1,4 +1,4 @@
-import { ManifestHydrator } from './ManifestHydrator'
+import { ManifestHydrator, REPEATED_ERROR_LIMIT } from './ManifestHydrator'
 import type { ItemId, ManifestEntry } from '@vault/shared'
 
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
@@ -454,6 +454,64 @@ describe('ManifestHydrator', () => {
       expect(result.hasFailures).toBe(true)
       expect(onDecryptionFailureSpy).not.toHaveBeenCalled()
       expect(mockSnapshotTracker.importVersions).not.toHaveBeenCalled()
+    })
+
+    describe('an item that keeps failing with an error', () => {
+      const params = () => ({
+        missingIds: ['item-err' as ItemId],
+        manifest: [{ itemId: 'item-err' as ItemId, version: 7, modifiedAt: 1000 }],
+        serverTime: 1000,
+        knownSet: new Set<ItemId>(),
+        tombstoneSet: new Set<ItemId>(),
+      })
+      let onRepeatedHydrationError: any
+
+      beforeEach(() => {
+        onRepeatedHydrationError = vi.fn()
+        hydrator = new ManifestHydrator({
+          accountId: 'acc-test',
+          apiClient: mockApiClient,
+          docStore: mockDocStore,
+          indexManager: mockIndexManager,
+          snapshotTracker: mockSnapshotTracker,
+          keys,
+          storeItems: storeItemsSpy,
+          isShutdown: () => false,
+          onRepeatedHydrationError,
+        })
+        mockApiClient.fetchSnapshotsByIds.mockResolvedValue({
+          items: [{ item: 'item-err', snapshot: { iv: 'iv', cipher: 'cipher' } }],
+        })
+        mockDecryptBytes.mockResolvedValue(new Uint8Array([1]))
+      })
+
+      it('is quarantined with its version once it has failed at several syncs in a row', async () => {
+        mockDocStore.hydrateAutomergeDocumentBinary.mockRejectedValue(new Error('corrupt doc'))
+
+        for (let attempt = 1; attempt < REPEATED_ERROR_LIMIT; attempt += 1) {
+          await hydrator.fetchAndHydrateRemoteItems(params())
+        }
+        expect(onRepeatedHydrationError).not.toHaveBeenCalled()
+
+        const result = await hydrator.fetchAndHydrateRemoteItems(params())
+
+        expect(result.hasFailures).toBe(true)
+        expect(onRepeatedHydrationError).toHaveBeenCalledWith('item-err', expect.any(Error), 7)
+      })
+
+      it('starts counting again after it hydrates', async () => {
+        mockDocStore.hydrateAutomergeDocumentBinary
+          .mockRejectedValueOnce(new Error('corrupt doc'))
+          .mockRejectedValueOnce(new Error('corrupt doc'))
+          .mockResolvedValueOnce({ hasLocalChanges: false })
+          .mockRejectedValue(new Error('corrupt doc'))
+
+        for (let attempt = 0; attempt < REPEATED_ERROR_LIMIT + 1; attempt += 1) {
+          await hydrator.fetchAndHydrateRemoteItems(params())
+        }
+
+        expect(onRepeatedHydrationError).not.toHaveBeenCalled()
+      })
     })
 
     it('handles batch fetch errors gracefully by setting hasFailures', async () => {

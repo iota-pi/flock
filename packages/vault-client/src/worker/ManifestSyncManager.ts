@@ -37,6 +37,8 @@ export interface ManifestSyncManagerDeps {
   onKeyVersionMissing?: (kver: string) => void
   storeItems: (items: VaultDoc[], options?: StoreItemsOptions) => Promise<void>
   onDecryptionFailure?: (itemId: ItemId, error: unknown, serverVersion?: number) => void
+  /** Called for an item that keeps failing to hydrate with an error (see ManifestHydratorDeps) */
+  onRepeatedHydrationError?: (itemId: ItemId, error: unknown, serverVersion?: number) => void
   onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void
   /** Called with a server snapshot the local doc already holds, which wasn't fetched */
   onSnapshotCovered?: (itemId: ItemId, heads: string[]) => void
@@ -81,6 +83,7 @@ export class ManifestSyncManager {
       keys: this.deps.keys,
       storeItems: this.deps.storeItems,
       onDecryptionFailure: this.deps.onDecryptionFailure,
+      onRepeatedHydrationError: this.deps.onRepeatedHydrationError,
       onItemSnapshotHydrated: this.deps.onItemSnapshotHydrated,
       onLocalChangesFound: this.deps.onLocalChangesFound,
       onKeyVersionMissing: this.deps.onKeyVersionMissing,
