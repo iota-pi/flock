@@ -113,9 +113,11 @@ describe('migration', () => {
     vi.mocked(reencryptAllItems).mockResolvedValue({ succeeded: [], failed: [] })
     const onProgress = vi.fn()
 
-    await reencryptOutdatedItems('acct-1', ['passwordDerivedDataKey'], onProgress)
+    const options = { waitTimeoutMs: 1000 }
 
-    expect(reencryptAllItems).toHaveBeenCalledWith(MigrationBridge, 'acct-1', onProgress)
+    await reencryptOutdatedItems('acct-1', ['passwordDerivedDataKey'], onProgress, options)
+
+    expect(reencryptAllItems).toHaveBeenCalledWith(MigrationBridge, 'acct-1', onProgress, options)
     expect(MigrationBridge.reencryptAllItems).not.toHaveBeenCalled()
   })
 
@@ -126,7 +128,7 @@ describe('migration', () => {
 
     await reencryptOutdatedItems('acct-1', ['passwordDerivedDataKey'], onProgress)
 
-    expect(MigrationBridge.reencryptAllItems).toHaveBeenCalledWith(onProgress)
+    expect(MigrationBridge.reencryptAllItems).toHaveBeenCalledWith(onProgress, {})
     expect(reencryptAllItems).not.toHaveBeenCalled()
   })
 
@@ -137,7 +139,7 @@ describe('migration', () => {
 
     await reencryptOutdatedItems('acct-1', ['unboundSnapshots'], onProgress)
 
-    expect(MigrationBridge.reencryptAllItems).toHaveBeenCalledWith(onProgress)
+    expect(MigrationBridge.reencryptAllItems).toHaveBeenCalledWith(onProgress, {})
     expect(reencryptAllItems).not.toHaveBeenCalled()
   })
 

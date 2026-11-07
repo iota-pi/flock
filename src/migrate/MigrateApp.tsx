@@ -11,7 +11,13 @@ import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
-import { type DataVersionStatus, readStoredMetadata } from '@vault/client'
+import {
+  type DataVersionStatus,
+  readStoredMetadata,
+  reencryptionWaitStage,
+  type ReencryptStage,
+  type SyncDiagnostics,
+} from '@vault/client'
 import { createLogger } from 'src/utils/logger'
 import { usePasswordStrength } from '../hooks/usePasswordStrength'
 import { deferMigration, MIN_DEVICE_DATA_VERSION, readMigrationHandoff } from './detection'
@@ -34,6 +40,19 @@ const log = createLogger('MigrateApp')
 export const POLL_INTERVAL_MS = 5000
 /** Idle polls without progress before the remaining blockers are shown */
 const POLLS_BEFORE_BLOCKED = 6
+/**
+ * How long the update may go without progress (a change in the levels, the blockers or the
+ * re-encryption) before it's shown as stuck, whatever it's waiting on
+ */
+export const STALL_TIMEOUT_MS = 5 * 60 * 1000
+/** How long re-encryption waits for this tab to lead, and for first start, before giving up */
+export const REENCRYPT_WAIT_TIMEOUT_MS = 60 * 1000
+
+/**
+ * Why the update stopped: blockers left once everything has run, another tab holding the sync
+ * leadership, sync never settling, or the server not answering
+ */
+type BlockedReason = 'blockers' | 'anotherTab' | 'syncStalled' | 'serverUnreachable'
 
 type Phase =
   | { kind: 'login' }
@@ -41,10 +60,28 @@ type Phase =
   // The password has been changed, but sync didn't start: retrying must not change it again
   | { kind: 'syncNotStarted' }
   | { kind: 'running', status: DataVersionStatus | null }
-  | { kind: 'blocked', status: DataVersionStatus }
+  | { kind: 'blocked', status: DataVersionStatus | null, reason: BlockedReason }
   | { kind: 'finishing' }
 
 type ReencryptionProgress = { done: number, total: number }
+
+function waitFailureReason(stage: ReencryptStage | null): BlockedReason {
+  return stage === 'waitingForLeader' ? 'anotherTab' : 'syncStalled'
+}
+
+const BLOCKED_MESSAGES: Record<Exclude<BlockedReason, 'blockers'>, string> = {
+  anotherTab: 'Flock is open in another tab or window on this device, which is stopping the update. Close it, then try again.',
+  syncStalled: 'Your data could not finish syncing with the server, so the update could not continue.',
+  serverUnreachable: 'Flock could not reach the server to check on the update.',
+}
+
+async function readSyncDiagnostics(): Promise<SyncDiagnostics | null> {
+  try {
+    return await MigrationBridge.getSyncDiagnostics()
+  } catch {
+    return null
+  }
+}
 
 function initialAccount(): string {
   return readMigrationHandoff() ?? readStoredMetadata()?.account ?? ''
@@ -63,9 +100,16 @@ export default function MigrateApp() {
   const [reencryption, setReencryption] = useState<ReencryptionProgress | null>(null)
   // The password the user logged in with, kept only until the new one is set, to tell them apart
   const [currentPassword, setCurrentPassword] = useState('')
+  const [reencryptStage, setReencryptStage] = useState<ReencryptStage | null>(null)
   // Re-encryption runs at most once per attempt; anything left is reported as blocked
   const reencryptionStartedRef = useRef(false)
   const reencryptionRunningRef = useRef(false)
+  // Cancels the run in flight, so that Try again starts a new one rather than joining a stuck one
+  const reencryptionAbortRef = useRef<AbortController | null>(null)
+  const reencryptStageRef = useRef<ReencryptStage | null>(null)
+  const reencryptionDoneRef = useRef(0)
+  // Set when the run gave up waiting, which ends the attempt with that reason
+  const reencryptionWaitFailureRef = useRef<BlockedReason | null>(null)
   const { score: newPasswordScore, error: newPasswordStrengthError } = usePasswordStrength(newPassword)
   const syncState = useSyncExternalStore(subscribeSyncState, getSyncState)
   const clientOutdatedWarning = useSyncExternalStore(subscribeClientOutdatedWarning, getClientOutdatedWarning)
@@ -175,23 +219,59 @@ export default function MigrateApp() {
     }
   }, [startSync])
 
+  const updateReencryptStage = useCallback((stage: ReencryptStage | null) => {
+    reencryptStageRef.current = stage
+    setReencryptStage(stage)
+  }, [])
+
+  const clearReencryption = useCallback(() => {
+    reencryptionAbortRef.current = null
+    reencryptionRunningRef.current = false
+    setReencryption(null)
+    updateReencryptStage(null)
+  }, [updateReencryptStage])
+
+  /** Stops the run in flight in the worker too, which has changed nothing if it was still waiting */
+  const cancelReencryption = useCallback(() => {
+    reencryptionAbortRef.current?.abort()
+    clearReencryption()
+  }, [clearReencryption])
+
   const reencrypt = useCallback(async (blockers: string[]) => {
     reencryptionStartedRef.current = true
     reencryptionRunningRef.current = true
+    reencryptionDoneRef.current = 0
+    const controller = new AbortController()
+    reencryptionAbortRef.current = controller
     setReencryption({ done: 0, total: 0 })
     try {
-      const { failed } = await reencryptOutdatedItems(account, blockers, (done, total) => setReencryption({ done, total }))
+      const onProgress = (done: number, total: number) => {
+        reencryptionDoneRef.current = done
+        setReencryption({ done, total })
+      }
+      const { failed } = await reencryptOutdatedItems(account, blockers, onProgress, {
+        waitTimeoutMs: REENCRYPT_WAIT_TIMEOUT_MS,
+        signal: controller.signal,
+        onStage: updateReencryptStage,
+      })
       if (failed.length > 0) {
         Sentry.captureMessage('Migration re-encryption failed for some items', { extra: { failed: failed.length } })
       }
     } catch (err) {
-      log.warn('Re-encryption failed', err)
-      Sentry.captureException(err)
+      if (controller.signal.aborted) return
+      const waitStage = reencryptionWaitStage(err)
+      if (waitStage) {
+        log.warn('Re-encryption gave up waiting', err)
+        reencryptionWaitFailureRef.current = waitFailureReason(waitStage)
+      } else {
+        log.warn('Re-encryption failed', err)
+        Sentry.captureException(err)
+      }
     } finally {
-      reencryptionRunningRef.current = false
-      setReencryption(null)
+      // A cancelled run's state went when it was cancelled, and a new run may own it now
+      if (reencryptionAbortRef.current === controller) clearReencryption()
     }
-  }, [account])
+  }, [account, clearReencryption, updateReencryptStage])
 
   const isRunning = phase.kind === 'running'
   useEffect(() => {
@@ -199,12 +279,40 @@ export default function MigrateApp() {
 
     let idlePolls = 0
     let cancelled = false
+    let lastStatus: DataVersionStatus | null = null
+    // Sync status is left out: one that keeps flipping between syncing and failing isn't progress
+    let lastProgress = ''
+    let lastProgressAt = Date.now()
+    const isStalled = () => Date.now() - lastProgressAt >= STALL_TIMEOUT_MS
+
+    const block = (status: DataVersionStatus | null, reason: BlockedReason) => {
+      cancelled = true
+      const stage = reencryptStageRef.current
+      const syncStatus = syncStatusRef.current
+      if (reason !== 'blockers') cancelReencryption()
+      setPhase({ kind: 'blocked', status, reason })
+      void readSyncDiagnostics().then(diagnostics => {
+        Sentry.captureMessage('Migration blocked', {
+          extra: {
+            reason,
+            blockers: status?.blockers,
+            device: status?.device,
+            account: status?.account,
+            syncStatus,
+            stage,
+            diagnostics,
+          },
+        })
+      })
+    }
+
     const poll = async () => {
       let status: DataVersionStatus
       try {
         status = await MigrationBridge.checkDataVersion()
       } catch (err) {
         log.warn('Failed to check the data version', err)
+        if (!cancelled && isStalled()) block(lastStatus, 'serverUnreachable')
         return
       }
       if (cancelled) return
@@ -212,6 +320,19 @@ export default function MigrateApp() {
         void finish()
         return
       }
+      lastStatus = status
+      const progress = JSON.stringify([
+        status.device,
+        status.account,
+        status.blockers,
+        reencryptStageRef.current,
+        reencryptionDoneRef.current,
+      ])
+      if (progress !== lastProgress) {
+        lastProgress = progress
+        lastProgressAt = Date.now()
+      }
+
       // Waits until local data is migrated and sync has settled, so a rewrite still in progress
       // isn't reported as blocked
       const settled = status.device >= MIN_DEVICE_DATA_VERSION && syncStatusRef.current === 'idle'
@@ -219,10 +340,19 @@ export default function MigrateApp() {
         // Every item is local once sync has settled, so all of them get re-encrypted
         void reencrypt(status.blockers)
       }
+      const waitFailure = reencryptionWaitFailureRef.current
+      if (waitFailure) {
+        block(status, waitFailure)
+        return
+      }
       idlePolls = settled && !reencryptionRunningRef.current ? idlePolls + 1 : 0
       if (idlePolls >= POLLS_BEFORE_BLOCKED) {
-        Sentry.captureMessage('Migration blocked', { extra: { blockers: status.blockers } })
-        setPhase({ kind: 'blocked', status })
+        block(status, 'blockers')
+        return
+      }
+      // Whatever it's waiting on, an update that has stopped moving ends rather than polling forever
+      if (isStalled()) {
+        block(status, waitFailureReason(reencryptStageRef.current))
         return
       }
       setPhase({ kind: 'running', status })
@@ -233,17 +363,20 @@ export default function MigrateApp() {
       cancelled = true
       clearInterval(interval)
     }
-  }, [finish, isRunning, reencrypt])
+  }, [cancelReencryption, finish, isRunning, reencrypt])
 
   const handleRetry = useCallback(async () => {
+    // A stuck run would otherwise be shared by the next one, which would wait on it too
+    cancelReencryption()
     reencryptionStartedRef.current = false
+    reencryptionWaitFailureRef.current = null
     setPhase({ kind: 'running', status: null })
     try {
       await MigrationBridge.fullResync()
     } catch (err) {
       log.warn('Full resync failed', err)
     }
-  }, [])
+  }, [cancelReencryption])
 
   const handleContinueAnyway = useCallback(async () => {
     deferMigration(account)
@@ -252,7 +385,9 @@ export default function MigrateApp() {
 
   // The main app can't log in to an account still on the old key derivation, so deferring then
   // would only bring the user straight back here
-  const canContinueAnyway = phase.kind === 'blocked' && !phase.status.blockers.includes('legacyKeyDerivation')
+  const canContinueAnyway = phase.kind === 'blocked'
+    && phase.status !== null
+    && !phase.status.blockers.includes('legacyKeyDerivation')
 
   return (
     <Container maxWidth="sm">
@@ -382,6 +517,16 @@ export default function MigrateApp() {
                     </>
                   )
                   : <LinearProgress />}
+                {phase.kind === 'running' && reencryptStage === 'waitingForLeader' && (
+                  <Typography variant="body2" color="text.secondary">
+                    Waiting for Flock to close in your other tabs or windows…
+                  </Typography>
+                )}
+                {phase.kind === 'running' && reencryptStage === 'waitingForSync' && (
+                  <Typography variant="body2" color="text.secondary">
+                    Waiting for your data to finish syncing…
+                  </Typography>
+                )}
                 {phase.kind === 'running' && phase.status && phase.status.blockers.length > 0 && (
                   <Typography variant="body2" color="text.secondary">
                     Still to update: {phase.status.blockers.map(describeBlocker).join(', ')}
@@ -394,7 +539,12 @@ export default function MigrateApp() {
             {phase.kind === 'blocked' && (
               <>
                 <Alert severity="warning">
-                  Some of your data could not be updated: {phase.status.blockers.map(describeBlocker).join(', ')}.
+                  {phase.reason === 'blockers'
+                    ? `Some of your data could not be updated: ${(phase.status?.blockers ?? []).map(describeBlocker).join(', ')}.`
+                    : BLOCKED_MESSAGES[phase.reason]}
+                  {phase.reason !== 'blockers' && phase.status && phase.status.blockers.length > 0 && (
+                    ` Still to update: ${phase.status.blockers.map(describeBlocker).join(', ')}.`
+                  )}
                 </Alert>
                 <Typography>
                   {canContinueAnyway
