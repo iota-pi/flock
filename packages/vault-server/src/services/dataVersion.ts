@@ -9,13 +9,22 @@ import type { VaultAccount, VaultDriver } from '../drivers/vaultDriver'
 export interface DataVersionPolicy {
   /** The version new accounts start at and migrated accounts are raised to */
   current: number
-  /** Why the account's data can't be at `current` yet, as short codes. Empty when it can. */
-  findBlockers(input: { account: string, accountData: VaultAccount, vault: VaultDriver }): Promise<string[]>
+  /** Why the account's data can't be at `current` yet. Empty `blockers` when it can. */
+  findBlockers(input: { account: string, accountData: VaultAccount, vault: VaultDriver }): Promise<BlockerReport>
 }
 
-export interface RaiseDataVersionResult {
-  dataVersion: number
+export interface BlockerReport {
+  /** Short codes for what still holds the account back */
   blockers: string[]
+  /**
+   * How many live items each item-level blocker still covers, so a client can tell a run that
+   * stopped partway from one that never started. Account-level blockers have no count.
+   */
+  blockedItems?: Record<string, number>
+}
+
+export interface RaiseDataVersionResult extends BlockerReport {
+  dataVersion: number
 }
 
 export async function raiseDataVersion(
@@ -31,9 +40,9 @@ export async function raiseDataVersion(
     return { dataVersion, blockers: [] }
   }
 
-  const blockers = await policy.findBlockers({ account, accountData, vault })
-  if (blockers.length > 0) {
-    return { dataVersion, blockers }
+  const report = await policy.findBlockers({ account, accountData, vault })
+  if (report.blockers.length > 0) {
+    return { dataVersion, ...report }
   }
 
   await vault.raiseDataVersion({ account, dataVersion: policy.current })

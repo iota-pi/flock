@@ -24,7 +24,7 @@ import { deferMigration, MIN_DEVICE_DATA_VERSION, readMigrationHandoff } from '.
 import {
   beginSync,
   changeToArgon2id,
-  describeBlocker,
+  describeBlockers,
   finishMigration,
   isMigrationComplete,
   needsReencryption,
@@ -529,7 +529,7 @@ export default function MigrateApp() {
                 )}
                 {phase.kind === 'running' && phase.status && phase.status.blockers.length > 0 && (
                   <Typography variant="body2" color="text.secondary">
-                    Still to update: {phase.status.blockers.map(describeBlocker).join(', ')}
+                    Still to update: {describeBlockers(phase.status)}
                   </Typography>
                 )}
                 {syncState.warning && <Alert severity="warning">{syncState.warning}</Alert>}
@@ -540,10 +540,10 @@ export default function MigrateApp() {
               <>
                 <Alert severity="warning">
                   {phase.reason === 'blockers'
-                    ? `Some of your data could not be updated: ${(phase.status?.blockers ?? []).map(describeBlocker).join(', ')}.`
+                    ? `Some of your data could not be updated: ${phase.status ? describeBlockers(phase.status) : ''}.`
                     : BLOCKED_MESSAGES[phase.reason]}
                   {phase.reason !== 'blockers' && phase.status && phase.status.blockers.length > 0 && (
-                    ` Still to update: ${phase.status.blockers.map(describeBlocker).join(', ')}.`
+                    ` Still to update: ${describeBlockers(phase.status)}.`
                   )}
                 </Alert>
                 <Typography>

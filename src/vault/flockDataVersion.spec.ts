@@ -12,7 +12,7 @@ const migratedAccount = {
   keyringVersion: 2,
 }
 
-function findBlockers(accountData: Record<string, unknown> = {}, items: Partial<ItemFormatSummary>[] = []) {
+function findReport(accountData: Record<string, unknown> = {}, items: Partial<ItemFormatSummary>[] = []) {
   const vault = {
     listItemFormats: vi.fn(async () => items.map((item, index) => ({
       itemId: `item-${index}`,
@@ -31,7 +31,29 @@ function findBlockers(accountData: Record<string, unknown> = {}, items: Partial<
   })
 }
 
+async function findBlockers(accountData: Record<string, unknown> = {}, items: Partial<ItemFormatSummary>[] = []) {
+  return (await findReport(accountData, items)).blockers
+}
+
 describe('flockDataVersionPolicy', () => {
+  it('counts the live items each item-level blocker still covers', async () => {
+    const report = await findReport({ keyringVersion: 2 }, [
+      { snapshotKver: '1' },
+      { snapshotKver: '1', snapshotFormat: undefined },
+      { hasSnapshot: false, hasCipher: true },
+      { deleted: true, snapshotKver: '1' },
+      {},
+    ])
+
+    expect(report.blockedItems).toEqual({ unboundSnapshots: 1, legacyCipherItems: 1, passwordDerivedDataKey: 2 })
+  })
+
+  it('reports no items under v1 when only the key itself is still v1', async () => {
+    const report = await findReport({ keyringVersion: 1 })
+
+    expect(report).toEqual({ blockers: ['passwordDerivedDataKey'], blockedItems: { passwordDerivedDataKey: 0 } })
+  })
+
   it('finds nothing to migrate for an account on the current formats', async () => {
     await expect(findBlockers({ metadata: {} }, [{}, { deleted: true, hasSnapshot: false }])).resolves.toEqual([])
   })

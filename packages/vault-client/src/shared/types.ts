@@ -45,6 +45,8 @@ export interface DataVersionStatus {
   account: number
   /** What still holds the account below the app's current level */
   blockers: string[]
+  /** How many live items each item-level blocker still covers, when the server says */
+  blockedItems?: Record<string, number>
 }
 
 /** The items re-encrypted under the active data key, and those that couldn't be */

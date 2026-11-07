@@ -150,3 +150,13 @@ const BLOCKER_DESCRIPTIONS: Record<string, string> = {
 export function describeBlocker(blocker: string): string {
   return BLOCKER_DESCRIPTIONS[blocker] ?? blocker
 }
+
+/** Describes what's left, with how many items each blocker still covers when the server says */
+export function describeBlockers(status: Pick<DataVersionStatus, 'blockers' | 'blockedItems'>): string {
+  return status.blockers.map(blocker => {
+    const count = status.blockedItems?.[blocker]
+    const description = describeBlocker(blocker)
+    if (!count) return description
+    return `${description} (${count} ${count === 1 ? 'item' : 'items'})`
+  }).join(', ')
+}

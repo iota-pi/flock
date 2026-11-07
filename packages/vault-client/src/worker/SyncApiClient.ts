@@ -148,7 +148,7 @@ export class SyncApiClient {
     ))
   }
 
-  async raiseDataVersion(input: { account: string }): Promise<{ dataVersion: number, blockers: string[] }> {
+  async raiseDataVersion(input: { account: string }): Promise<{ dataVersion: number, blockers: string[], blockedItems?: Record<string, number> }> {
     return this.executeWithAuth(() => raiseDataVersion(input.account))
   }
 

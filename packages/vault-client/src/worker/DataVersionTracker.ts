@@ -26,7 +26,7 @@ export interface DataVersionTrackerDeps {
   /** The app's current data version (`SyncDomain.dataVersion`). 0 disables tracking. */
   dataVersion: number
   /** Asks the server to raise the account's data version (`accounts.raiseDataVersion`) */
-  raiseAccountDataVersion: () => Promise<{ dataVersion: number, blockers: string[] }>
+  raiseAccountDataVersion: () => Promise<{ dataVersion: number, blockers: string[], blockedItems?: Record<string, number> }>
   /**
    * The highest level this device's local data has reached, when some of it is still in an older
    * layout (such as plaintext stores not yet retired). The recorded level never exceeds it.
@@ -64,8 +64,8 @@ export class DataVersionTracker {
   /** Reads the device level and asks the server to raise the account level, reporting both */
   async checkStatus(): Promise<DataVersionStatus> {
     const device = await readDeviceDataVersion(this.deps.accountId)
-    const { dataVersion, blockers } = await this.deps.raiseAccountDataVersion()
-    return { device, account: dataVersion, blockers }
+    const { dataVersion, blockers, blockedItems } = await this.deps.raiseAccountDataVersion()
+    return { device, account: dataVersion, blockers, ...(blockedItems ? { blockedItems } : {}) }
   }
 
   async onSnapshotsUpgraded(): Promise<void> {
