@@ -5,6 +5,7 @@ import { spyOnExports } from '../../test/moduleMocks'
 
 const SyncBridge = {
   updateVaultKey: vi.fn().mockResolvedValue(undefined),
+  prepareReencryption: vi.fn().mockResolvedValue(undefined),
   reencryptAllItems: vi.fn().mockImplementation(async (onProgress?: (done: number, total: number) => void) => {
     if (onProgress) {
       onProgress(5, 10)
@@ -38,11 +39,38 @@ describe('reencryptAllItems coordinator', () => {
     expect(rotateVaultKey).toHaveBeenCalledTimes(1)
     expect(exportKeyringData).toHaveBeenCalledTimes(1)
     expect(SyncBridge.updateVaultKey).toHaveBeenCalledWith('mock-keyring-data')
-    expect(SyncBridge.reencryptAllItems).toHaveBeenCalledWith(onProgress)
+    expect(SyncBridge.reencryptAllItems).toHaveBeenCalledWith(onProgress, {})
     expect(progressCalls).toEqual([
       [5, 10],
       [10, 10],
     ])
+    expect(localStorage.getItem(`${REENCRYPT_PENDING_KEY_PREFIX}test-account`)).toBeNull()
+  })
+
+  it('waits until the worker could push before rotating, passing the options through', async () => {
+    const order: string[] = []
+    vi.mocked(SyncBridge.prepareReencryption).mockImplementationOnce(async () => {
+      order.push('prepare')
+    })
+    vi.mocked(rotateVaultKey).mockImplementationOnce(async () => {
+      order.push('rotate')
+    })
+    const options = { waitTimeoutMs: 1000 }
+
+    await reencryptAllItems(SyncBridge, 'test-account', undefined, options)
+
+    expect(order).toEqual(['prepare', 'rotate'])
+    expect(SyncBridge.prepareReencryption).toHaveBeenCalledWith(options)
+    expect(SyncBridge.reencryptAllItems).toHaveBeenCalledWith(expect.any(Function), options)
+  })
+
+  it('changes nothing when the worker cannot push yet', async () => {
+    vi.mocked(SyncBridge.prepareReencryption).mockRejectedValueOnce(new Error('waiting for the leader'))
+
+    await expect(reencryptAllItems(SyncBridge, 'test-account')).rejects.toThrow('waiting for the leader')
+
+    expect(rotateVaultKey).not.toHaveBeenCalled()
+    expect(SyncBridge.reencryptAllItems).not.toHaveBeenCalled()
     expect(localStorage.getItem(`${REENCRYPT_PENDING_KEY_PREFIX}test-account`)).toBeNull()
   })
 
