@@ -72,6 +72,13 @@ export type PutSnapshotResultItem = z.infer<typeof PutSnapshotResultItemSchema>
 export const FetchSnapshotsByIdsInputSchema = z.object({
   account: z.string().min(1),
   itemIds: z.array(ItemIdSchema).min(1).max(50),
+  /**
+   * Caps the response at about this many characters of ciphertext: the server returns items in the
+   * requested order until the next would pass it (always at least one), and lists the rest in
+   * `deferred` for the client to ask for again. Without it, every item comes back however large,
+   * which can pass Lambda's response limit. Servers from before it ignore it.
+   */
+  maxResponseChars: z.number().int().min(1).optional(),
 })
 
 const SyncEncryptedMessageSchema = (

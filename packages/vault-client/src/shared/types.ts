@@ -45,10 +45,49 @@ export interface DataVersionStatus {
   account: number
   /** What still holds the account below the app's current level */
   blockers: string[]
+  /** How many live items each item-level blocker still covers, when the server says */
+  blockedItems?: Record<string, number>
 }
 
 /** The items re-encrypted under the active data key, and those that couldn't be */
 export interface ReencryptResult {
   succeeded: ItemId[]
   failed: Array<{ itemId: ItemId; error: string }>
+}
+
+/**
+ * What a re-encryption is doing: waiting for this tab to lead (only the leader pushes), waiting for
+ * first start to allow pushes, or rewriting snapshots
+ */
+export type ReencryptStage = 'waitingForLeader' | 'waitingForSync' | 'reencrypting'
+
+/** Options for a re-encryption run, or for preparing one */
+export interface ReencryptOptions {
+  /**
+   * How long to wait for leadership and for first start before giving up with a
+   * `ReencryptionWaitError`. Without it, a run waits as long as it takes.
+   */
+  waitTimeoutMs?: number
+}
+
+/** Options for a re-encryption called from the main thread */
+export interface ReencryptCallOptions extends ReencryptOptions {
+  /** Called whenever the run's stage changes, and with null once it stops */
+  onStage?: (stage: ReencryptStage | null) => void
+  /** Aborting it stops the run in the worker (and any retry it scheduled), and rejects the call */
+  signal?: AbortSignal
+}
+
+/** What the worker's session is waiting on, for a migration app to report when it stalls */
+export interface SyncDiagnostics {
+  isLeader: boolean
+  isOnline: boolean
+  /** Whether first start's network part has finished on this device */
+  firstStartSynced: boolean
+  /** Whether first start lets pushes go ahead (its manifest sync has run) */
+  firstStartReadyToPush: boolean
+  /** Why first start's network part last failed, or null */
+  firstStartError: string | null
+  /** The stage of the re-encryption running now, or null */
+  reencryptStage: ReencryptStage | null
 }

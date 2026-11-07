@@ -42,12 +42,16 @@ export type { SyncStateSink, SyncTelemetry } from './client/host'
 export type {
   DataVersionStatus,
   MigrationRequiredReason,
+  ReencryptCallOptions,
+  ReencryptStage,
+  SyncDiagnostics,
   SyncProgress,
   SyncStatus,
   UnsyncedChanges,
   VaultDoc,
   VaultMetadata,
 } from './shared/types'
+export { ReencryptionWaitError, reencryptionWaitStage } from './shared/reencryptionWaitError'
 export { BackupSyncStateSchema, type BackupSyncState } from './shared/backupSyncState'
 export type { ManualRecoveryEntry, ManualRecoveryKind } from './shared/manualRecoveryStore'
 export { getOnlineState } from './utils/onlineStatus'

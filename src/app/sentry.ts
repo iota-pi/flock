@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/react'
 import { CLIENT_OUTDATED_MESSAGE } from '@vault/shared'
+import env from '../env'
 
 export const NETWORK_ERROR_MATCHERS: Array<string | RegExp> = [
   'Failed to fetch',
@@ -70,8 +71,8 @@ export type SentryInitOptions = Parameters<typeof Sentry.init>[0]
 
 export function getAppSentryConfig({ app }: AppSentryOptions): SentryInitOptions {
   return {
-    dsn: import.meta.env.VITE_SENTRY_DSN,
-    environment: import.meta.env.MODE,
+    dsn: env.SENTRY_DSN,
+    environment: env.ENVIRONMENT,
     release: import.meta.env.VITE_RELEASE || undefined,
     tracesSampleRate: 0.0,
     ignoreErrors: [...NETWORK_ERROR_MATCHERS, CLIENT_OUTDATED_MESSAGE],

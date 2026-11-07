@@ -1,4 +1,4 @@
-import type { MigrationRequiredReason, SyncProgress, SyncStatus, VaultDoc, VaultMetadata } from '../shared/types'
+import type { MigrationRequiredReason, ReencryptStage, SyncProgress, SyncStatus, VaultDoc, VaultMetadata } from '../shared/types'
 import type { ItemId } from '@vault/shared'
 import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import { createLogger } from '../utils/logger'
@@ -23,6 +23,8 @@ export type ClientEvent =
   | { type: 'leaderConflict'; hasConflict: boolean }
   | { type: 'tokenRefreshNeeded' }
   | { type: 'reencryptProgress'; done: number; total: number }
+  /** The re-encryption in flight moved to `stage`, or stopped (null) */
+  | { type: 'reencryptStage'; stage: ReencryptStage | null }
   | { type: 'migrationRequired'; reason: MigrationRequiredReason }
   /** The worker is about to delete the plaintext stores the sealed ones replaced (see LocalEncryptionUpgrade) */
   | { type: 'retiringLegacyStores'; accountId: string }

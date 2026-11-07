@@ -10,7 +10,7 @@ import { isClientOutdatedError } from '@vault/shared'
 import type { FirstStart } from './FirstStart'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { RetryTimer } from '../utils/RetryTimer'
-import { checkAlive, isAbortError, untilAborted } from '../utils/abort'
+import { AbortError, checkAlive, isAbortError, untilAborted, withTimeout } from '../utils/abort'
 import { errorMessage } from '../utils/errorMessage'
 import {
   SizeAwareBatchAccumulator,
@@ -19,7 +19,8 @@ import {
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { fireAndForget } from '../utils/fireAndForget'
 import type { ItemId } from '@vault/shared'
-import type { ReencryptResult } from '../shared/types'
+import type { ReencryptOptions, ReencryptResult, ReencryptStage } from '../shared/types'
+import { ReencryptionWaitError } from '../shared/reencryptionWaitError'
 import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
 import { createLogger } from '../utils/logger'
 import type { SyncSessionState } from './SyncSessionState'
@@ -41,7 +42,7 @@ class DeferredBuildError extends Error {
 }
 
 /** One call's options for `ItemReencryptor.run`. A scheduled retry runs with the same ones. */
-export interface ReencryptRunOptions {
+export interface ReencryptRunOptions extends ReencryptOptions {
   onProgress?: (done: number, total: number) => void
   signal?: AbortSignal
 }
@@ -56,7 +57,9 @@ export interface ItemReencryptorOptions {
   session: SyncSessionState
   /** Makes this tab the leader, which pushes */
   claimLeader: () => void
-  firstStart: Pick<FirstStart, 'whenSynced'>
+  firstStart: Pick<FirstStart, 'canPush' | 'whenReadyToPush'>
+  /** Called whenever the run's stage changes, and with null once it stops */
+  onStage?: (stage: ReencryptStage | null) => void
   /** Pushes items' changes to the log, which comes before their snapshots */
   pushToLog: (itemIds: ItemId[], signal?: AbortSignal) => Promise<void>
   retryDelays?: number[]
@@ -76,6 +79,10 @@ export class ItemReencryptor {
   private readonly batchRetryDelays: readonly number[]
   private readonly reencryptGuard = new SingleFlightGuard<ReencryptResult>()
   private readonly progressCallbacks = new Set<(done: number, total: number) => void>()
+  /** One for the run in flight and one for each `prepare` waiting, which `cancel` aborts */
+  private readonly cancellers = new Set<AbortController>()
+  private isRunning = false
+  private currentStage: ReencryptStage | null = null
 
   constructor(private readonly deps: ItemReencryptorOptions) {
     this.retryStrategy = new RetryStrategy({ delays: deps.retryDelays ?? DEFAULT_RETRY_DELAYS })
@@ -85,6 +92,47 @@ export class ItemReencryptor {
 
   get retryAttempt(): number {
     return this.retryStrategy.attempt
+  }
+
+  /** What the run in flight is doing, or null when none is */
+  get stage(): ReencryptStage | null {
+    return this.currentStage
+  }
+
+  /**
+   * Stops the run in flight and any scheduled retry. A run that was waiting has changed nothing, and
+   * one that was rewriting stops between chunks, leaving the rest for the next run.
+   */
+  cancel(): void {
+    this.cancelScheduled()
+    for (const canceller of this.cancellers) {
+      canceller.abort(new AbortError('Re-encryption cancelled'))
+    }
+  }
+
+  /**
+   * Waits until a run could push, as `run` does first, without rewriting anything. A caller that has
+   * to change something before the rewrite (such as rotating the key) calls this first, so that a
+   * device that can't push stops before that change.
+   */
+  async prepare(options: ReencryptOptions & { signal?: AbortSignal } = {}): Promise<void> {
+    await this.withCanceller(options.signal, async signal => {
+      try {
+        await this.waitUntilPushesCanRun(signal, options.waitTimeoutMs)
+      } finally {
+        if (!this.isRunning) this.setStage(null)
+      }
+    })
+  }
+
+  private async withCanceller<T>(outer: AbortSignal | undefined, fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    const canceller = new AbortController()
+    this.cancellers.add(canceller)
+    try {
+      return await fn(outer ? AbortSignal.any([outer, canceller.signal]) : canceller.signal)
+    } finally {
+      this.cancellers.delete(canceller)
+    }
   }
 
   cancelScheduled(): void {
@@ -139,12 +187,23 @@ export class ItemReencryptor {
   }
 
   private async runAll(options: ReencryptRunOptions): Promise<ReencryptResult> {
+    this.isRunning = true
+    try {
+      return await this.withCanceller(options.signal, signal => this.runAllWith({ ...options, signal }))
+    } finally {
+      this.isRunning = false
+      this.setStage(null)
+    }
+  }
+
+  private async runAllWith(options: ReencryptRunOptions): Promise<ReencryptResult> {
     const initialToken = await this.deps.apiClient.getValidToken()
     if (!initialToken) {
       throw new Error('No active session token available')
     }
 
-    await this.waitUntilPushesCanRun(options.signal)
+    await this.waitUntilPushesCanRun(options.signal, options.waitTimeoutMs)
+    this.setStage('reencrypting')
 
     const allItemIds = await this.deps.indexManager.listItemIds()
     const total = allItemIds.length
@@ -176,18 +235,54 @@ export class ItemReencryptor {
   }
 
   /**
-   * A rewrite pushes first, so it runs on the leader, once the network part of first start has
-   * finished. It doesn't wait for every first-start record to clear, or one missing key would stall
-   * it for good. Offline there's nothing to wait for: the first chunk stops the run.
+   * A rewrite pushes first, so it runs on the leader, once first start allows pushes. It doesn't wait
+   * for first start's own push to finish, or for every first-start record to clear: one item the
+   * server keeps refusing, or one missing key, would stall it for good. Each chunk pushes its own
+   * items, and S1 defers any it couldn't. Offline there's nothing to wait for: the first chunk stops
+   * the run. With `timeoutMs`, each wait gives up with a `ReencryptionWaitError`.
    */
-  private async waitUntilPushesCanRun(signal?: AbortSignal): Promise<void> {
+  private async waitUntilPushesCanRun(signal?: AbortSignal, timeoutMs?: number): Promise<void> {
     if (!this.deps.session.isOnline) return
     if (!this.deps.session.isLeader) {
+      this.setStage('waitingForLeader')
       this.deps.claimLeader()
-      const leadership = this.deps.session.whenLeader()
-      await (signal ? untilAborted(leadership, signal) : leadership)
+      await this.waitFor('waitingForLeader', waitSignal => this.deps.session.whenLeader(waitSignal), signal, timeoutMs)
     }
-    await this.deps.firstStart.whenSynced(signal)
+    if (!this.deps.firstStart.canPush) {
+      this.setStage('waitingForSync')
+      await this.waitFor('waitingForSync', waitSignal => this.deps.firstStart.whenReadyToPush(waitSignal), signal, timeoutMs)
+    }
+  }
+
+  private async waitFor(
+    stage: Exclude<ReencryptStage, 'reencrypting'>,
+    wait: (signal?: AbortSignal) => Promise<void>,
+    signal: AbortSignal | undefined,
+    timeoutMs: number | undefined,
+  ): Promise<void> {
+    if (timeoutMs === undefined) {
+      await wait(signal)
+      return
+    }
+    try {
+      await withTimeout(timeoutMs, wait, { signal })
+    } catch (error) {
+      // Only the timeout aborts without the caller's signal
+      if (!signal?.aborted && isAbortError(error)) {
+        throw new ReencryptionWaitError(stage)
+      }
+      throw error
+    }
+  }
+
+  private setStage(stage: ReencryptStage | null): void {
+    if (this.currentStage === stage) return
+    this.currentStage = stage
+    try {
+      this.deps.onStage?.(stage)
+    } catch {
+      // Ignore
+    }
   }
 
   /** Builds and uploads one chunk's snapshots, adding each item to `result` */

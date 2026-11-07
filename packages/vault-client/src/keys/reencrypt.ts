@@ -1,22 +1,32 @@
 import { rotateVaultKey, exportKeyringData } from './vault'
 import { createLogger } from '../utils/logger'
-import type { ReencryptResult } from '../shared/types'
+import type { ReencryptCallOptions, ReencryptResult } from '../shared/types'
 
 const log = createLogger('reencrypt')
 
 /** The parts of the sync bridge that re-encryption drives */
 export interface ReencryptionTarget {
   updateVaultKey(vaultKey: string): Promise<void>
-  reencryptAllItems(onProgress?: (done: number, total: number) => void): Promise<ReencryptResult>
+  reencryptAllItems(onProgress?: (done: number, total: number) => void, options?: ReencryptCallOptions): Promise<ReencryptResult>
+  /** Waits until a re-encryption could push, without rewriting anything */
+  prepareReencryption(options?: ReencryptCallOptions): Promise<void>
 }
 
 export const REENCRYPT_PENDING_KEY_PREFIX = 'vault_reencrypt_pending_'
 
+/**
+ * Rotates to a new random data key and re-encrypts every item with it. It first waits until the
+ * worker could push, so that a device that can't (another tab holds the leadership, or first start
+ * hasn't run) gives up with nothing changed rather than leaving the key rotated and nothing rewritten.
+ */
 export async function reencryptAllItems(
   syncBridge: ReencryptionTarget,
   account: string,
-  onProgress?: (done: number, total: number) => void
+  onProgress?: (done: number, total: number) => void,
+  options: ReencryptCallOptions = {},
 ): Promise<ReencryptResult> {
+  await syncBridge.prepareReencryption(options)
+
   const pendingKey = `${REENCRYPT_PENDING_KEY_PREFIX}${account}`
   localStorage.setItem(pendingKey, 'true')
 
@@ -39,7 +49,7 @@ export async function reencryptAllItems(
   await syncBridge.updateVaultKey(newKeyring)
 
   // 4. Run the re-encryption on the worker
-  const result = await syncBridge.reencryptAllItems(onProgress || (() => {}))
+  const result = await syncBridge.reencryptAllItems(onProgress || (() => {}), options)
 
   localStorage.removeItem(pendingKey)
   return result

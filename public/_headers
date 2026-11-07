@@ -12,3 +12,11 @@
 
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
+
+# Report-only for now: violations go to Sentry's security endpoint and nothing is blocked. Workers get
+# this policy from their script's response, so it covers every path. connect-src must list every API
+# in src/deployments.ts (deployments.spec.ts checks). Installed apps keep the headers their service
+# worker cached until it updates, so an enforced policy can't be loosened quickly.
+/*
+  Content-Security-Policy-Report-Only: default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; manifest-src 'self'; worker-src 'self'; connect-src 'self' https://ja2y6d5r46nh27v444bcshalaa0ewvlc.lambda-url.ap-southeast-2.on.aws https://meeda3h26slzeexlmqpeipc77m0zimut.lambda-url.ap-southeast-2.on.aws https://o4511115810832384.ingest.us.sentry.io; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; report-uri https://o4511115810832384.ingest.us.sentry.io/api/4511115818762240/security/?sentry_key=9165ee7e30058dda2ee3529b97cf1ae3; report-to csp
+  Reporting-Endpoints: csp="https://o4511115810832384.ingest.us.sentry.io/api/4511115818762240/security/?sentry_key=9165ee7e30058dda2ee3529b97cf1ae3"

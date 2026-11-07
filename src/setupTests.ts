@@ -5,7 +5,7 @@ import { FLOCK_STORAGE_NAMES } from './app/vault/storageNames'
 
 vi.mock('./env', () => ({
   default: {
-    PUBLIC_URL: '',
+    ENVIRONMENT: 'test',
     VAPID_PUBLIC_KEY: '',
     VAULT_ENDPOINT: '',
   },

@@ -13,7 +13,8 @@ import { areHeadsEqual } from './utils/automerge'
 import { SYNC_LOG_STORES } from '../shared/syncLogStorage'
 import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
 import { clearWriteAheadLog } from '../shared/writeAheadLogStorage'
-import { checkAlive, untilAborted } from '../utils/abort'
+import { checkAlive, isAbortError, untilAborted } from '../utils/abort'
+import { errorMessage } from '../utils/errorMessage'
 import { fireAndForget } from '../utils/fireAndForget'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { runStorageOperation } from '../utils/storageManager'
@@ -97,13 +98,13 @@ export class FirstStart {
   private isReadyToPush = false
   private latestManifest: ManifestEntry[] | null = null
   private hasTriedWalClear = false
-  private readonly synced = Promise.withResolvers<void>()
+  /** Why the network part last failed, cleared once it finishes */
+  private lastError: string | null = null
+  private readonly readyToPush = Promise.withResolvers<void>()
   private readonly networkPart = new SingleFlightGuard<void>()
   private readonly resolveGuard = new SingleFlightGuard<void>()
 
-  constructor(private readonly deps: FirstStartDeps) {
-    this.synced.promise.catch(() => {})
-  }
+  constructor(private readonly deps: FirstStartDeps) {}
 
   private get storage(): LocalForage {
     return getSyncMetadataStorage(this.deps.accountId)
@@ -123,8 +124,13 @@ export class FirstStart {
 
   private markSynced(): void {
     this.isSynced = true
+    this.lastError = null
+    this.markReadyToPush()
+  }
+
+  private markReadyToPush(): void {
     this.isReadyToPush = true
-    this.synced.resolve()
+    this.readyToPush.resolve()
   }
 
   stateOf(itemId: ItemId): FirstStartState | undefined {
@@ -139,15 +145,33 @@ export class FirstStart {
     return this.isReadyToPush
   }
 
-  /** Resolves once this device has finished the network part, or rejects if `signal` aborts first */
-  async whenSynced(signal?: AbortSignal): Promise<void> {
-    await (signal ? untilAborted(this.synced.promise, signal) : this.synced.promise)
+  get synced(): boolean {
+    return this.isSynced
+  }
+
+  /** Why the network part last failed, or null once it has finished */
+  get error(): string | null {
+    return this.lastError
+  }
+
+  /**
+   * Resolves once pushes may go ahead, which is as soon as the network part's manifest sync has run,
+   * or rejects if `signal` aborts first. It doesn't wait for the network part's push, which one item
+   * the server keeps refusing could hold up for good.
+   */
+  async whenReadyToPush(signal?: AbortSignal): Promise<void> {
+    await (signal ? untilAborted(this.readyToPush.promise, signal) : this.readyToPush.promise)
   }
 
   /** Runs the network part if it hasn't finished. Throws if it can't finish yet, and a later poll retries. */
   async ensureSynced(signal?: AbortSignal): Promise<void> {
     if (!this.isSynced) {
-      await this.networkPart.run(() => this.runNetworkPart(signal))
+      try {
+        await this.networkPart.run(() => this.runNetworkPart(signal))
+      } catch (error) {
+        if (!isAbortError(error)) this.lastError = errorMessage(error)
+        throw error
+      }
     }
     this.clearWalOnce()
   }
@@ -159,7 +183,7 @@ export class FirstStart {
     checkAlive(signal, true)
     this.deps.onManifestSynced()
 
-    this.isReadyToPush = true
+    this.markReadyToPush()
     await this.deps.pushPending(signal)
     checkAlive(signal, true)
 

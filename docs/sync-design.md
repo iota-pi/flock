@@ -38,6 +38,7 @@ There's no write-ahead log and no sync protocol against a pretend peer. The doc 
 - **Push** (`ChangeOutbox.pushItems`, leader only) reads `getChangesSince(doc, serverHeads)` under the item lock, groups the changes in order into rows of at most `MAX_INCREMENTAL_MESSAGE_BYTES`, and encrypts each row. Once the server has acknowledged every row of an item, its server heads become the heads the changes were read at, and its mark clears if its tick hasn't moved. Those are always heads the doc had at one moment, so they stay a frontier. A lost acknowledgement or a partial failure resends the same changes, which Automerge ignores as duplicates.
 - **One exchange at a time.** Pushes come from polls, snapshot uploads and rewrites, and each `pollLog` also reads the log, so `SyncPoller.exchange` runs them one by one. An acknowledgement is recorded before the entries that came with it are applied, so that a pull sees the item as no longer pending.
 - **A single change over the row limit** can't be split. The item takes the snapshot path (`snapshotOnly`), and its server heads become the snapshot's heads once it's confirmed. Other devices get the change at their next manifest sync, or sooner if a later row depends on it. A snapshot over the item limit goes to `recreateOversizedItem`.
+- **Rows the server refuses** (400, 413 or 422, not an auth error or an outage) go the same way. `pushItems` retries a refused request one item at a time, and an item the server still refuses on its own becomes `snapshotOnly` for the session. Otherwise one such item would fail every push, and with it first start, for good. If its snapshot is refused too, `SnapshotPusher` quarantines it as usual.
 
 ### Inbound: `SyncLogPuller`
 
@@ -92,7 +93,9 @@ Snapshot uploads stay unconditional last-write-wins, hydration still merges, and
 
 **Why a stale snapshot can't stay stale.** In the race, A and B upload snapshots that each lack the other's change, and the later one wins. The later writer jumped a version, so S2 makes it catch up the log, receive the other's change by S1, and upload again. A writer without a jump had merged, or already contained, the snapshot it replaced, so it wrote a superset.
 
-**Rewrites.** `ItemReencryptor` builds through the same `SnapshotBuilder`, so it runs on the leader once first start's network part has finished, and pushes each chunk before it builds. A deferred item is pushed and built again up to `MAX_BATCH_RETRIES`. After that, or for an `awaitingHeads` item, it goes in `failed` with no quarantine, so a later run can retry it. A push that fails on the network stops the run and schedules a retry.
+**Rewrites.** `ItemReencryptor` builds through the same `SnapshotBuilder`, so it runs on the leader once first start allows pushes (`FirstStart.whenReadyToPush`, after the network part's manifest sync), and pushes each chunk before it builds. It doesn't wait for first start's own push to finish: one item the server kept refusing would stall it for good, and S1 already defers anything the chunk's push didn't deliver. A deferred item is pushed and built again up to `MAX_BATCH_RETRIES`. After that, or for an `awaitingHeads` item, it goes in `failed` with no quarantine, so a later run can retry it. A push that fails on the network stops the run and schedules a retry.
+
+Every wait is bounded for a caller that asks: with `waitTimeoutMs`, waiting for leadership or for first start gives up with a `ReencryptionWaitError` naming the stage, having changed nothing. `cancel` stops a run in flight (and any retry it scheduled) between chunks; otherwise a stuck run would be shared by the next caller through its `SingleFlightGuard`. `prepare` waits as a run would without rewriting anything, so the key rotation coordinator (`reencryptAllItems` in `keys/reencrypt.ts`) can stop before it rotates the key on a device that can't push. The run reports its stage (`waitingForLeader`, `waitingForSync`, `reencrypting`) as `reencryptStage` events, and `getSyncDiagnostics` reports it with the leadership and first start's state and last error.
 
 ## First start
 
@@ -144,6 +147,8 @@ V_base advances only when this device pushes or hydrates a snapshot, not when th
 - Before computing deltas, `findSnapshotsCoveredLocally` decrypts the heads of each active, non-quarantined item with V_server > V_base and checks `Automerge.hasHeads` against the local doc. If the doc already has them, `ManifestSyncManager` raises V_base to V_server, and the table above then treats the item as up to date. A dirty item is still pushed, and a doc that holds more than the snapshot gets a new one (S3 in "Snapshot coverage").
 - Anything that can't be checked (no heads, a missing key, a doc that isn't loaded, heads that fail to decrypt) is fetched as before. A heads failure never quarantines an item. Forced syncs skip the check.
 - **Every write sets or removes `heads`** (`updateItemCommand`). Heads left from an older snapshot, paired with a newer version, would make clients skip a snapshot they need. A write without heads (older builds, tombstones, legacy writes) removes them, and the manifest leaves them out for deleted items.
+
+An item whose hydration throws (not a decryption failure, a missing key or a legacy row without a hook) at `REPEATED_ERROR_LIMIT` (3) manifest syncs in a row this session is quarantined as `unknown` with the version that failed. Otherwise it would fail every sync, no sync would count as complete, and the device level (`DataVersionTracker`) would never be recorded.
 
 A quarantined item's manual recovery entry records `serverVersion`, the server version that failed (for example a snapshot that couldn't be decrypted), as V_failed. A failed hydration doesn't advance V_base, so without it the same broken snapshot would be fetched and fail again on every manifest sync. Entries without `serverVersion` (stored before it existed, or quarantines not tied to a server version) fall back to V_base. The comparison never uses the entry's `createdAt`, which comes from this device's clock.
 
@@ -265,7 +270,7 @@ Inside the worker, components call each other through plain callbacks that `Sync
 ## Server limits
 
 - `appendLog` writes at most 99 rows and about 3.5 MB per transaction, under the `TransactWriteItems` limits, and retries with jitter on a conflict. `ChangeOutbox` sends requests within `logPushRows` and `logPushChars`.
-- `fetchSnapshotsByIds` chunks reads into groups of 100, the `BatchGetItem` limit.
+- `fetchSnapshotsByIds` chunks reads into groups of 100, the `BatchGetItem` limit. A client sends `maxResponseChars` (`MAX_FETCH_RESPONSE_CHARS`, 4 MiB), because 50 items of up to 350 KB can pass Lambda's 6 MB response limit; the server returns items until the next would pass it, always at least one, and lists the rest in `deferred`, which `ManifestHydrator` asks for next. A request that defers everything fails the sync rather than repeating forever. Requests without the field get every item, as before.
 - `UnprocessedKeys` are retried with jittered exponential backoff.
 
 ## Other recovery

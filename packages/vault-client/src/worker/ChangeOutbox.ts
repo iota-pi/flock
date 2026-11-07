@@ -8,10 +8,20 @@ import type { SyncSessionState } from './SyncSessionState'
 import { SYNC_LOG_STORES } from '../shared/syncLogStorage'
 import { SYNC_BATCH_SIZES, SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { checkAlive } from '../utils/abort'
+import { classifySyncError } from '../utils/errorClassifier'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('ChangeOutbox')
+
+/** Statuses for a request the server refuses as it stands, which sending it again won't change */
+const REFUSED_REQUEST_STATUSES = new Set([400, 413, 422])
+
+/** Whether the server refused a push for what it holds, rather than for the session or an outage */
+function isRefusedRequest(error: unknown): boolean {
+  const { status } = classifySyncError(error)
+  return status !== undefined && REFUSED_REQUEST_STATUSES.has(status)
+}
 
 /** An item's pending mark. A new mark gets a new tick, so a push never clears an edit it didn't send. */
 interface PendingMark {
@@ -220,7 +230,31 @@ export class ChangeOutbox {
         const push = await this.preparePush(itemId, ticks.get(itemId))
         if (push) prepared.push(push)
       }
+      await this.sendSettingAsideRefused(prepared, signal)
+    }
+  }
+
+  /**
+   * Sends the pushes, and if the server refuses the request itself, finds the items it refuses on
+   * their own and delivers those by snapshot, as it does a change too large for a row. Otherwise one
+   * such item would fail every push, and first start, for good. Resending what an earlier request
+   * stored only repeats changes, which Automerge ignores.
+   */
+  private async sendSettingAsideRefused(prepared: PreparedPush[], signal?: AbortSignal): Promise<void> {
+    try {
       await this.send(prepared, signal)
+    } catch (error) {
+      if (!isRefusedRequest(error)) throw error
+      if (prepared.length === 1) {
+        const [{ itemId }] = prepared
+        log.warn(`The server refused the log rows of item ${itemId}; delivering it with a snapshot`, error)
+        this.snapshotOnlyItems.add(itemId)
+        this.deps.requestSnapshot(itemId)
+        return
+      }
+      for (const push of prepared) {
+        await this.sendSettingAsideRefused([push], signal)
+      }
     }
   }
 

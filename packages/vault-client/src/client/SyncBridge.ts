@@ -3,7 +3,7 @@ import type * as Comlink from 'comlink'
 import { hasVaultKey, reloadKeyringFromStorage, syncKeyringFromServer } from '../keys/vault'
 import { handleSessionExpired, getVaultSession, onLateSession } from '../keys/session'
 import type { ManualRecoveryEntry, ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
-import type { ReencryptResult, VaultDoc, VaultMetadata } from '../shared/types'
+import type { ReencryptCallOptions, ReencryptResult, SyncDiagnostics, VaultDoc, VaultMetadata } from '../shared/types'
 import type { SyncApi } from '../worker/syncProtocol'
 import { WorkerLifecycleManager, type WorkerShutdownOptions } from './WorkerLifecycleManager'
 import { SyncEventProcessor } from './SyncEventProcessor'
@@ -14,6 +14,7 @@ import { getOnlineState } from '../utils/onlineStatus'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { noopTelemetry, type SyncStateSink, type SyncTelemetry } from './host'
 import { fireAndForget } from '../utils/fireAndForget'
+import { checkAlive, untilAborted } from '../utils/abort'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('SyncBridge')
@@ -384,17 +385,60 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
     await this.initialize(accountId)
   }
 
-  reencryptAllItems(onProgress?: (done: number, total: number) => void): Promise<ReencryptResult> {
-    return this.execute(async api => {
+  reencryptAllItems(
+    onProgress?: (done: number, total: number) => void,
+    options: ReencryptCallOptions = {},
+  ): Promise<ReencryptResult> {
+    return this.execute(api => this.callReencryption(api, options, async () => {
       const unsubscribe = onProgress
         ? this.eventProcessor.subscribeReencryptProgress(onProgress)
         : undefined
       try {
-        return await api.reencryptAllItems()
+        return await api.reencryptAllItems({ waitTimeoutMs: options.waitTimeoutMs })
       } finally {
         unsubscribe?.()
       }
-    })
+    }))
+  }
+
+  /** Waits until a re-encryption could push, without rewriting anything */
+  prepareReencryption(options: ReencryptCallOptions = {}): Promise<void> {
+    return this.execute(api => this.callReencryption(
+      api,
+      options,
+      () => api.prepareReencryption({ waitTimeoutMs: options.waitTimeoutMs }),
+    ))
+  }
+
+  /** Stops the re-encryption in flight and any retry it scheduled */
+  cancelReencryption(): Promise<void> {
+    return this.execute(api => api.cancelReencryption())
+  }
+
+  /** What the worker's session is waiting on, for a migration app to report when it stalls */
+  getSyncDiagnostics(): Promise<SyncDiagnostics> {
+    return this.execute(api => api.getSyncDiagnostics())
+  }
+
+  /** Reports the call's stages, and cancels the worker's run when `options.signal` aborts */
+  private async callReencryption<T>(
+    api: Comlink.Remote<SyncApi>,
+    { onStage, signal }: ReencryptCallOptions,
+    call: () => Promise<T>,
+  ): Promise<T> {
+    checkAlive(signal, true, 'Re-encryption cancelled')
+    const unsubscribeStage = onStage ? this.eventProcessor.subscribeReencryptStage(onStage) : undefined
+    const onAbort = () => {
+      api.cancelReencryption().catch(error => log.warn('Failed to cancel re-encryption', error))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+    try {
+      const pending = call()
+      return await (signal ? untilAborted(pending, signal) : pending)
+    } finally {
+      signal?.removeEventListener('abort', onAbort)
+      unsubscribeStage?.()
+    }
   }
 }
 

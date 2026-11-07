@@ -1,5 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import MigrateApp, { POLL_INTERVAL_MS } from './MigrateApp'
+import * as Sentry from '@sentry/react'
+import { ReencryptionWaitError } from '@vault/client'
+import MigrateApp, { POLL_INTERVAL_MS, REENCRYPT_WAIT_TIMEOUT_MS, STALL_TIMEOUT_MS } from './MigrateApp'
 import {
   beginSync,
   changeToArgon2id,
@@ -68,6 +70,7 @@ beforeEach(() => {
     MigrationBridge: {
       checkDataVersion: vi.fn(),
       fullResync: vi.fn().mockResolvedValue(true),
+      getSyncDiagnostics: vi.fn().mockResolvedValue(null),
     },
     subscribeSyncState: () => () => {},
     getSyncState: () => syncState,
@@ -218,7 +221,7 @@ describe('MigrateApp', () => {
     await poll(3)
 
     expect(reencryptOutdatedItems).toHaveBeenCalledTimes(1)
-    expect(reencryptOutdatedItems).toHaveBeenCalledWith('acct-1', ['passwordDerivedDataKey'], expect.any(Function))
+    expect(reencryptOutdatedItems).toHaveBeenCalledWith('acct-1', ['passwordDerivedDataKey'], expect.any(Function), expect.any(Object))
   })
 
   it('re-encrypts every item when snapshots are still unbound', async () => {
@@ -229,7 +232,7 @@ describe('MigrateApp', () => {
     await poll(3)
 
     expect(reencryptOutdatedItems).toHaveBeenCalledTimes(1)
-    expect(reencryptOutdatedItems).toHaveBeenCalledWith('acct-1', ['unboundSnapshots'], expect.any(Function))
+    expect(reencryptOutdatedItems).toHaveBeenCalledWith('acct-1', ['unboundSnapshots'], expect.any(Function), expect.any(Object))
   })
 
   it("doesn't re-encrypt for blockers re-encryption can't clear", async () => {
@@ -290,5 +293,140 @@ describe('MigrateApp', () => {
 
     expect(MigrationBridge.fullResync).toHaveBeenCalledTimes(1)
     expect(screen.getByText(/Keep this page open/)).toBeDefined()
+  })
+
+  describe('an update that stops moving', () => {
+    const outdatedKey = { device: 3, account: 1, blockers: ['passwordDerivedDataKey'] }
+
+    /** Re-encryption that waits until it's cancelled, as one stuck behind another tab would */
+    function hangReencryption(stage: 'waitingForLeader' | 'waitingForSync' | null = null) {
+      const signals: AbortSignal[] = []
+      vi.mocked(reencryptOutdatedItems).mockImplementation((_account, _blockers, _onProgress, options) => {
+        if (options?.signal) signals.push(options.signal)
+        if (stage) options?.onStage?.(stage)
+        return new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener('abort', () => reject(new Error('cancelled')))
+        })
+      })
+      return signals
+    }
+
+    async function waitPastStall() {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(STALL_TIMEOUT_MS + POLL_INTERVAL_MS)
+      })
+    }
+
+    afterEach(() => {
+      syncState.status = 'idle'
+    })
+
+    it('bounds the re-encryption waits, and says when another tab is in the way', async () => {
+      vi.mocked(MigrationBridge.checkDataVersion).mockResolvedValue(outdatedKey)
+      vi.mocked(reencryptOutdatedItems).mockImplementation(async (_account, _blockers, _onProgress, options) => {
+        options?.onStage?.('waitingForLeader')
+        throw new ReencryptionWaitError('waitingForLeader')
+      })
+
+      await logIn()
+      await poll(2)
+
+      expect(reencryptOutdatedItems).toHaveBeenCalledWith(
+        'acct-1',
+        ['passwordDerivedDataKey'],
+        expect.any(Function),
+        expect.objectContaining({ waitTimeoutMs: REENCRYPT_WAIT_TIMEOUT_MS, signal: expect.any(AbortSignal) }),
+      )
+      expect(screen.getByText(/open in another tab or window/)).toBeDefined()
+      expect(screen.getByText(/Still to update: Items still encrypted/)).toBeDefined()
+    })
+
+    it('shows what re-encryption is waiting on', async () => {
+      vi.mocked(MigrationBridge.checkDataVersion).mockResolvedValue(outdatedKey)
+      hangReencryption('waitingForSync')
+
+      await logIn()
+      await poll(2)
+
+      expect(screen.getByText(/Waiting for your data to finish syncing/)).toBeDefined()
+    })
+
+    it('ends a re-encryption that never finishes, cancelling it', async () => {
+      vi.mocked(MigrationBridge.checkDataVersion).mockResolvedValue(outdatedKey)
+      const signals = hangReencryption()
+
+      await logIn()
+      await poll()
+      await waitPastStall()
+
+      expect(signals).toHaveLength(1)
+      expect(signals[0].aborted).toBe(true)
+      expect(screen.getByText(/could not finish syncing/)).toBeDefined()
+      expect(screen.getByRole('button', { name: /Continue to Flock/i })).toBeDefined()
+    })
+
+    it('ends when sync never settles, which used to poll forever', async () => {
+      syncState.status = 'error'
+      vi.mocked(MigrationBridge.checkDataVersion).mockResolvedValue({ device: 2, account: 1, blockers: ['passwordDerivedDataKey'] })
+
+      await logIn()
+      await poll(10)
+      expect(screen.getByText(/Keep this page open/)).toBeDefined()
+
+      await waitPastStall()
+
+      expect(reencryptOutdatedItems).not.toHaveBeenCalled()
+      expect(screen.getByText(/could not finish syncing/)).toBeDefined()
+    })
+
+    it('ends when the server never answers', async () => {
+      vi.mocked(MigrationBridge.checkDataVersion).mockRejectedValue(new Error('Failed to fetch'))
+
+      await logIn()
+      await waitPastStall()
+
+      expect(screen.getByText(/could not reach the server/)).toBeDefined()
+      // With nothing known about the account, there's nothing to say it can be left for later
+      expect(screen.queryByRole('button', { name: /Continue to Flock/i })).toBeNull()
+    })
+
+    it('starts a new re-encryption on Try again, rather than joining the stuck one', async () => {
+      vi.mocked(MigrationBridge.checkDataVersion).mockResolvedValue(outdatedKey)
+      const signals = hangReencryption()
+
+      await logIn()
+      await poll()
+      await waitPastStall()
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Try again/i }))
+      })
+      await poll()
+
+      expect(reencryptOutdatedItems).toHaveBeenCalledTimes(2)
+      expect(signals[1].aborted).toBe(false)
+      expect(screen.getByText(/Keep this page open/)).toBeDefined()
+    })
+
+    it('reports why it stopped, with what the worker was waiting on', async () => {
+      const captureMessage = vi.spyOn(Sentry, 'captureMessage')
+      const diagnostics = {
+        isLeader: false,
+        isOnline: true,
+        firstStartSynced: false,
+        firstStartReadyToPush: false,
+        firstStartError: 'The server refused item x',
+        reencryptStage: 'waitingForLeader' as const,
+      }
+      vi.mocked(MigrationBridge.getSyncDiagnostics).mockResolvedValue(diagnostics)
+      vi.mocked(MigrationBridge.checkDataVersion).mockResolvedValue(outdatedKey)
+      vi.mocked(reencryptOutdatedItems).mockRejectedValue(new ReencryptionWaitError('waitingForLeader'))
+
+      await logIn()
+      await poll(2)
+
+      expect(captureMessage).toHaveBeenCalledWith('Migration blocked', {
+        extra: expect.objectContaining({ reason: 'anotherTab', blockers: ['passwordDerivedDataKey'], diagnostics }),
+      })
+    })
   })
 })

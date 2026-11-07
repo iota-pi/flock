@@ -226,7 +226,7 @@ const migrations: { [name: string]: () => Promise<void> } = {
         if (dataVersion >= flockDataVersionPolicy.current) continue
 
         oldestAccessBelowCurrent = Math.min(oldestAccessBelowCurrent, accountData.lastAccess ?? 0)
-        const blockers = await flockDataVersionPolicy.findBlockers({ account: accountData.account, accountData, vault })
+        const { blockers } = await flockDataVersionPolicy.findBlockers({ account: accountData.account, accountData, vault })
         if (blockers.length === 0) {
           readyToRaise += 1
         }

@@ -194,6 +194,53 @@ describe('ChangeOutbox', () => {
     expect(serverHeads.get(ITEM)).toEqual(['head-2'])
   })
 
+  describe('a request the server refuses', () => {
+    const OTHER = 'item-2' as ItemId
+    const refused = Object.assign(new Error('Invalid input'), { data: { code: 'BAD_REQUEST', httpStatus: 400 } })
+
+    /** The server refuses any request carrying ITEM's rows, and acknowledges the rest */
+    const refuseItem: LogExchange = async (push, onResults) => {
+      if (push.some(message => message.itemId === ITEM)) throw refused
+      await acknowledge(push, onResults)
+    }
+
+    it('delivers the item it refuses on its own by snapshot, and pushes the others', async () => {
+      exchange.mockImplementation(refuseItem)
+      await outbox.mark(ITEM)
+      await outbox.mark(OTHER)
+
+      await outbox.pushPending()
+
+      expect(outbox.isSnapshotOnly(ITEM)).toBe(true)
+      expect(requestSnapshot).toHaveBeenCalledWith(ITEM)
+      expect(serverHeads.get(OTHER)).toEqual(['head-2'])
+      // The snapshot carries ITEM's changes, so its mark stays until that's confirmed
+      expect(await outbox.listPending()).toEqual([ITEM])
+
+      exchange.mockClear()
+      await outbox.pushPending()
+      expect(exchange).not.toHaveBeenCalled()
+    })
+
+    it('still fails the push on an outage, which a later poll retries', async () => {
+      exchange.mockRejectedValue(Object.assign(new Error('Service unavailable'), { data: { httpStatus: 503 } }))
+      await outbox.mark(ITEM)
+
+      await expect(outbox.pushPending()).rejects.toThrow('Service unavailable')
+
+      expect(outbox.isSnapshotOnly(ITEM)).toBe(false)
+      expect(requestSnapshot).not.toHaveBeenCalled()
+    })
+
+    it('still fails the push when the server refuses the session', async () => {
+      exchange.mockRejectedValue(Object.assign(new Error('UNAUTHORIZED'), { data: { code: 'UNAUTHORIZED', httpStatus: 401 } }))
+      await outbox.mark(ITEM)
+
+      await expect(outbox.pushPending()).rejects.toThrow('UNAUTHORIZED')
+      expect(outbox.isSnapshotOnly(ITEM)).toBe(false)
+    })
+  })
+
   it('never pushes an item waiting on first start, which would send its whole history', async () => {
     awaitingFirstStart.add(ITEM)
     await outbox.mark(ITEM)

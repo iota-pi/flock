@@ -14,6 +14,7 @@ import {
   KeyDerivationDowngradeError,
   OfflineError,
   needsReencryption,
+  describeBlockers,
   reencryptOutdatedItems,
   startMigration,
 } from './migration'
@@ -113,9 +114,11 @@ describe('migration', () => {
     vi.mocked(reencryptAllItems).mockResolvedValue({ succeeded: [], failed: [] })
     const onProgress = vi.fn()
 
-    await reencryptOutdatedItems('acct-1', ['passwordDerivedDataKey'], onProgress)
+    const options = { waitTimeoutMs: 1000 }
 
-    expect(reencryptAllItems).toHaveBeenCalledWith(MigrationBridge, 'acct-1', onProgress)
+    await reencryptOutdatedItems('acct-1', ['passwordDerivedDataKey'], onProgress, options)
+
+    expect(reencryptAllItems).toHaveBeenCalledWith(MigrationBridge, 'acct-1', onProgress, options)
     expect(MigrationBridge.reencryptAllItems).not.toHaveBeenCalled()
   })
 
@@ -126,7 +129,7 @@ describe('migration', () => {
 
     await reencryptOutdatedItems('acct-1', ['passwordDerivedDataKey'], onProgress)
 
-    expect(MigrationBridge.reencryptAllItems).toHaveBeenCalledWith(onProgress)
+    expect(MigrationBridge.reencryptAllItems).toHaveBeenCalledWith(onProgress, {})
     expect(reencryptAllItems).not.toHaveBeenCalled()
   })
 
@@ -137,7 +140,7 @@ describe('migration', () => {
 
     await reencryptOutdatedItems('acct-1', ['unboundSnapshots'], onProgress)
 
-    expect(MigrationBridge.reencryptAllItems).toHaveBeenCalledWith(onProgress)
+    expect(MigrationBridge.reencryptAllItems).toHaveBeenCalledWith(onProgress, {})
     expect(reencryptAllItems).not.toHaveBeenCalled()
   })
 
@@ -164,5 +167,18 @@ describe('migration', () => {
     expect(isMigrationComplete({ device: 3, account: 1, blockers: ['legacyKeyDerivation'] })).toBe(false)
     // A device whose local data isn't sealed yet
     expect(isMigrationComplete({ device: 2, account: 2, blockers: [] })).toBe(false)
+  })
+
+  it('describes what is left, with the item counts the server sent', () => {
+    expect(describeBlockers({
+      blockers: ['legacyKeyDerivation', 'passwordDerivedDataKey', 'unboundSnapshots'],
+      blockedItems: { passwordDerivedDataKey: 12, unboundSnapshots: 1 },
+    })).toBe(
+      'The encryption settings for your password, '
+      + 'Items still encrypted with a key made from your old password (12 items), '
+      + 'Items that have not been re-encrypted yet (1 item)',
+    )
+    expect(describeBlockers({ blockers: ['passwordDerivedDataKey'], blockedItems: { passwordDerivedDataKey: 0 } }))
+      .toBe('Items still encrypted with a key made from your old password')
   })
 })

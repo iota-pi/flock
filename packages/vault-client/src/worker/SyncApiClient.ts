@@ -4,6 +4,7 @@ import type { VaultRouter } from '@vault/server'
 import {
   FetchItemsInputSchema,
   FetchSnapshotsByIdsInputSchema,
+  MAX_FETCH_RESPONSE_CHARS,
   type FetchedItem,
   type VaultSnapshotInput,
   type ItemId,
@@ -147,7 +148,7 @@ export class SyncApiClient {
     ))
   }
 
-  async raiseDataVersion(input: { account: string }): Promise<{ dataVersion: number, blockers: string[] }> {
+  async raiseDataVersion(input: { account: string }): Promise<{ dataVersion: number, blockers: string[], blockedItems?: Record<string, number> }> {
     return this.executeWithAuth(() => raiseDataVersion(input.account))
   }
 
@@ -169,12 +170,18 @@ export class SyncApiClient {
       itemIds: ItemId[]
     },
     options?: { signal?: AbortSignal }
-  ): Promise<{ items: FetchedItem[]; serverTime: number }> {
+  ): Promise<{ items: FetchedItem[]; serverTime: number; deferred: ItemId[] }> {
     return this.executeWithAuth(async () => {
-      const parsed = FetchSnapshotsByIdsInputSchema.parse({ account: input.account, itemIds: input.itemIds })
+      const parsed = FetchSnapshotsByIdsInputSchema.parse({
+        account: input.account,
+        itemIds: input.itemIds,
+        maxResponseChars: MAX_FETCH_RESPONSE_CHARS,
+      })
       const data = await getVaultTrpcClient().items.fetchSnapshotsByIds.query(parsed, options)
       assertSuccess(data, 'fetchSnapshotsByIds')
-      return { items: data.items, serverTime: data.serverTime }
+      // The items over the response limit, for the caller to ask for again
+      const deferred = 'deferred' in data ? data.deferred : []
+      return { items: data.items, serverTime: data.serverTime, deferred }
     })
   }
 

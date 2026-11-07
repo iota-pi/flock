@@ -1,3 +1,4 @@
+import { MAX_FETCH_RESPONSE_CHARS } from '@vault/shared'
 import { SyncApiClient, AuthError, AuthExpiredError, toAuthExpiredError } from './SyncApiClient'
 import { classifySyncError } from '../utils/errorClassifier'
 import * as runtimeModule from '../keys/runtime'
@@ -229,8 +230,11 @@ describe('SyncApiClient', () => {
       const client = new SyncApiClient()
 
       const result = await client.fetchSnapshotsByIds({ account: 'acc-1', itemIds: ['i1' as any] })
-      expect(result).toEqual({ items: [{ item: 'i1' }], serverTime: 5000 })
-      expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({ account: 'acc-1', itemIds: ['i1'] }, undefined)
+      expect(result).toEqual({ items: [{ item: 'i1' }], serverTime: 5000, deferred: [] })
+      expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith(
+        { account: 'acc-1', itemIds: ['i1'], maxResponseChars: MAX_FETCH_RESPONSE_CHARS },
+        undefined,
+      )
     })
 
     it('throws when fetchManifest reports failure', async () => {

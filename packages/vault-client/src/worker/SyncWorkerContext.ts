@@ -49,7 +49,7 @@ import { LocalCipher, LocalDataUnreadableError, LocalKeyUnavailableError } from 
 import type { KeyProvider, LocalKeyWrapper } from '../keys/Keyring'
 import { createLogger } from '../utils/logger'
 import type { RetrySaveResult } from './syncProtocol'
-import type { UnsyncedChanges } from '../shared/types'
+import type { SyncDiagnostics, UnsyncedChanges } from '../shared/types'
 
 const log = createLogger('SyncWorkerContext')
 
@@ -425,6 +425,7 @@ export class SyncWorkerContext {
       claimLeader: () => this.claimLeader(),
       firstStart,
       pushToLog,
+      onStage: stage => this.clientEventHub.emit({ type: 'reencryptStage', stage }),
     })
 
     const dataVersionTracker = new DataVersionTracker({
@@ -468,6 +469,13 @@ export class SyncWorkerContext {
         fireAndForget(
           recoveryManager.reportDecryptionFailure(itemId, 'snapshotDecryption', error, { serverVersion }),
           'SyncWorkerContext:reportDecryptionFailure',
+        )
+      },
+      // Quarantined with the version that failed, so manifest sync skips it until the server has a newer one
+      onRepeatedHydrationError: (itemId, error, serverVersion) => {
+        fireAndForget(
+          recoveryManager.quarantine(itemId, 'unknown', error, { serverVersion }),
+          'SyncWorkerContext:quarantineRepeatedHydrationError',
         )
       },
       onItemSnapshotHydrated: (itemId, heads) => serverHeads.set(itemId, heads),
@@ -859,6 +867,19 @@ export class SyncWorkerContext {
 
   claimLeader(): void {
     this.services.orchestrator.claimLeader()
+  }
+
+  /** What this session is waiting on, for a migration app to report when it stalls */
+  getSyncDiagnostics(): SyncDiagnostics {
+    const { firstStart, itemReencryptor } = this.services
+    return {
+      isLeader: this.session.isLeader,
+      isOnline: this.session.isOnline,
+      firstStartSynced: firstStart.synced,
+      firstStartReadyToPush: firstStart.canPush,
+      firstStartError: firstStart.error,
+      reencryptStage: itemReencryptor.stage,
+    }
   }
 
   /**

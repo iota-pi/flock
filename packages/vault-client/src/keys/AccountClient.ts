@@ -46,10 +46,18 @@ export async function getSecurityParams(
  * Asks the server to raise the account's data version, once this device's migrations have run.
  * Returns the version it is at and, if it couldn't be raised, why.
  */
-export async function raiseDataVersion(account: string): Promise<{ dataVersion: number, blockers: string[] }> {
+export async function raiseDataVersion(account: string): Promise<{
+  dataVersion: number
+  blockers: string[]
+  blockedItems?: Record<string, number>
+}> {
   const response = await getVaultTrpcClient().accounts.raiseDataVersion.mutate({ account })
   assertSuccess(response, 'raiseDataVersion')
-  return { dataVersion: response.dataVersion, blockers: response.blockers }
+  return {
+    dataVersion: response.dataVersion,
+    blockers: response.blockers,
+    ...('blockedItems' in response && response.blockedItems ? { blockedItems: response.blockedItems } : {}),
+  }
 }
 
 export async function getSession(account: string, authToken: string): Promise<string> {

@@ -7,6 +7,7 @@ import {
   reencryptAllItems,
   upgradeKeyDerivation,
   type DataVersionStatus,
+  type ReencryptCallOptions,
 } from '@vault/client'
 import { createLogger } from 'src/utils/logger'
 import {
@@ -106,17 +107,19 @@ export function needsReencryption(blockers: string[]): boolean {
 
 /**
  * Re-encrypts every item with the active data key. While the password-derived key v1 is still
- * active, rotates to a random key first; after an interrupted run, only re-encrypts what's left.
+ * active, rotates to a random key first (once the worker could push, so a stall leaves the key as it
+ * was); after an interrupted run, only re-encrypts what's left.
  */
 export async function reencryptOutdatedItems(
   account: string,
   blockers: string[],
   onProgress: (done: number, total: number) => void,
+  options: ReencryptCallOptions = {},
 ): Promise<{ failed: Array<{ itemId: string, error: string }> }> {
   if (blockers.includes('passwordDerivedDataKey') && getActiveKeyVersion() === '1') {
-    return reencryptAllItems(MigrationBridge, account, onProgress)
+    return reencryptAllItems(MigrationBridge, account, onProgress, options)
   }
-  return MigrationBridge.reencryptAllItems(onProgress)
+  return MigrationBridge.reencryptAllItems(onProgress, options)
 }
 
 export function isMigrationComplete(status: DataVersionStatus): boolean {
@@ -146,4 +149,14 @@ const BLOCKER_DESCRIPTIONS: Record<string, string> = {
 
 export function describeBlocker(blocker: string): string {
   return BLOCKER_DESCRIPTIONS[blocker] ?? blocker
+}
+
+/** Describes what's left, with how many items each blocker still covers when the server says */
+export function describeBlockers(status: Pick<DataVersionStatus, 'blockers' | 'blockedItems'>): string {
+  return status.blockers.map(blocker => {
+    const count = status.blockedItems?.[blocker]
+    const description = describeBlocker(blocker)
+    if (!count) return description
+    return `${description} (${count} ${count === 1 ? 'item' : 'items'})`
+  }).join(', ')
 }

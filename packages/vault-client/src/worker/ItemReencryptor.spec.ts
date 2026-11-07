@@ -37,7 +37,7 @@ function stageDeps(overrides: Partial<ItemReencryptorOptions> = {}): ItemReencry
     recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() }),
     session: new SyncSessionState({ isLeader: true }),
     claimLeader: vi.fn(),
-    firstStart: { whenSynced: vi.fn().mockResolvedValue(undefined) },
+    firstStart: { canPush: true, whenReadyToPush: vi.fn().mockResolvedValue(undefined) },
     pushToLog: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   }
@@ -111,7 +111,7 @@ describe('ItemReencryptor.run', () => {
       recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() }),
       session: new SyncSessionState({ isLeader: true }),
       claimLeader: vi.fn(),
-      firstStart: { whenSynced: vi.fn().mockResolvedValue(undefined) },
+      firstStart: { canPush: true, whenReadyToPush: vi.fn().mockResolvedValue(undefined) },
       pushToLog: vi.fn().mockResolvedValue(undefined),
     }
     itemReencryptor = new ItemReencryptor(context)
@@ -159,7 +159,7 @@ describe('ItemReencryptor.run', () => {
           expect.objectContaining({ itemId: 'item-2' }),
         ],
       },
-      { signal: undefined },
+      { signal: expect.any(AbortSignal) },
     )
     expect(onProgress).toHaveBeenCalledWith(2, 2)
   })
@@ -647,7 +647,7 @@ describe('ItemReencryptor.run', () => {
       const result = await reencryptor.run()
 
       expect(builder.build).toHaveBeenCalledTimes(3)
-      expect(vi.mocked(context.pushToLog)).toHaveBeenCalledWith(['item-1'], undefined)
+      expect(vi.mocked(context.pushToLog)).toHaveBeenCalledWith(['item-1'], expect.any(AbortSignal))
       expect(result.failed).toEqual([{ itemId: 'item-1', error: expect.stringContaining('wait for the log') }])
       expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
     })
@@ -677,7 +677,6 @@ describe('ItemReencryptor.run', () => {
       await reencryptor.run()
 
       expect(claimLeader).toHaveBeenCalledTimes(1)
-      expect(context.firstStart.whenSynced).toHaveBeenCalled()
     })
 
     it('aborts immediately and DOES NOT quarantine items when the session is offline', async () => {
@@ -881,6 +880,94 @@ describe('ItemReencryptor.run', () => {
   })
 })
 
+describe('ItemReencryptor waits', () => {
+  const runnableDeps = (overrides: Partial<ItemReencryptorOptions> = {}) => stageDeps({
+    indexManager: { listItemIds: () => mockListItemIds() } as any,
+    ...overrides,
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    setApiAuthToken('mock-token')
+    mockListItemIds.mockResolvedValue([])
+  })
+
+  it('gives up waiting for leadership after the timeout, reporting the stage', async () => {
+    const onStage = vi.fn()
+    const session = new SyncSessionState()
+    const reencryptor = new ItemReencryptor(runnableDeps({ session, onStage }))
+
+    await expect(reencryptor.run({ waitTimeoutMs: 10 })).rejects.toMatchObject({
+      name: 'ReencryptionWaitError',
+      stage: 'waitingForLeader',
+    })
+
+    expect(onStage.mock.calls.map(([stage]) => stage)).toEqual(['waitingForLeader', null])
+    expect(reencryptor.stage).toBeNull()
+    // The waiter went with the timeout, so leading later resolves nothing left behind
+    session.setLeader(true)
+  })
+
+  it('waits only until first start allows pushes, not for its push to finish', async () => {
+    let allowPushes!: () => void
+    const firstStart = {
+      canPush: false,
+      whenReadyToPush: vi.fn(() => new Promise<void>(resolve => {
+        allowPushes = resolve
+      })),
+    }
+    const onStage = vi.fn()
+    const reencryptor = new ItemReencryptor(runnableDeps({ firstStart, onStage }))
+
+    const running = reencryptor.run()
+    await vi.waitFor(() => expect(onStage).toHaveBeenCalledWith('waitingForSync'))
+    allowPushes()
+
+    await expect(running).resolves.toEqual({ succeeded: [], failed: [] })
+    expect(onStage.mock.calls.map(([stage]) => stage)).toEqual(['waitingForSync', 'reencrypting', null])
+  })
+
+  it('gives up waiting for first start after the timeout', async () => {
+    const firstStart = { canPush: false, whenReadyToPush: (signal?: AbortSignal) => new SyncSessionState().whenLeader(signal) }
+    const reencryptor = new ItemReencryptor(runnableDeps({ firstStart }))
+
+    await expect(reencryptor.run({ waitTimeoutMs: 10 })).rejects.toMatchObject({ stage: 'waitingForSync' })
+  })
+
+  it('stops a waiting run when cancelled, without scheduling a retry', async () => {
+    const reencryptor = new ItemReencryptor(runnableDeps({ session: new SyncSessionState() }))
+
+    const running = reencryptor.run()
+    await vi.waitFor(() => expect(reencryptor.stage).toBe('waitingForLeader'))
+    reencryptor.cancel()
+
+    await expect(running).rejects.toThrow('Re-encryption cancelled')
+    expect(reencryptor.retryAttempt).toBe(0)
+  })
+
+  it('lets a run start again after a cancelled one', async () => {
+    const session = new SyncSessionState()
+    const reencryptor = new ItemReencryptor(runnableDeps({ session }))
+    const first = reencryptor.run()
+    await vi.waitFor(() => expect(reencryptor.stage).toBe('waitingForLeader'))
+    reencryptor.cancel()
+    await expect(first).rejects.toThrow()
+
+    session.setLeader(true)
+    await expect(reencryptor.run()).resolves.toEqual({ succeeded: [], failed: [] })
+  })
+
+  it('prepares by waiting as a run would, without rewriting anything', async () => {
+    const reencryptor = new ItemReencryptor(runnableDeps({ session: new SyncSessionState() }))
+
+    await expect(reencryptor.prepare({ waitTimeoutMs: 10 })).rejects.toMatchObject({ stage: 'waitingForLeader' })
+    expect(mockListItemIds).not.toHaveBeenCalled()
+    expect(reencryptor.stage).toBeNull()
+
+    await new ItemReencryptor(runnableDeps()).prepare({ waitTimeoutMs: 10 })
+  })
+})
+
 describe('ItemReencryptor class', () => {
   it('maintains independent retry state across instances', () => {
     const r1 = new ItemReencryptor(stageDeps({ retryDelays: [100, 200] }))
@@ -937,7 +1024,7 @@ describe('ItemReencryptor.run cancellation and event loop yielding', () => {
       recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() }),
       session: new SyncSessionState({ isLeader: true }),
       claimLeader: vi.fn(),
-      firstStart: { whenSynced: vi.fn().mockResolvedValue(undefined) },
+      firstStart: { canPush: true, whenReadyToPush: vi.fn().mockResolvedValue(undefined) },
       pushToLog: vi.fn().mockResolvedValue(undefined),
     }
     itemReencryptor = new ItemReencryptor(context)
@@ -1028,7 +1115,7 @@ describe('concurrency and retry race safety (H11)', () => {
       recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() }),
       session: new SyncSessionState({ isLeader: true }),
       claimLeader: vi.fn(),
-      firstStart: { whenSynced: vi.fn().mockResolvedValue(undefined) },
+      firstStart: { canPush: true, whenReadyToPush: vi.fn().mockResolvedValue(undefined) },
       pushToLog: vi.fn().mockResolvedValue(undefined),
     }
     itemReencryptor = new ItemReencryptor(context)

@@ -550,7 +550,7 @@ describe('accountsRouter security contracts', () => {
     it('raises the data version when the policy finds nothing left to migrate', async () => {
       const ctx = createContext()
       const raiseDataVersion = vi.fn(async () => undefined)
-      const findBlockers = vi.fn(async () => [])
+      const findBlockers = vi.fn(async () => ({ blockers: [] }))
       const caller = accountsRouter.createCaller({
         ...ctx,
         vault: { ...ctx.vault, raiseDataVersion },
@@ -565,7 +565,7 @@ describe('accountsRouter security contracts', () => {
     it('reports what is left to migrate instead of raising the data version', async () => {
       const ctx = createContext()
       const raiseDataVersion = vi.fn(async () => undefined)
-      const findBlockers = vi.fn(async () => ['unboundSnapshots'])
+      const findBlockers = vi.fn(async () => ({ blockers: ['unboundSnapshots'] }))
       const caller = accountsRouter.createCaller({
         ...ctx,
         vault: { ...ctx.vault, raiseDataVersion },
@@ -579,7 +579,7 @@ describe('accountsRouter security contracts', () => {
 
     it('does not check accounts already at the current data version', async () => {
       const ctx = createContext()
-      const findBlockers = vi.fn(async () => ['unboundSnapshots'])
+      const findBlockers = vi.fn(async () => ({ blockers: ['unboundSnapshots'] }))
       const getAccountRecord = vi.fn(async () => storedAccount({ dataVersion: 2 }))
       const caller = accountsRouter.createCaller({
         ...ctx,

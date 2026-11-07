@@ -1,15 +1,9 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
-import { sentryVitePlugin } from '@sentry/vite-plugin'
 import wasm from 'vite-plugin-wasm'
 
 import { visualizer } from 'rollup-plugin-visualizer'
-
-const isProductionBuild = process.env.NODE_ENV === 'production'
-const sentryOrg = process.env.SENTRY_ORG
-const sentryProject = process.env.SENTRY_PROJECT
-const sentryAuthToken = process.env.SENTRY_AUTH_TOKEN
 
 export default defineConfig({
   base: '/',
@@ -64,19 +58,8 @@ export default defineConfig({
         background_color: '#202020',
       },
     }),
-    isProductionBuild && sentryOrg && sentryProject && sentryAuthToken
-      ? sentryVitePlugin({
-        org: sentryOrg,
-        project: sentryProject,
-        authToken: sentryAuthToken,
-        sourcemaps: {
-          // Avoid exposing sourcemaps publicly on Cloudflare Pages
-          filesToDeleteAfterUpload: ['dist/**/*.map'],
-        },
-      })
-      : null,
     visualizer() as any,
-  ].filter(Boolean),
+  ],
   resolve: {
     tsconfigPaths: true,
   },
@@ -91,6 +74,7 @@ export default defineConfig({
   build: {
     target: 'es2022',
     outDir: 'dist/app',
+    // CI sends these to Sentry and keeps them out of what it deploys (.github/workflows/deploy.yml)
     sourcemap: true,
     rollupOptions: {
       // The migration app (src/migrate/) is a second page, served at /migrate/
