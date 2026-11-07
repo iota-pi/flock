@@ -8,7 +8,7 @@ import { createFlockDriver } from '../flockDriver'
 import { flockDataVersionPolicy } from '../flockDataVersion'
 import { appRouter } from '../trpc/root'
 import { createVaultContext, type UnknownAccountParams } from '@vault/server'
-import { CURRENT_SALT_VERSION, getDefaultKdf, PROTOCOL_VERSION_HEADER } from '@vault/shared'
+import { CLIENT_OUTDATED_MESSAGE, CURRENT_SALT_VERSION, getDefaultKdf, PROTOCOL_VERSION_HEADER } from '@vault/shared'
 
 /**
  * Writes from builds below this protocol version are rejected, which makes them update. Raising it
@@ -23,7 +23,7 @@ import { CURRENT_SALT_VERSION, getDefaultKdf, PROTOCOL_VERSION_HEADER } from '@v
  * - At 5, sync moves to the log (docs/sync-log-plan.md). Builds that still push sync messages update,
  *   and `sync.pollSync` stays only to tell them to.
  */
-const MIN_PROTOCOL_VERSION = 5
+export const MIN_PROTOCOL_VERSION = 5
 
 /** Lets a local server answer unknown accounts like real ones without any setup */
 const DEV_UNKNOWN_ACCOUNT_SECRET = 'flock-local-unknown-account-secret'
@@ -73,6 +73,10 @@ async function createServer(devMode = false) {
         unknownAccountParams: getUnknownAccountParams(devMode),
       }),
       onError: ({ path, error }: { path: string | undefined, error: unknown }) => {
+        // Turning away an old build is routine, and a stuck tab can repeat it every few seconds.
+        // Logging it would also fill the Sentry breadcrumbs of real errors.
+        if (error instanceof TRPCError && error.message === CLIENT_OUTDATED_MESSAGE) return
+
         console.error(`[TRPC Error] path=${path}:`, error)
         if (process.env.SENTRY_DSN) {
           const isExpectedClientError =
