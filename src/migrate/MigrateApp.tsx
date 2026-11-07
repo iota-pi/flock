@@ -265,8 +265,10 @@ export default function MigrateApp() {
               <form onSubmit={handleSubmit}>
                 <Stack spacing={2}>
                   <Typography>
-                    Since you last connected to Flock, some behind-the-scenes things have changed about how it stores your data. These changes have been made to improve privacy and security. Log in to update it on this device.
-                    You may be asked to choose a new password. This is a once-off process that only takes a minute or two.
+                    Since you last connected to Flock, some behind-the-scenes things have changed about how it stores your data. These changes have been made to improve privacy and security.
+                  </Typography>
+                  <Typography>
+                    Log in again to update it on this device. This is a once-off process that only takes a minute or two.
                   </Typography>
                   <TextField
                     label="Account ID"
