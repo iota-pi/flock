@@ -177,6 +177,18 @@ self.addEventListener('message', event => {
     return
   }
 
+  // Asked of the waiting version by a page that has just loaded: if it's the only Flock window, it
+  // applies the update straight away, since taking over reloads every window (src/app/appUpdate.ts)
+  if (event.data?.type === 'COUNT_WINDOWS') {
+    event.waitUntil(
+      (async () => {
+        const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+        event.ports[0]?.postMessage({ windows: windows.length })
+      })(),
+    )
+    return
+  }
+
   if (event.data?.type === 'CLEAR_REMINDER_NOTIFICATIONS') {
     event.waitUntil(
       (async () => {

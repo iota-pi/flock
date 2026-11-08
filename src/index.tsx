@@ -8,6 +8,7 @@ import { initAppSentry } from './app/sentry'
 // eslint-disable-next-line import-x/no-unresolved
 import { registerSW } from 'virtual:pwa-register'
 import { registerAppUpdates } from './app/appUpdate'
+import { lockVault } from './app/vault/session'
 import { hasApiAuthToken } from '@vault/client'
 import { createLogger } from 'src/utils/logger'
 import ThemedApp from './ThemedApp'
@@ -22,7 +23,7 @@ function initializeApp() {
     const root = createRoot(rootElement)
     root.render(<ThemedApp />)
 
-    registerAppUpdates(registerSW)
+    registerAppUpdates(registerSW, { lockBeforeReload: lockVault })
 
     if (window.Cypress) {
       window.hasApiAuthToken = hasApiAuthToken

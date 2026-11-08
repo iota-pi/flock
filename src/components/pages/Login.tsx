@@ -13,7 +13,7 @@ import { styled } from '@mui/material/styles'
 import { ROUTES } from './routes'
 import { resolveRedirectRoute, type RedirectRouteState } from './redirectUtils'
 import { useAppStore } from 'src/state/store'
-import { checkForAppUpdate, whileLoggingIn } from 'src/app/appUpdate'
+import { checkForAppUpdate, isApplyingAppUpdate, whileLoggingIn } from 'src/app/appUpdate'
 import {
   FingerprintIcon,
   HomeIcon,
@@ -301,6 +301,11 @@ function LoginPage() {
 
   useEffect(() => {
     if (!hasBiometricData() || !accountInput || justCreatedAccount || hasAutoPromptedRef.current) {
+      return
+    }
+    // The app locked to reload into a new version, which will prompt once it has loaded
+    if (isApplyingAppUpdate()) {
+      hasAutoPromptedRef.current = true
       return
     }
     if (wasManuallyLocked) {
