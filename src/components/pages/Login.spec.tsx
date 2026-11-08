@@ -8,6 +8,7 @@ import { useAppStore } from '../../state/store'
 import { goToMigration } from 'src/migrate/detection'
 import * as detectionModule from 'src/migrate/detection'
 import { spyOnExports } from '../../utils/testUtils'
+import * as brokenBuild from 'src/app/brokenBuild'
 
 const lightTheme = getTheme(false)
 const NOT_UPGRADED = { keyDerivationUpgraded: false, biometricsCleared: false }
@@ -180,6 +181,28 @@ describe('LoginPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/Too many login attempts/i)).toBeDefined()
     })
+  })
+
+  it('updates the app, rather than failing, when part of it fails to load', async () => {
+    const recover = vi.spyOn(brokenBuild, 'recoverFromChunkLoadError').mockResolvedValue()
+    vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({ salt: 'test-salt', saltVersion: 1, kdf: ARGON2ID, dataVersion: 2 })
+    vi.spyOn(vault, 'loginVault').mockRejectedValue(
+      new TypeError('Failed to fetch dynamically imported module: https://flock.example/assets/index.esm-abc.js'),
+    )
+
+    renderLoginPage()
+
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/Account ID/i), { target: { value: 'my-account' } })
+      fireEvent.change(screen.getByLabelText(/Password/i), { target: { value: 'secret123' } })
+      fireEvent.click(screen.getByRole('button', { name: /Login/i }))
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText(/Part of Flock failed to load/i)).toBeDefined()
+    })
+    expect(recover).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText(/dynamically imported module/i)).toBeNull()
   })
 
   it('displays incorrect password error and does not show server failure message', async () => {

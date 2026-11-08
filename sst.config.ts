@@ -258,6 +258,10 @@ export default $config({
           path: "dist/app",
           domain,
           notFound: "single-page-application",
+          // Answers requests for missing files with a 404 rather than the app shell (src/site/router.ts)
+          transform: {
+            server: { handler: "src/site/router.ts" },
+          },
           environment: {
             // Nothing reads this variable. It's here because the site waits for its environment, so
             // a failed check stops the upload, and the API deploys before the site, which clients

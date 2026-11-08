@@ -14,6 +14,7 @@ import { ROUTES } from './routes'
 import { resolveRedirectRoute, type RedirectRouteState } from './redirectUtils'
 import { useAppStore } from 'src/state/store'
 import { checkForAppUpdate, isApplyingAppUpdate, whileLoggingIn } from 'src/app/appUpdate'
+import { isChunkLoadError, recoverFromChunkLoadError } from 'src/app/brokenBuild'
 import {
   FingerprintIcon,
   HomeIcon,
@@ -47,7 +48,8 @@ const ACCOUNT_UPDATE_NEEDS_SERVER =
   'Check your internet connection and try again.'
 
 /** Shown when the server refuses logins to an account after too many failed ones */
-const TOO_MANY_ATTEMPTS = 'Too many login attempts. Please wait a few minutes and try again.'
+const APP_RELOADING = 'Part of Flock failed to load, so it is updating. The page will reload in a moment.'
+const TOO_MANY_ATTEMPTS ='Too many login attempts. Please wait a few minutes and try again.'
 
 /** Shown when the server says the account doesn't exist */
 const ACCOUNT_NOT_FOUND = 'Could not find matching account ID and password.'
@@ -259,6 +261,12 @@ function LoginPage() {
           failLogin(TOO_MANY_ATTEMPTS)
           return
         }
+        if (isChunkLoadError(error)) {
+          log.warn('Part of the app failed to load; updating', error)
+          failLogin(APP_RELOADING)
+          void recoverFromChunkLoadError(failLogin)
+          return
+        }
         log.error('Error during vault initialization:', error)
         failLogin(error instanceof Error ? error.message : 'Login failed.')
       } finally {
@@ -282,7 +290,10 @@ function LoginPage() {
       } catch (err: unknown) {
         log.error('Biometric unlock failed', err)
         setShowPasswordForm(true)
-        if (err instanceof StaleBiometricKeyError) {
+        if (isChunkLoadError(err)) {
+          setError(APP_RELOADING)
+          void recoverFromChunkLoadError(setError)
+        } else if (err instanceof StaleBiometricKeyError) {
           setError(
             `Your password or account security changed on another device, so ${biometricLabel} unlock was turned off. `
             + 'Please log in with your password.',

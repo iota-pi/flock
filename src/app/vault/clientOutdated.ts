@@ -23,7 +23,8 @@ function writeLastReload(time: number): void {
 }
 
 /**
- * The server turned away a write because this build is too old. Fetches the new service worker and
+ * This build can't carry on: the server turned away a write because it's too old, or one of its
+ * scripts is gone (src/app/brokenBuild.ts). Fetches the new service worker and
  * calls `applyUpdate`, which should let it take over (reloading the page) as soon as it is
  * installed. If no new version turns up, reloads anyway, but at most once every few minutes; after
  * that, asks the user to.

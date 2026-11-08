@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react'
 import * as Sentry from '@sentry/react'
 import AsyncBoundary from './AsyncBoundary'
 import { spyOnExports } from '../../utils/testUtils'
+import * as brokenBuild from 'src/app/brokenBuild'
 
 function ThrowingComponent({ error }: { error: Error }): never {
   throw error
@@ -56,6 +57,7 @@ describe('AsyncBoundary', () => {
   })
 
   it('handles chunk load errors with reload alert and suppresses Sentry report', () => {
+    const recover = vi.spyOn(brokenBuild, 'recoverFromChunkLoadError').mockResolvedValue()
     const chunkError = new Error('Failed to fetch dynamically imported module /src/features/items.js')
 
     render(
@@ -69,5 +71,6 @@ describe('AsyncBoundary', () => {
     ).toBeTruthy()
     expect(screen.getByRole('button', { name: /Reload Page/i })).toBeTruthy()
     expect(Sentry.captureException).not.toHaveBeenCalled()
+    expect(recover).toHaveBeenCalled()
   })
 })
