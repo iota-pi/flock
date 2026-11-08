@@ -58,14 +58,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@automerge/automerge@npm:2.2.8 - 3, @automerge/automerge@npm:^3.2.6":
-  version: 3.4.1
-  resolution: "@automerge/automerge@npm:3.4.1"
-  checksum: 10c0/a01654e71bf04f810ccec0dee31aa75d91d0de0ca84b60d5cee08f901fccd2f120635aef689e8c3a329d58a3ea65e7172da930510932a2ee45e71d05c909a307
-  languageName: node
-  linkType: hard
-
-"@automerge/automerge@npm:^3.5.0":
+"@automerge/automerge@npm:2.2.8 - 3, @automerge/automerge@npm:^3.2.6, @automerge/automerge@npm:^3.5.0":
   version: 3.5.0
   resolution: "@automerge/automerge@npm:3.5.0"
   checksum: 10c0/84c69eef62cb7af0024895fe2136dada677001df73d7cea7e0a3a7eb77fc9d8b03dab00c8178754a579d4399eea75601cea7d481cd16f1100568725cf67129b6
