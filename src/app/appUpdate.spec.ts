@@ -9,15 +9,19 @@ describe('app updates', () => {
   let stopAppUpdates: () => void
   const registration = { update: vi.fn(async () => undefined) }
 
+  function register(updateOptions?: appUpdate.AppUpdateOptions) {
+    stopAppUpdates = appUpdate.registerAppUpdates(registerOptions => {
+      options = registerOptions ?? {}
+      return updateSW
+    }, updateOptions)
+    options.onRegisteredSW?.('/service-worker.js', registration as unknown as ServiceWorkerRegistration)
+  }
+
   beforeEach(() => {
     useAppStore.setState({ loggedIn: false, appUpdateReady: false })
     registration.update.mockClear()
     updateSW = vi.fn<(reloadPage?: boolean) => Promise<void>>(async () => undefined)
-    stopAppUpdates = appUpdate.registerAppUpdates(registerOptions => {
-      options = registerOptions ?? {}
-      return updateSW
-    })
-    options.onRegisteredSW?.('/service-worker.js', registration as unknown as ServiceWorkerRegistration)
+    register()
   })
 
   afterEach(() => {
@@ -44,17 +48,23 @@ describe('app updates', () => {
     expect(updateSW).not.toHaveBeenCalled()
   })
 
-  it('waits until the app locks when someone is logged in', () => {
+  it('applies once requested while logged in', () => {
     useAppStore.setState({ loggedIn: true })
 
     options.onNeedRefresh?.()
-    expect(useAppStore.getState().appUpdateReady).toBe(true)
-    appUpdate.requestAppUpdate()
     expect(updateSW).not.toHaveBeenCalled()
 
-    useAppStore.setState({ loggedIn: false })
-    expect(updateSW).toHaveBeenCalledTimes(1)
+    appUpdate.requestAppUpdate()
+    expect(updateSW).toHaveBeenCalledWith(true)
     expect(useAppStore.getState().appUpdateReady).toBe(false)
+  })
+
+  it('does not apply an unrequested update when the app locks', () => {
+    useAppStore.setState({ loggedIn: true })
+    options.onNeedRefresh?.()
+
+    useAppStore.setState({ loggedIn: false })
+    expect(updateSW).not.toHaveBeenCalled()
   })
 
   it('does not interrupt a login, and applies it afterwards if the login failed', async () => {
@@ -83,6 +93,10 @@ describe('app updates', () => {
 
     await login
     expect(updateSW).not.toHaveBeenCalled()
+    expect(useAppStore.getState().appUpdateReady).toBe(true)
+
+    appUpdate.requestAppUpdate()
+    expect(updateSW).toHaveBeenCalledTimes(1)
   })
 
   it('applies a forced update mid-session', () => {
@@ -107,81 +121,173 @@ describe('app updates', () => {
     expect(registration.update).toHaveBeenCalledTimes(1)
   })
 
-  describe('with other tabs', () => {
-    let sharedHolders: number
-    let releaseOtherTab: () => void
-
-    function holdLockInOtherTab() {
-      void navigator.locks.request(appUpdate.SESSION_LOCK, { mode: 'shared' }, () => new Promise<void>(resolve => {
-        releaseOtherTab = resolve
-      }))
-    }
+  describe('locking before the reload', () => {
+    let lockBeforeReload: Mock<() => Promise<void>>
 
     beforeEach(() => {
-      sharedHolders = 0
-      const locks = {
-        request: async (
-          _name: string,
-          options: LockOptions,
-          callback: (lock: Lock | null) => Promise<unknown> | unknown,
-        ) => {
-          if (options.mode === 'shared') {
-            sharedHolders += 1
-            try {
-              return await callback({} as Lock)
-            } finally {
-              sharedHolders -= 1
-            }
-          }
-          return callback(sharedHolders > 0 ? null : {} as Lock)
-        },
-      }
-      Object.defineProperty(navigator, 'locks', { configurable: true, value: locks })
+      stopAppUpdates()
+      lockBeforeReload = vi.fn(async () => {
+        useAppStore.setState({ loggedIn: false })
+      })
+      register({ lockBeforeReload })
     })
 
     afterEach(() => {
-      delete (navigator as { locks?: unknown }).locks
       vi.useRealTimers()
     })
 
-    it('holds the session lock while logged in', async () => {
+    it('locks a logged-in tab before reloading into the new version', async () => {
       useAppStore.setState({ loggedIn: true })
-      await vi.waitFor(() => expect(sharedHolders).toBe(1))
-
-      useAppStore.setState({ loggedIn: false })
-      await vi.waitFor(() => expect(sharedHolders).toBe(0))
-    })
-
-    it('waits for another tab that is logged in', async () => {
-      vi.useFakeTimers()
-      holdLockInOtherTab()
-
       options.onNeedRefresh?.()
-      expect(useAppStore.getState().appUpdateReady).toBe(true)
-      appUpdate.requestAppUpdate()
-      await vi.advanceTimersByTimeAsync(60_000)
-      expect(updateSW).not.toHaveBeenCalled()
 
-      releaseOtherTab()
-      await vi.advanceTimersByTimeAsync(30_000)
-      expect(updateSW).toHaveBeenCalledTimes(1)
-      expect(useAppStore.getState().appUpdateReady).toBe(false)
-    })
-
-    it('applies once requested when no tab is logged in', async () => {
-      options.onNeedRefresh?.()
-      expect(useAppStore.getState().appUpdateReady).toBe(true)
       appUpdate.requestAppUpdate()
+      expect(lockBeforeReload).toHaveBeenCalledTimes(1)
+      expect(appUpdate.isApplyingAppUpdate()).toBe(true)
       await vi.waitFor(() => expect(updateSW).toHaveBeenCalledWith(true))
-      expect(useAppStore.getState().appUpdateReady).toBe(false)
+      expect(lockBeforeReload.mock.invocationCallOrder[0]).toBeLessThan(updateSW.mock.invocationCallOrder[0])
     })
 
-    it('applies a forced update even while another tab is logged in', () => {
-      holdLockInOtherTab()
+    it('does not lock a tab that is already locked', () => {
+      options.onNeedRefresh?.()
+      appUpdate.requestAppUpdate()
+
+      expect(lockBeforeReload).not.toHaveBeenCalled()
+      expect(updateSW).toHaveBeenCalledWith(true)
+    })
+
+    it('reloads anyway if locking fails or hangs', async () => {
+      vi.useFakeTimers()
+      useAppStore.setState({ loggedIn: true })
+      lockBeforeReload.mockImplementation(() => new Promise<void>(() => {}))
       options.onNeedRefresh?.()
 
-      appUpdate.forceAppUpdate()
-      expect(updateSW).toHaveBeenCalledTimes(1)
+      appUpdate.requestAppUpdate()
+      await vi.advanceTimersByTimeAsync(4_999)
+      expect(updateSW).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(updateSW).toHaveBeenCalledWith(true)
+    })
+  })
+
+  describe('checking for updates', () => {
+    let visibility: DocumentVisibilityState
+
+    beforeEach(() => {
+      vi.useFakeTimers()
+      visibility = 'visible'
+      vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility)
+      stopAppUpdates()
+      register()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    function becomeVisible() {
+      visibility = 'visible'
+      document.dispatchEvent(new Event('visibilitychange'))
+    }
+
+    it('checks when the app comes back after a while', () => {
+      becomeVisible()
+      expect(registration.update).not.toHaveBeenCalled()
+
+      vi.setSystemTime(Date.now() + appUpdate.UPDATE_CHECK_INTERVAL_MS)
+      becomeVisible()
+      expect(registration.update).toHaveBeenCalledTimes(1)
+
+      becomeVisible()
+      expect(registration.update).toHaveBeenCalledTimes(1)
+    })
+
+    it('checks periodically while visible, but not while hidden', async () => {
+      await vi.advanceTimersByTimeAsync(appUpdate.UPDATE_CHECK_INTERVAL_MS)
+      expect(registration.update).toHaveBeenCalledTimes(1)
+
+      visibility = 'hidden'
+      await vi.advanceTimersByTimeAsync(appUpdate.UPDATE_CHECK_INTERVAL_MS)
+      expect(registration.update).toHaveBeenCalledTimes(1)
+    })
+
+    it('stops checking once stopped', async () => {
+      stopAppUpdates()
+      await vi.advanceTimersByTimeAsync(appUpdate.UPDATE_CHECK_INTERVAL_MS)
+      becomeVisible()
+      expect(registration.update).not.toHaveBeenCalled()
+      register()
+    })
+  })
+
+  describe('a version already waiting at startup', () => {
+    let windows: number | undefined
+    let waiting: { postMessage: Mock<(message: { type: string }, transfer?: MessagePort[]) => void> }
+    let container: EventTarget & {
+      controller: object | null
+      getRegistration: () => Promise<{ waiting: typeof waiting | null }>
+    }
+
+    beforeEach(() => {
+      windows = 1
+      waiting = {
+        postMessage: vi.fn((message, transfer) => {
+          if (message.type === 'COUNT_WINDOWS' && windows !== undefined) {
+            transfer?.[0]?.postMessage({ windows })
+          }
+        }),
+      }
+      container = Object.assign(new EventTarget(), {
+        controller: {},
+        getRegistration: async () => ({ waiting }),
+      })
+      Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: container })
+      stopAppUpdates()
+    })
+
+    afterEach(() => {
+      delete (navigator as { serviceWorker?: unknown }).serviceWorker
+    })
+
+    const skipWaitingSent = () => waiting.postMessage.mock.calls.some(([message]) => message.type === 'SKIP_WAITING')
+
+    it('applies it when this is the only window', async () => {
+      register()
+      await vi.waitFor(() => expect(skipWaitingSent()).toBe(true))
+    })
+
+    it('leaves it to the prompt when other windows are open', async () => {
+      windows = 2
+      register()
+      await vi.waitFor(() => expect(waiting.postMessage).toHaveBeenCalledTimes(1))
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(skipWaitingSent()).toBe(false)
+    })
+
+    it('leaves it to the prompt when the waiting version can not count windows', async () => {
+      vi.useFakeTimers()
+      windows = undefined
+      register()
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(skipWaitingSent()).toBe(false)
+      vi.useRealTimers()
+    })
+
+    it('leaves it alone once a login has started', async () => {
+      let finishLogin: () => void = () => {}
+      register()
+      const login = appUpdate.whileLoggingIn(() => new Promise<void>(resolve => { finishLogin = resolve }))
+      await vi.waitFor(() => expect(waiting.postMessage).toHaveBeenCalledTimes(1))
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(skipWaitingSent()).toBe(false)
+      finishLogin()
+      await login
+    })
+
+    it('does nothing on a page no service worker controls', async () => {
+      container.controller = null
+      register()
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(waiting.postMessage).not.toHaveBeenCalled()
     })
   })
 })
