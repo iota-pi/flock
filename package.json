@@ -95,7 +95,7 @@
     "@vitest/coverage-v8": "^4.1.5",
     "@vitest/eslint-plugin": "^1.6.28",
     "axe-core": "^4.14.0",
-    "concurrently": "^9.2.1",
+    "concurrently": "^10.0.6",
     "cypress": "^15.19.0",
     "cypress-axe": "^1.7.0",
     "esbuild": "^0.28.2",
