@@ -25,7 +25,7 @@ const syncState = { status: 'idle', warning: null, fatalError: null }
 async function logIn() {
   render(<MigrateApp />)
   await act(async () => {
-    fireEvent.change(screen.getByLabelText(/Account ID/i), { target: { value: 'acct-1' } })
+    fireEvent.change(screen.getByLabelText(/Account ID/i), { target: { value: 'acc1' } })
     fireEvent.change(screen.getByLabelText(/^Password/i), { target: { value: 'password' } })
     fireEvent.click(screen.getByRole('button', { name: /Update my data/i }))
   })
@@ -106,8 +106,8 @@ describe('MigrateApp', () => {
       .mockResolvedValue({ device: 3, account: 3, blockers: [] })
 
     await logIn()
-    expect(startMigration).toHaveBeenCalledWith('acct-1', 'password')
-    expect(beginSync).toHaveBeenCalledWith('acct-1')
+    expect(startMigration).toHaveBeenCalledWith('acc1', 'password')
+    expect(beginSync).toHaveBeenCalledWith('acc1')
     expect(screen.queryByLabelText(/^New password/i)).toBeNull()
 
     await poll()
@@ -115,7 +115,7 @@ describe('MigrateApp', () => {
     expect(finishMigration).not.toHaveBeenCalled()
 
     await poll()
-    expect(finishMigration).toHaveBeenCalledWith('acct-1')
+    expect(finishMigration).toHaveBeenCalledWith('acc1')
   })
 
   it('asks to go online when the server is unreachable', async () => {
@@ -142,8 +142,8 @@ describe('MigrateApp', () => {
         fireEvent.click(changePasswordButton())
       })
 
-      expect(changeToArgon2id).toHaveBeenCalledWith('acct-1', 'a-much-better-password')
-      expect(beginSync).toHaveBeenCalledWith('acct-1')
+      expect(changeToArgon2id).toHaveBeenCalledWith('acc1', 'a-much-better-password')
+      expect(beginSync).toHaveBeenCalledWith('acc1')
       expect(screen.getByText(/Keep this page open/)).toBeDefined()
     })
 
@@ -221,7 +221,7 @@ describe('MigrateApp', () => {
     await poll(3)
 
     expect(reencryptOutdatedItems).toHaveBeenCalledTimes(1)
-    expect(reencryptOutdatedItems).toHaveBeenCalledWith('acct-1', ['passwordDerivedDataKey'], expect.any(Function), expect.any(Object))
+    expect(reencryptOutdatedItems).toHaveBeenCalledWith('acc1', ['passwordDerivedDataKey'], expect.any(Function), expect.any(Object))
   })
 
   it('re-encrypts every item when snapshots are still unbound', async () => {
@@ -232,7 +232,7 @@ describe('MigrateApp', () => {
     await poll(3)
 
     expect(reencryptOutdatedItems).toHaveBeenCalledTimes(1)
-    expect(reencryptOutdatedItems).toHaveBeenCalledWith('acct-1', ['unboundSnapshots'], expect.any(Function), expect.any(Object))
+    expect(reencryptOutdatedItems).toHaveBeenCalledWith('acc1', ['unboundSnapshots'], expect.any(Function), expect.any(Object))
   })
 
   it("doesn't re-encrypt for blockers re-encryption can't clear", async () => {
@@ -258,8 +258,8 @@ describe('MigrateApp', () => {
       fireEvent.click(screen.getByRole('button', { name: /Continue to Flock/i }))
     })
 
-    expect(isMigrationDeferred('acct-1')).toBe(true)
-    expect(finishMigration).toHaveBeenCalledWith('acct-1')
+    expect(isMigrationDeferred('acc1')).toBe(true)
+    expect(finishMigration).toHaveBeenCalledWith('acc1')
   })
 
   it('does not offer to continue while the password still needs changing', async () => {
@@ -332,7 +332,7 @@ describe('MigrateApp', () => {
       await poll(2)
 
       expect(reencryptOutdatedItems).toHaveBeenCalledWith(
-        'acct-1',
+        'acc1',
         ['passwordDerivedDataKey'],
         expect.any(Function),
         expect.objectContaining({ waitTimeoutMs: REENCRYPT_WAIT_TIMEOUT_MS, signal: expect.any(AbortSignal) }),

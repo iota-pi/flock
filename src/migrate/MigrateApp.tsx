@@ -18,6 +18,7 @@ import {
   type ReencryptStage,
   type SyncDiagnostics,
 } from '@vault/client'
+import { normalizeAccountId } from '@vault/shared'
 import { createLogger } from 'src/utils/logger'
 import { usePasswordStrength } from '../hooks/usePasswordStrength'
 import { deferMigration, MIN_DEVICE_DATA_VERSION, readMigrationHandoff } from './detection'
@@ -138,8 +139,11 @@ export default function MigrateApp() {
     setLoading(true)
     setLoadingMessage('Signing in and preparing the update…')
     setError('')
+    // The rest of the migration reads the canonical ID from state
+    const canonicalAccount = normalizeAccountId(account)
+    setAccount(canonicalAccount)
     try {
-      const { needsNewPassword } = await startMigration(account, password)
+      const { needsNewPassword } = await startMigration(canonicalAccount, password)
       if (needsNewPassword) {
         setCurrentPassword(password)
         setPassword('')

@@ -59,7 +59,7 @@ describe('LoginPage', () => {
   it('falls back to cached security params when getSecurityParams fails (offline)', async () => {
     // Seed cached metadata
     localStorage.setItem('FlockVaultMeta', JSON.stringify({
-      account: 'test-offline-account',
+      account: 'abcd2345',
       salt: 'cached-salt',
       iterations: 5000,
       saltVersion: 1,
@@ -75,14 +75,14 @@ describe('LoginPage', () => {
     const loginButton = screen.getByRole('button', { name: /Login/i })
 
     await act(async () => {
-      fireEvent.change(accountInput, { target: { value: 'test-offline-account' } })
+      fireEvent.change(accountInput, { target: { value: 'abcd2345' } })
       fireEvent.change(passwordInput, { target: { value: 'secret123' } })
       fireEvent.click(loginButton)
     })
 
     await waitFor(() => {
       expect(loginVaultSpy).toHaveBeenCalledWith({
-        account: 'test-offline-account',
+        account: 'abcd2345',
         password: 'secret123',
         salt: 'cached-salt',
         iterations: 5000,
@@ -95,7 +95,7 @@ describe('LoginPage', () => {
   it("uses cached security params when the server is slow, rather than waiting for it", async () => {
     vi.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true })
     localStorage.setItem('FlockVaultMeta', JSON.stringify({
-      account: 'test-slow-account',
+      account: 'abcd3456',
       salt: 'cached-salt',
       iterations: 5000,
       saltVersion: 1,
@@ -107,7 +107,7 @@ describe('LoginPage', () => {
     renderLoginPage()
 
     await act(async () => {
-      fireEvent.change(screen.getByLabelText(/Account ID/i), { target: { value: 'test-slow-account' } })
+      fireEvent.change(screen.getByLabelText(/Account ID/i), { target: { value: 'abcd3456' } })
       fireEvent.change(screen.getByLabelText(/Password/i), { target: { value: 'secret123' } })
       fireEvent.click(screen.getByRole('button', { name: /Login/i }))
     })
@@ -133,7 +133,7 @@ describe('LoginPage', () => {
     const loginButton = screen.getByRole('button', { name: /Login/i })
 
     await act(async () => {
-      fireEvent.change(accountInput, { target: { value: 'my-account' } })
+      fireEvent.change(accountInput, { target: { value: 'abcd1234' } })
       fireEvent.change(passwordInput, { target: { value: 'secret123' } })
       fireEvent.click(loginButton)
     })
@@ -142,8 +142,57 @@ describe('LoginPage', () => {
       expect(loginVaultSpy).not.toHaveBeenCalled()
       expect(screen.getByText(/Could not reach the server/i)).toBeDefined()
     })
-    expect(paramsSpy).toHaveBeenCalledWith('my-account', { retry: true })
+    expect(paramsSpy).toHaveBeenCalledWith('abcd1234', { retry: true })
     expect(screen.queryByText(/Could not find matching account ID/i)).toBeNull()
+  })
+
+  it('logs in with the canonical account ID however it was typed', async () => {
+    const paramsSpy = vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({ salt: 'test-salt', saltVersion: 1, kdf: ARGON2ID, dataVersion: 2 })
+    const loginVaultSpy = vi.spyOn(vault, 'loginVault').mockResolvedValue(NOT_UPGRADED)
+
+    renderLoginPage()
+
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/Account ID/i), { target: { value: ' ABCD-I234 ' } })
+      fireEvent.change(screen.getByLabelText(/Password/i), { target: { value: 'secret123' } })
+      fireEvent.click(screen.getByRole('button', { name: /Login/i }))
+    })
+
+    await waitFor(() => {
+      expect(loginVaultSpy).toHaveBeenCalledWith(expect.objectContaining({ account: 'abcd1234' }))
+    })
+    expect(paramsSpy).toHaveBeenCalledWith('abcd1234', { retry: true })
+    expect(useAppStore.getState().account).toBe('abcd1234')
+  })
+
+  it('explains a malformed account ID without asking the server', async () => {
+    const paramsSpy = vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({ salt: 'test-salt', saltVersion: 1, kdf: ARGON2ID, dataVersion: 2 })
+    const loginVaultSpy = vi.spyOn(vault, 'loginVault').mockResolvedValue(NOT_UPGRADED)
+
+    renderLoginPage()
+
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/Account ID/i), { target: { value: 'abcd-123' } })
+      fireEvent.change(screen.getByLabelText(/Password/i), { target: { value: 'secret123' } })
+      fireEvent.click(screen.getByRole('button', { name: /Login/i }))
+    })
+
+    expect(screen.getByText(/Account IDs have 8 characters/i)).toBeDefined()
+    expect(paramsSpy).not.toHaveBeenCalled()
+    expect(loginVaultSpy).not.toHaveBeenCalled()
+
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/Account ID/i), { target: { value: 'abcd-1234' } })
+    })
+    expect(screen.queryByText(/Account IDs have 8 characters/i)).toBeNull()
+  })
+
+  it('shows a stored account ID with its hyphen', () => {
+    localStorage.setItem('FlockVaultMeta', JSON.stringify({ account: 'abcd1234', salt: 'cached-salt' }))
+
+    renderLoginPage()
+
+    expect(screen.getByDisplayValue('abcd-1234')).toBeDefined()
   })
 
   it('says the account was not found only when the server says so', async () => {
@@ -154,7 +203,7 @@ describe('LoginPage', () => {
     renderLoginPage()
 
     await act(async () => {
-      fireEvent.change(screen.getByLabelText(/Account ID/i), { target: { value: 'unknown-account' } })
+      fireEvent.change(screen.getByLabelText(/Account ID/i), { target: { value: 'zzzz9999' } })
       fireEvent.change(screen.getByLabelText(/Password/i), { target: { value: 'secret123' } })
       fireEvent.click(screen.getByRole('button', { name: /Login/i }))
     })
@@ -173,7 +222,7 @@ describe('LoginPage', () => {
     renderLoginPage()
 
     await act(async () => {
-      fireEvent.change(screen.getByLabelText(/Account ID/i), { target: { value: 'my-account' } })
+      fireEvent.change(screen.getByLabelText(/Account ID/i), { target: { value: 'abcd1234' } })
       fireEvent.change(screen.getByLabelText(/Password/i), { target: { value: 'secret123' } })
       fireEvent.click(screen.getByRole('button', { name: /Login/i }))
     })
@@ -193,7 +242,7 @@ describe('LoginPage', () => {
     renderLoginPage()
 
     await act(async () => {
-      fireEvent.change(screen.getByLabelText(/Account ID/i), { target: { value: 'my-account' } })
+      fireEvent.change(screen.getByLabelText(/Account ID/i), { target: { value: 'abcd1234' } })
       fireEvent.change(screen.getByLabelText(/Password/i), { target: { value: 'secret123' } })
       fireEvent.click(screen.getByRole('button', { name: /Login/i }))
     })
@@ -221,7 +270,7 @@ describe('LoginPage', () => {
     const loginButton = screen.getByRole('button', { name: /Login/i })
 
     await act(async () => {
-      fireEvent.change(accountInput, { target: { value: 'my-account' } })
+      fireEvent.change(accountInput, { target: { value: 'abcd1234' } })
       fireEvent.change(passwordInput, { target: { value: 'wrong-pass' } })
       fireEvent.click(loginButton)
     })
@@ -249,7 +298,7 @@ describe('LoginPage', () => {
     const loginButton = screen.getByRole('button', { name: /Login/i })
 
     await act(async () => {
-      fireEvent.change(accountInput, { target: { value: 'my-account' } })
+      fireEvent.change(accountInput, { target: { value: 'abcd1234' } })
       fireEvent.change(passwordInput, { target: { value: 'wrong-pass' } })
       fireEvent.click(loginButton)
     })
@@ -282,7 +331,7 @@ describe('LoginPage', () => {
     const loginButton = screen.getByRole('button', { name: /Login/i })
 
     await act(async () => {
-      fireEvent.change(accountInput, { target: { value: 'my-account' } })
+      fireEvent.change(accountInput, { target: { value: 'abcd1234' } })
       fireEvent.change(passwordInput, { target: { value: 'wrong-pass' } })
       fireEvent.click(loginButton)
     })
@@ -306,7 +355,7 @@ describe('LoginPage', () => {
     renderLoginPage()
 
     await act(async () => {
-      fireEvent.change(screen.getByLabelText(/Account ID/i), { target: { value: 'my-account' } })
+      fireEvent.change(screen.getByLabelText(/Account ID/i), { target: { value: 'abcd1234' } })
       fireEvent.change(screen.getByLabelText(/Password/i), { target: { value: 'pass' } })
       fireEvent.click(screen.getByRole('button', { name: /Login/i }))
     })
@@ -323,7 +372,7 @@ describe('LoginPage', () => {
   it('asks for the password when the biometric key is stale', async () => {
     vi.spyOn(vault, 'hasBiometricData').mockReturnValue(true)
     vi.spyOn(vault, 'readBiometricData').mockReturnValue({
-      account: 'my-account',
+      account: 'abcd1234',
       credentialId: 'cred',
       prfSalt: 'salt',
       encryptedMasterKey: { iv: '', cipher: '' },
@@ -333,7 +382,7 @@ describe('LoginPage', () => {
     renderLoginPage()
 
     await waitFor(() => {
-      expect(unlockSpy).toHaveBeenCalledWith('my-account')
+      expect(unlockSpy).toHaveBeenCalledWith('abcd1234')
       expect(screen.getByText(/changed on another device/i)).toBeDefined()
       expect(screen.getByLabelText(/Password/i)).toBeDefined()
     })
@@ -344,7 +393,7 @@ describe('LoginPage', () => {
     async function logIn() {
       renderLoginPage()
       await act(async () => {
-        fireEvent.change(screen.getByLabelText(/Account ID/i), { target: { value: 'old-account' } })
+        fireEvent.change(screen.getByLabelText(/Account ID/i), { target: { value: 'old1' } })
         fireEvent.change(screen.getByLabelText(/Password/i), { target: { value: 'password' } })
         fireEvent.click(screen.getByRole('button', { name: /Login/i }))
       })
@@ -360,12 +409,12 @@ describe('LoginPage', () => {
 
       await logIn()
 
-      await waitFor(() => expect(goToMigration).toHaveBeenCalledWith('old-account'))
+      await waitFor(() => expect(goToMigration).toHaveBeenCalledWith('old1'))
       expect(loginVaultSpy).not.toHaveBeenCalled()
     })
 
     it('lets an account whose migration was deferred log in', async () => {
-      localStorage.setItem('flock-migration-deferred', JSON.stringify({ 'old-account': Date.now() + 60_000 }))
+      localStorage.setItem('flock-migration-deferred', JSON.stringify({ 'old1': Date.now() + 60_000 }))
       vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({ salt: 'test-salt', saltVersion: 1, kdf: ARGON2ID, dataVersion: 1 })
       const loginVaultSpy = vi.spyOn(vault, 'loginVault').mockResolvedValue(NOT_UPGRADED)
 
@@ -376,18 +425,18 @@ describe('LoginPage', () => {
     })
 
     it('sends an account the server describes as PBKDF2 to the migration app, whatever its level', async () => {
-      localStorage.setItem('flock-migration-deferred', JSON.stringify({ 'old-account': Date.now() + 60_000 }))
+      localStorage.setItem('flock-migration-deferred', JSON.stringify({ 'old1': Date.now() + 60_000 }))
       vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({ salt: 'test-salt', saltVersion: 1, iterations: 600_000, dataVersion: 2 })
       const loginVaultSpy = vi.spyOn(vault, 'loginVault').mockResolvedValue(NOT_UPGRADED)
 
       await logIn()
 
-      await waitFor(() => expect(goToMigration).toHaveBeenCalledWith('old-account'))
+      await waitFor(() => expect(goToMigration).toHaveBeenCalledWith('old1'))
       expect(loginVaultSpy).not.toHaveBeenCalled()
     })
 
     it('logs in with Argon2id parameters cached on the device when offline', async () => {
-      localStorage.setItem('FlockVaultMeta', JSON.stringify({ account: 'old-account', salt: 'cached-salt', saltVersion: 1, kdf: ARGON2ID }))
+      localStorage.setItem('FlockVaultMeta', JSON.stringify({ account: 'old1', salt: 'cached-salt', saltVersion: 1, kdf: ARGON2ID }))
       vi.spyOn(vault, 'getSecurityParams').mockRejectedValue(new Error('Network offline'))
       const loginVaultSpy = vi.spyOn(vault, 'loginVault').mockResolvedValue(NOT_UPGRADED)
 
@@ -403,12 +452,12 @@ describe('LoginPage', () => {
 
       await logIn()
 
-      await waitFor(() => expect(goToMigration).toHaveBeenCalledWith('old-account'))
+      await waitFor(() => expect(goToMigration).toHaveBeenCalledWith('old1'))
       expect(screen.queryByRole('alert')).toBeNull()
     })
 
     it('asks for a connection when PBKDF2 parameters cached on the device can only be used by the migration app', async () => {
-      localStorage.setItem('FlockVaultMeta', JSON.stringify({ account: 'old-account', salt: 'cached-salt', iterations: 600000 }))
+      localStorage.setItem('FlockVaultMeta', JSON.stringify({ account: 'old1', salt: 'cached-salt', iterations: 600000 }))
       vi.spyOn(vault, 'getSecurityParams').mockRejectedValue(new Error('Network offline'))
       // The main app no longer derives PBKDF2 keys
       vi.spyOn(vault, 'loginVault').mockRejectedValue(new vault.UnsupportedKeyDerivationError('This app no longer derives PBKDF2 keys'))

@@ -4006,17 +4006,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@smithy/core@npm:^3.33.2, @smithy/core@npm:^3.33.3":
-  version: 3.33.3
-  resolution: "@smithy/core@npm:3.33.3"
-  dependencies:
-    "@smithy/types": "npm:^4.17.2"
-    tslib: "npm:^2.6.2"
-  checksum: 10c0/57c5c6c1834d84eddfff905932350973afa20e1006024b82d6599af4c8d1e75b243e06b93c998acc95946399f1342ddc298c6941e0030384e6541ceec4007376
-  languageName: node
-  linkType: hard
-
-"@smithy/core@npm:^3.38.0, @smithy/core@npm:^3.38.1":
+"@smithy/core@npm:^3.33.2, @smithy/core@npm:^3.33.3, @smithy/core@npm:^3.38.0, @smithy/core@npm:^3.38.1":
   version: 3.38.1
   resolution: "@smithy/core@npm:3.38.1"
   dependencies:
@@ -7108,16 +7098,16 @@ __metadata:
   linkType: hard
 
 "fast-uri@npm:^3.0.1":
-  version: 3.1.6
-  resolution: "fast-uri@npm:3.1.6"
-  checksum: 10c0/77fa4f966f7d2cf83c34af2d3eb88882872fe90634f27a6bd309551db65377d3ca55616467c7cb4dcc57e33523d149e2fec1952d51cc2f00bfce68a66c3711ea
+  version: 3.1.9
+  resolution: "fast-uri@npm:3.1.9"
+  checksum: 10c0/052757540d8c0bbc16bb124a45b8f5cb5d0932f9b89f019221ee41cdb3cafc1db44b2e809d6b888b87922af3e5560a863124454e9d9193e1fc955887357b5add
   languageName: node
   linkType: hard
 
 "fast-uri@npm:^4.0.0":
-  version: 4.1.3
-  resolution: "fast-uri@npm:4.1.3"
-  checksum: 10c0/6fc13d8731757ab6ba419a38044dece1b0757f086c57e75627218d66a0085ae3cff501aaa9840fffb4c83ecccd9806e7f8ebce985cd6e3fb589cffec3d86b9b1
+  version: 4.2.3
+  resolution: "fast-uri@npm:4.2.3"
+  checksum: 10c0/de121e1d98e5cf75ad31971ac799d6fd12edff6c4c62c7ad0aa64d87d669e9b0418eb5880588dba7e6a991a686c1ec0f8e91654ad2f6440a1f4ad48b8657c3df
   languageName: node
   linkType: hard
 

@@ -13,7 +13,7 @@ describe('autoLockStore', () => {
 
   it('returns default settings when nothing is in storage', () => {
     expect(readAutoLockSettings()).toEqual(DEFAULT_AUTO_LOCK_SETTINGS)
-    expect(getAutoLockSummary()).toBe('Never')
+    expect(getAutoLockSummary()).toBe('After 10 minutes of inactivity')
   })
 
   it('persists and reads back focus loss settings', () => {

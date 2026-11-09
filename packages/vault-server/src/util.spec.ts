@@ -1,3 +1,4 @@
+import { isValidNewAccountId } from '@vault/shared'
 import { fakeSalt, generateAccountId, hashString } from './util'
 
 describe('vault util', () => {
@@ -10,11 +11,10 @@ describe('vault util', () => {
   })
 
   describe('generateAccountId', () => {
-    it('returns a 4-character alphanumeric lowercase id', () => {
+    it('returns a canonical current-format id', () => {
       const id = generateAccountId()
-      expect(typeof id).toBe('string')
-      expect(id.length).toBe(4)
-      expect(id).toMatch(/^[a-z0-9]{4}$/)
+      expect(id).toHaveLength(8)
+      expect(isValidNewAccountId(id)).toBe(true)
     })
 
     it('generates mostly-unique ids across multiple calls', () => {
@@ -23,12 +23,12 @@ describe('vault util', () => {
         ids.add(generateAccountId())
       }
       // Not asserting perfect uniqueness (birthday paradox), but ensure collisions are not extreme
-      expect(ids.size).toBeGreaterThan(900)
+      expect(ids.size).toBeGreaterThan(990)
     })
 
-    it('always returns 4 characters', () => {
+    it('always returns a valid id', () => {
       for (let i = 0; i < 1000; i += 1) {
-        expect(generateAccountId()).toMatch(/^[a-z0-9]{4}$/)
+        expect(isValidNewAccountId(generateAccountId())).toBe(true)
       }
     })
   })

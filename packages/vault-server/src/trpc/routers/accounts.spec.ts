@@ -2,7 +2,7 @@ import { accountsRouter } from './accounts'
 import { fakeSalt, hashString } from '../../util'
 import { hashSessionToken, SESSION_EXPIRY_MS } from '../../sessions'
 import { MAX_FAILED_LOGINS } from '../../loginThrottle'
-import { VersionConflictError } from '@vault/shared'
+import { isValidNewAccountId, VersionConflictError } from '@vault/shared'
 
 const ARGON2ID = { algorithm: 'argon2id' as const, memoryKiB: 65536, passes: 3, parallelism: 1 }
 const NEW_ACCOUNT = {
@@ -161,7 +161,7 @@ describe('accountsRouter security contracts', () => {
 
     const { account } = await caller.createAccount(NEW_ACCOUNT)
 
-    expect(account).toBeTypeOf('string')
+    expect(isValidNewAccountId(account)).toBe(true)
     expect(ctx.vault.createAccount).toHaveBeenCalledWith({
       account,
       authToken: hashString('auth'),

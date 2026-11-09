@@ -388,6 +388,6 @@ Implemented in this order, one PR each:
 
 ## Decisions
 
-1. **Auto-lock default stays `never`** (`DEFAULT_AUTO_LOCK_SETTINGS`), for now. An unattended open tab stays unlocked and is outside this protection.
+1. **Auto-lock defaults to 10 minutes of inactivity** (`DEFAULT_AUTO_LOCK_SETTINGS`). The default is not written to storage: a device with no stored setting uses it, and users can still choose `never`.
 2. **Password strength floor stays at zxcvbn score 3** (`MIN_PASSWORD_STRENGTH`, about 10⁸ guesses), for new passwords and for the migration's new password.
 3. **Argon2id parameters are 64 MiB / t=3 / p=1**, as in "Parameters".
