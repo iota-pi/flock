@@ -1,6 +1,7 @@
 import { router, protectedProcedure } from '@vault/server'
 import type { VaultAccountWithAuth } from '@vault/server'
 import {
+  MAX_PUSH_SUBSCRIPTIONS,
   SnoozeRemindersBodySchema,
   PushSubscriptionBodySchema,
   PushSubscriptionDeleteBodySchema,
@@ -24,9 +25,10 @@ export const flockAccountsRouter = router({
         endpoint: input.endpoint,
         keys: input.keys,
       }
+      // The newest subscription is the one a device is using now, so the oldest make way for it
       const next = existing.some(sub => sub.endpoint === incoming.endpoint)
         ? existing
-        : [...existing, incoming]
+        : [...existing, incoming].slice(-MAX_PUSH_SUBSCRIPTIONS)
 
       await ctx.vault.updateAccountData<FlockAccountFields>({
         account: input.account,

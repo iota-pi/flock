@@ -11,6 +11,7 @@ import {
   toZonedTime,
 } from 'date-fns-tz'
 import type { WebPushSubscription } from '../types'
+import { isAllowedPushEndpoint, MAX_PUSH_SUBSCRIPTIONS } from 'src/shared/schemas/notifications'
 import { getConnectionParams } from '@vault/server/dynamo'
 import { FLOCK_TABLES } from '../flockDriver'
 import { getReminderTopic, type ReminderMessage } from './messages'
@@ -126,7 +127,10 @@ export const handler = async () => {
     .flatMap(account => {
       const reminderTime = account.reminderTime ?? '08:00'
       const timezone = account.reminderTimezone ?? 'UTC'
-      const subscriptions = account.pushSubscriptions ?? []
+      // Endpoints stored before they were validated could point anywhere, or be too many
+      const subscriptions = (account.pushSubscriptions ?? [])
+        .filter(subscription => isAllowedPushEndpoint(subscription.endpoint))
+        .slice(-MAX_PUSH_SUBSCRIPTIONS)
 
       if (!isReminderTimeMatch(nowUtc, reminderTime, timezone, intervalMinutes)) {
         return []

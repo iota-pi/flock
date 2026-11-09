@@ -27,7 +27,7 @@ describe('webpush service', () => {
     delete process.env.VAPID_PRIVATE_KEY
 
     const subscription = {
-      endpoint: 'https://push.example.com/sub1',
+      endpoint: 'https://fcm.googleapis.com/fcm/send/sub1',
       keys: { auth: 'auth1', p256dh: 'p256dh1' },
     }
     const payload = { title: 'Test', body: 'Body' }
@@ -43,7 +43,7 @@ describe('webpush service', () => {
     process.env.VAPID_PRIVATE_KEY = 'privkey'
 
     const subscription = {
-      endpoint: 'https://push.example.com/sub2',
+      endpoint: 'https://fcm.googleapis.com/fcm/send/sub2',
       keys: { auth: 'auth2', p256dh: 'p256dh2' },
     }
     const payload = { title: 'Prayer reminder', body: 'Time to pray for your flock.' }
@@ -68,7 +68,7 @@ describe('webpush service', () => {
     process.env.VAPID_PRIVATE_KEY = 'privkey'
 
     const subscription = {
-      endpoint: 'https://push.example.com/sub3',
+      endpoint: 'https://fcm.googleapis.com/fcm/send/sub3',
       keys: { auth: 'auth3', p256dh: 'p256dh3' },
     }
     const payload = { title: 'Prayer reminder', body: 'Time to pray for your flock.' }
@@ -80,5 +80,19 @@ describe('webpush service', () => {
       JSON.stringify(payload),
       { timeout: 10_000, topic: 'reminder-2026-10-17', TTL: 3600 },
     )
+  })
+
+  it('refuses to send to an endpoint that is not a known push service', async () => {
+    process.env.VAPID_SUBJECT = 'mailto:admin@example.com'
+    process.env.VAPID_PUBLIC_KEY = 'pubkey'
+    process.env.VAPID_PRIVATE_KEY = 'privkey'
+
+    const subscription = {
+      endpoint: 'https://attacker.example.com/sub',
+      keys: { auth: 'auth4', p256dh: 'p256dh4' },
+    }
+
+    await expect(sendPushNotification(subscription, { title: 'T', body: 'B' })).rejects.toThrow('not a known push service')
+    expect(webPush.sendNotification).not.toHaveBeenCalled()
   })
 })

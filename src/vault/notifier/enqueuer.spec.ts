@@ -139,7 +139,7 @@ describe('handler', () => {
   })
 
   const subscription = (endpoint: string) => ({
-    endpoint: `https://push.example.com/${endpoint}`,
+    endpoint: `https://fcm.googleapis.com/fcm/send/${endpoint}`,
     keys: { auth: 'a', p256dh: 'p' },
   })
 
@@ -174,15 +174,20 @@ describe('handler', () => {
     ])
   })
 
+  const reminderAccount = (account: string, pushSubscriptions: Array<{ endpoint: string }>) => ({
+    account,
+    pushSubscriptions,
+    reminderEnabled: true,
+    reminderTime: '08:00',
+    reminderTimezone: 'Australia/Sydney',
+  })
+
   it('splits more than 10 subscriptions across batches', async () => {
     scanMock.mockResolvedValue({
-      Items: [{
-        account: 'user-1',
-        pushSubscriptions: Array.from({ length: 12 }, (_, i) => subscription(`sub-${i}`)),
-        reminderEnabled: true,
-        reminderTime: '08:00',
-        reminderTimezone: 'Australia/Sydney',
-      }],
+      Items: [
+        reminderAccount('user-1', Array.from({ length: 6 }, (_, i) => subscription(`a-${i}`))),
+        reminderAccount('user-2', Array.from({ length: 6 }, (_, i) => subscription(`b-${i}`))),
+      ],
     })
 
     await handler()
@@ -190,5 +195,32 @@ describe('handler', () => {
     expect(sqsSendMock).toHaveBeenCalledTimes(2)
     expect(sqsSendMock.mock.calls[0][0].input.Entries).toHaveLength(10)
     expect(sqsSendMock.mock.calls[1][0].input.Entries).toHaveLength(2)
+  })
+
+  it('skips endpoints that are not known push services', async () => {
+    scanMock.mockResolvedValue({
+      Items: [reminderAccount('user-1', [
+        { endpoint: 'http://169.254.169.254/latest/meta-data', keys: { auth: 'a', p256dh: 'p' } },
+        subscription('phone'),
+      ])],
+    })
+
+    await handler()
+
+    const entries = sqsSendMock.mock.calls[0][0].input.Entries as Array<{ MessageBody: string }>
+    expect(entries.map(entry => JSON.parse(entry.MessageBody).subscription)).toEqual([subscription('phone')])
+  })
+
+  it('sends to at most the newest 10 subscriptions of an account', async () => {
+    scanMock.mockResolvedValue({
+      Items: [reminderAccount('user-1', Array.from({ length: 12 }, (_, i) => subscription(`sub-${i}`)))],
+    })
+
+    await handler()
+
+    const entries = sqsSendMock.mock.calls.flatMap(call => call[0].input.Entries) as Array<{ MessageBody: string }>
+    expect(entries.map(entry => JSON.parse(entry.MessageBody).subscription.endpoint)).toEqual(
+      Array.from({ length: 10 }, (_, i) => subscription(`sub-${i + 2}`).endpoint),
+    )
   })
 })
