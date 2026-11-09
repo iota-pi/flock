@@ -5,6 +5,7 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import CircularProgress from '@mui/material/CircularProgress'
 import { createLogger } from 'src/utils/logger'
+import { isChunkLoadError, recoverFromChunkLoadError } from 'src/app/brokenBuild'
 
 const log = createLogger('AsyncBoundary')
 
@@ -23,27 +24,6 @@ type AsyncErrorBoundaryState = {
   error: Error | null
 }
 
-function isChunkLoadError(error: Error): boolean {
-  const message = error.message || ''
-  return (
-    message.includes('Failed to fetch dynamically imported module') ||
-    message.includes('Failed to load module script') ||
-    message.includes('Loading chunk') ||
-    message.includes('dynamically imported module')
-  )
-}
-
-function handleChunkErrorReload() {
-  const storageKey = 'flock_chunk_reload_attempted'
-  const lastAttempt = sessionStorage.getItem(storageKey)
-  const now = Date.now()
-
-  // Auto-reload once if not attempted in the last 15 seconds
-  if (!lastAttempt || now - parseInt(lastAttempt, 10) > 15000) {
-    sessionStorage.setItem(storageKey, now.toString())
-    window.location.reload()
-  }
-}
 
 export function LoadingSpinner() {
   return (
@@ -71,10 +51,7 @@ function DefaultErrorFallback({ error }: { error: Error }) {
           <Button
             color="inherit"
             size="small"
-            onClick={() => {
-              sessionStorage.removeItem('flock_chunk_reload_attempted')
-              window.location.reload()
-            }}
+            onClick={() => window.location.reload()}
           >
             Reload Page
           </Button>
@@ -105,7 +82,8 @@ class AsyncErrorBoundary extends Component<AsyncErrorBoundaryProps, AsyncErrorBo
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     log.error('render failed', error, errorInfo)
     if (isChunkLoadError(error)) {
-      handleChunkErrorReload()
+      // The fallback already tells the user to reload, so there's no other warning to show
+      void recoverFromChunkLoadError(() => {})
       return
     }
 

@@ -1,10 +1,25 @@
 /// <reference lib="webworker" />
 import { ExpirationPlugin } from 'workbox-expiration'
-import { createHandlerBoundToURL, precacheAndRoute } from 'workbox-precaching'
+import { addPlugins, createHandlerBoundToURL, precacheAndRoute } from 'workbox-precaching'
 import { NavigationRoute, registerRoute } from 'workbox-routing'
 import { CacheFirst, NetworkOnly } from 'workbox-strategies'
+import { isPageInPlaceOfFile } from './utils/builtAssets'
 
 declare const self: ServiceWorkerGlobalScope
+
+// A file missing from the server (say, mid-deploy) is answered with the app shell and status 200,
+// which Workbox would precache as the file, breaking this version for good. Refusing it fails the
+// install, and the browser tries again at its next update check.
+addPlugins([{
+  // Content-hashed files are otherwise fetched through the HTTP cache, which may hold such a page
+  // under the file's name (the site marks everything under /assets/ immutable)
+  requestWillFetch: async ({ request, event }) => (
+    event?.type === 'install' && request.mode !== 'navigate' ? new Request(request, { cache: 'reload' }) : request
+  ),
+  cacheWillUpdate: async ({ request, response }) => (
+    response.status < 400 && !isPageInPlaceOfFile(request.url, response) ? response : null
+  ),
+}])
 
 precacheAndRoute(self.__WB_MANIFEST)
 
@@ -60,8 +75,8 @@ registerRoute(
     plugins: [
       {
         // A missing file is answered with the app shell, which mustn't be cached as the asset
-        cacheWillUpdate: async ({ response }) => (
-          response.ok && !response.headers.get('Content-Type')?.includes('text/html') ? response : null
+        cacheWillUpdate: async ({ request, response }) => (
+          response.ok && !isPageInPlaceOfFile(request.url, response) ? response : null
         ),
       },
       new ExpirationPlugin({ maxEntries: 20, purgeOnQuotaError: true }),
