@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/react'
 import { CLIENT_OUTDATED_MESSAGE } from '@vault/shared'
 import env from '../env'
+import { scrubBreadcrumb, scrubEvent } from '../utils/telemetryScrub'
 
 export const NETWORK_ERROR_MATCHERS: Array<string | RegExp> = [
   'Failed to fetch',
@@ -77,8 +78,13 @@ export function getAppSentryConfig({ app }: AppSentryOptions): SentryInitOptions
     tracesSampleRate: 0.0,
     ignoreErrors: [...NETWORK_ERROR_MATCHERS, CLIENT_OUTDATED_MESSAGE],
     initialScope: { tags: { app } },
+    sendDefaultPii: false,
+    beforeBreadcrumb(breadcrumb) {
+      return scrubBreadcrumb(breadcrumb)
+    },
     beforeSend(event) {
-      return filterIgnoredEvents(event)
+      const kept = filterIgnoredEvents(event)
+      return kept && scrubEvent(kept)
     },
   }
 }

@@ -102,6 +102,14 @@ describe('sentry configuration and filtering', () => {
       }
       expect(config.beforeSend?.(networkEvent as any, {})).toBeNull()
     })
+
+    it('turns off default PII and scrubs breadcrumbs and events', () => {
+      const config = getAppSentryConfig({ app: 'main' })
+      expect(config.sendDefaultPii).toBe(false)
+      expect(config.beforeBreadcrumb?.({ category: 'console', message: 'note' })).toBeNull()
+      const event = { type: undefined, message: 'Error for jane@example.com', request: { data: 'secret' } }
+      expect(config.beforeSend?.(event as any, {})).toEqual({ type: undefined, message: 'Error for [email]', request: {} })
+    })
   })
 
   describe('initAppSentry', () => {
