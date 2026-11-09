@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomInt, timingSafeEqual } from 'crypto'
+import { ACCOUNT_ID_ALPHABET, ACCOUNT_ID_LENGTH } from '@vault/shared'
 
 export function safeEqual(attempt: string, real: string) {
   if (attempt.length !== real.length) {
@@ -8,9 +9,7 @@ export function safeEqual(attempt: string, real: string) {
   return timingSafeEqual(Buffer.from(attempt), Buffer.from(real))
 }
 
-const ACCOUNT_ID_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz'
-const ACCOUNT_ID_LENGTH = 4
-
+/** A random account ID in the canonical form (`@vault/shared`'s `accountId.ts`) */
 export function generateAccountId(length = ACCOUNT_ID_LENGTH): string {
   return Array.from(
     { length },

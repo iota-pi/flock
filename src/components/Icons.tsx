@@ -9,6 +9,7 @@ import CloudDoneIcon from '@mui/icons-material/CloudDone'
 import CloudOffIcon from '@mui/icons-material/CloudOff'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import CollapseIcon from '@mui/icons-material/ExpandLess'
+import CopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteIcon from '@mui/icons-material/DeleteOutlineOutlined'
 import DownloadIcon from '@mui/icons-material/Download'
 import EditIcon from '@mui/icons-material/Edit'
@@ -64,6 +65,7 @@ export {
   CloudOffIcon,
   CloudUploadIcon,
   CollapseIcon,
+  CopyIcon,
   DeleteIcon,
   DownloadIcon,
   EditIcon,

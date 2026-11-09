@@ -35,7 +35,13 @@ import {
   type KdfParams,
 } from '@vault/client'
 import { createLogger } from 'src/utils/logger'
-import { isNotFoundError, isRateLimitedError } from '@vault/shared'
+import {
+  describeAccountIdProblem,
+  formatAccountId,
+  isNotFoundError,
+  isRateLimitedError,
+  normalizeAccountId,
+} from '@vault/shared'
 import { getBiometricLabel } from '../../utils/biometricLabel'
 import { consumeManualLock } from 'src/app/vault/autoLockStore'
 import { goToMigration, isMigrationDeferred, MIN_ACCOUNT_DATA_VERSION } from 'src/migrate/detection'
@@ -161,7 +167,8 @@ function LoginPage() {
     if (storedMeta?.account) return storedMeta.account
     return ''
   })
-  const [accountInput, setAccountInput] = useState(defaultAccount)
+  const [accountInput, setAccountInput] = useState(() => formatAccountId(defaultAccount))
+  const [accountError, setAccountError] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [showPasswordForm, setShowPasswordForm] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -206,13 +213,20 @@ function LoginPage() {
 
   const handleClickLogin = useCallback(
     async () => {
+      // Checked here, so that an ID that can't exist never reaches the server or counts as a failure
+      const accountProblem = describeAccountIdProblem(accountInput)
+      if (accountProblem) {
+        setAccountError(accountProblem)
+        return
+      }
+      const account = normalizeAccountId(accountInput)
       setLoading(true)
       setError('')
-      updateAuth({ account: accountInput })
+      updateAuth({ account })
 
-      const result = await resolveSecurityParams(accountInput)
+      const result = await resolveSecurityParams(account)
       if (result.kind === 'migrate') {
-        goToMigration(accountInput)
+        goToMigration(account)
         return
       }
       if (result.kind === 'missing') {
@@ -225,7 +239,7 @@ function LoginPage() {
       try {
         const { keyDerivationUpgraded, biometricsCleared } = await whileLoggingIn(async () => {
           const loginResult = await loginVault({
-            account: accountInput,
+            account,
             password,
             salt: params.salt,
             kdf: params.kdf,
@@ -251,7 +265,7 @@ function LoginPage() {
           // Only the migration app reads them, and it needs the server, so without the server
           // there's nothing to send the user to yet.
           if (reachedServer) {
-            goToMigration(accountInput)
+            goToMigration(account)
           } else {
             failLogin(ACCOUNT_UPDATE_NEEDS_SERVER)
           }
@@ -280,9 +294,10 @@ function LoginPage() {
       setLoading(true)
       setError('')
       try {
-        updateAuth({ account: accountInput })
+        const account = normalizeAccountId(accountInput)
+        updateAuth({ account })
         await whileLoggingIn(async () => {
-          await unlockWithBiometrics(accountInput)
+          await unlockWithBiometrics(account)
           updateAuth({ loggedIn: true })
         })
         setUi({ justCreatedAccount: false })
@@ -356,6 +371,7 @@ function LoginPage() {
   const handleChangeAccount = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       setAccountInput(event.target.value)
+      setAccountError('')
       setError('')
     },
     [],
@@ -456,9 +472,16 @@ function LoginPage() {
                 }}>
                 <TextField
                   autoComplete="username"
+                  error={!!accountError}
                   fullWidth
+                  helperText={accountError}
                   id="username"
                   slotProps={{
+                    htmlInput: {
+                      autoCapitalize: 'none',
+                      autoCorrect: 'off',
+                      spellCheck: false,
+                    },
                     input: {
                       startAdornment: (
                         <InputAdornment position="start">

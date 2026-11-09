@@ -181,9 +181,10 @@ function CreateAccountPage() {
           <Typography>
             Use a password manager to create and save your password.
             Once you&apos;ve set your password,
-            you&apos;ll get an account ID: save it
+            you&apos;ll get an account ID, which is your username: save it
             {' '}
-            <b>in the same entry as the username</b>.
+            <b>in the same entry as your password</b>.
+            Most password managers will offer to do that for you.
           </Typography>
 
           <form>
@@ -276,6 +277,7 @@ function CreateAccountPage() {
         <AccountCreatedDialog
           open={showCreatedAccountDialog}
           accountId={newAccount}
+          password={password}
           onContinue={handleCloseCreatedAccountDialog}
         />
       </MainContainer>

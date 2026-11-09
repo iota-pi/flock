@@ -16,6 +16,7 @@ import type { SettingsActionId } from './settings/settingsConfig'
 import { useVisibleItems } from 'src/state/selectors'
 import RemoveAccountDialog from '../dialogs/RemoveAccountDialog'
 import { createLogger } from 'src/utils/logger'
+import { formatAccountId } from '@vault/shared'
 
 const log = createLogger('Settings')
 
@@ -112,7 +113,7 @@ function SettingsPage() {
         </Typography>
 
         <Typography color="textSecondary">
-          Account ID: {values.account}
+          Account ID: {formatAccountId(values.account)}
         </Typography>
       </Box>
       <Divider />
