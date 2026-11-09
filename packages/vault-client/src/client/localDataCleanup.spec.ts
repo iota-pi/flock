@@ -1,5 +1,5 @@
 import { clearAccountLocalData } from './localDataCleanup'
-import * as syncMetadataStorage from '../worker/stores/syncMetadataStorage'
+import * as syncMetadataStorage from '../shared/syncMetadataStorage'
 import * as writeAheadLogStorage from '../shared/writeAheadLogStorage'
 import * as manualRecoveryStore from '../shared/manualRecoveryStore'
 import { spyOnExports } from '../../test/moduleMocks'

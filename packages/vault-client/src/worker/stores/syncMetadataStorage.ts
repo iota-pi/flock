@@ -1,11 +1,7 @@
 import type { ItemId } from '@vault/shared'
 import { runStorageOperation, type RunStorageOperationOptions } from '../../utils/storageManager'
-import {
-  createAccountStore,
-  clearAccountStore,
-} from '../../shared/createAccountStore'
-
-export const SYNC_METADATA_STORE_NAME = 'sync-metadata'
+import { createAccountStore } from '../../shared/createAccountStore'
+import { SYNC_METADATA_STORE_NAME } from '../../shared/syncMetadataStorage'
 
 export const SYNC_METADATA_KEYS = {
   CURSORS: 'cursors',
@@ -44,13 +40,6 @@ export interface PersistedSyncCursors {
  */
 export function getSyncMetadataStorage(accountId: string): LocalForage {
   return createAccountStore(SYNC_METADATA_STORE_NAME, accountId)
-}
-
-/**
- * Clears the consolidated sync metadata database for an account.
- */
-export async function clearSyncMetadataStorage(accountId: string): Promise<void> {
-  await clearAccountStore(SYNC_METADATA_STORE_NAME, accountId)
 }
 
 export interface ScopedMetadataStoreOptions<T> {

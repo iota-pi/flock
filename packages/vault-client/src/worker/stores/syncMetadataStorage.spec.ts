@@ -1,10 +1,9 @@
 import {
   getSyncMetadataStorage,
-  clearSyncMetadataStorage,
-  SYNC_METADATA_STORE_NAME,
   ScopedMetadataStore,
   type ScopedMetadataStoreOptions,
 } from './syncMetadataStorage'
+import { clearSyncMetadataStorage, SYNC_METADATA_STORE_NAME } from '../../shared/syncMetadataStorage'
 import localforage from 'localforage'
 import * as storageManager from '../../utils/storageManager'
 

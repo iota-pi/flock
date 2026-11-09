@@ -61,6 +61,26 @@ const vaultPackageImportPatterns = [
   { regex: '^src/', message: 'Vault library code must not import Flock app code.' },
 ]
 
+const vaultClientImportPatterns = [
+  ...vaultPackageImportPatterns,
+  {
+    regex: '^@vault/server$',
+    allowTypeImports: true,
+    message: '@vault/client may only import types from @vault/server (it is a type-only peer dependency).',
+  },
+]
+
+// The main thread may share the worker's types, but a value import bundles worker code (and its
+// dependencies, such as Automerge) into the page. no-restricted-paths can't allow type imports.
+const vaultClientMainThreadImportPatterns = [
+  ...vaultClientImportPatterns,
+  {
+    regex: '^(\\.\\./)+worker(/|$)',
+    allowTypeImports: true,
+    message: 'Main-thread code may only import types from worker/. Move what both need to utils/ or shared/.',
+  },
+]
+
 export default defineConfig([
   globalIgnores([
     'node_modules',
@@ -158,19 +178,14 @@ export default defineConfig([
     ignores: ['**/*.spec.ts', '**/__test__/**'],
     rules: {
       'import-x/no-restricted-paths': ['error', { zones: [...vaultPackageZones, ...vaultClientNeutralZones] }],
-      'no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            ...vaultPackageImportPatterns,
-            {
-              regex: '^@vault/server$',
-              allowTypeImports: true,
-              message: '@vault/client may only import types from @vault/server (it is a type-only peer dependency).',
-            },
-          ],
-        },
-      ],
+      'no-restricted-imports': ['error', { patterns: vaultClientImportPatterns }],
+    },
+  },
+  {
+    files: ['packages/vault-client/src/client/**/*.ts'],
+    ignores: ['**/*.spec.ts', '**/__test__/**'],
+    rules: {
+      'no-restricted-imports': ['error', { patterns: vaultClientMainThreadImportPatterns }],
     },
   },
   ...VAULT_PACKAGES.map(name => ({

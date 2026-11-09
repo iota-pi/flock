@@ -1,7 +1,6 @@
 import { getVaultStorageNames } from '../../shared/storageNames'
-import { getWalDBName } from '../../shared/localDatabaseNames'
+import { getAutomergeDBName, getWalDBName } from '../../shared/localDatabaseNames'
 import { deleteDatabase } from '../../utils/deleteDatabase'
-import { getAutomergeDBName } from '../AutomergeRepoManager'
 import { getSyncMetadataStorage, SYNC_METADATA_KEYS } from '../stores/syncMetadataStorage'
 import { runStorageOperation } from '../../utils/storageManager'
 import { createLogger } from '../../utils/logger'

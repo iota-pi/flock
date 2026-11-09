@@ -1,6 +1,6 @@
 import type { StorageKey } from '@automerge/automerge-repo/slim'
 import { VaultIndexedDBStorageAdapter } from '../VaultIndexedDBStorageAdapter'
-import { getAutomergeDBName } from '../AutomergeRepoManager'
+import { getAutomergeDBName } from '../../shared/localDatabaseNames'
 import { IndexStore } from '../stores/IndexStore'
 import { mergeIndexDocuments } from '../docStore/AutomergeIndexManager'
 import { databaseExists as defaultDatabaseExists } from '../../utils/databaseExists'
