@@ -13,10 +13,21 @@
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 
-# Report-only for now: violations go to Sentry's security endpoint and nothing is blocked. Workers get
-# this policy from their script's response, so it covers every path. connect-src must list every API
-# in src/deployments.ts (deployments.spec.ts checks). Installed apps keep the headers their service
-# worker cached until it updates, so an enforced policy can't be loosened quickly.
+# Every path. The CSP only reports for now: violations go to Sentry's security endpoint and nothing
+# is blocked. Workers get it from their script's response, so it covers every path. connect-src must
+# list every API in src/deployments.ts (deployments.spec.ts checks). Installed apps keep the headers
+# their service worker cached until it updates, so an enforced policy can't be loosened quickly.
+#
+# The other headers are enforced. X-Frame-Options blocks framing while frame-ancestors only reports.
+# no-referrer is safe because Sentry and tRPC use CORS fetches, which still send Origin (and Sentry
+# sets its own referrerPolicy). COOP is safe because the app neither opens popups nor needs its
+# opener. Permissions-Policy turns off features Flock doesn't use; WebAuthn and clipboard-write keep
+# their default of 'self'.
 /*
   Content-Security-Policy-Report-Only: default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; manifest-src 'self'; worker-src 'self'; connect-src 'self' https://ja2y6d5r46nh27v444bcshalaa0ewvlc.lambda-url.ap-southeast-2.on.aws https://meeda3h26slzeexlmqpeipc77m0zimut.lambda-url.ap-southeast-2.on.aws https://o4511115810832384.ingest.us.sentry.io; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; report-uri https://o4511115810832384.ingest.us.sentry.io/api/4511115818762240/security/?sentry_key=9165ee7e30058dda2ee3529b97cf1ae3; report-to csp
   Reporting-Endpoints: csp="https://o4511115810832384.ingest.us.sentry.io/api/4511115818762240/security/?sentry_key=9165ee7e30058dda2ee3529b97cf1ae3"
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: no-referrer
+  Cross-Origin-Opener-Policy: same-origin
+  Permissions-Policy: accelerometer=(), bluetooth=(), browsing-topics=(), camera=(), display-capture=(), geolocation=(), gyroscope=(), hid=(), magnetometer=(), microphone=(), midi=(), payment=(), serial=(), usb=()
