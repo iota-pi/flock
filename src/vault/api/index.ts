@@ -5,6 +5,7 @@ import { TRPCError } from '@trpc/server'
 import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import { createFlockDriver } from '../flockDriver'
 import { flockDataVersionPolicy } from '../flockDataVersion'
+import { readSecret } from '../secrets'
 import { appRouter } from '../trpc/root'
 import { createVaultContext, type UnknownAccountParams } from '@vault/server'
 import { CLIENT_OUTDATED_MESSAGE, CURRENT_SALT_VERSION, getDefaultKdf, PROTOCOL_VERSION_HEADER } from '@vault/shared'
@@ -34,7 +35,7 @@ const DEV_UNKNOWN_ACCOUNT_SECRET = 'flock-local-unknown-account-secret'
  * would change between requests.
  */
 export function getUnknownAccountParams(devMode: boolean): UnknownAccountParams | undefined {
-  const secret = process.env.UNKNOWN_ACCOUNT_SECRET || (devMode ? DEV_UNKNOWN_ACCOUNT_SECRET : undefined)
+  const secret = readSecret('UNKNOWN_ACCOUNT_SECRET') || (devMode ? DEV_UNKNOWN_ACCOUNT_SECRET : undefined)
   if (!secret) {
     console.error('UNKNOWN_ACCOUNT_SECRET is not set, so getSecurityParams reports unknown accounts as NOT_FOUND')
     return undefined

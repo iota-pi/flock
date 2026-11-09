@@ -1,6 +1,17 @@
 import { sendPushNotification } from './webpush'
 import * as webPush from 'web-push'
+import * as secrets from '../secrets'
 import { spyOnExports } from '../../utils/testUtils'
+
+const VAPID_SECRETS: Partial<Record<secrets.SecretName, string>> = {
+  VAPID_SUBJECT: 'mailto:admin@example.com',
+  VAPID_PUBLIC_KEY: 'pubkey',
+  VAPID_PRIVATE_KEY: 'privkey',
+}
+
+function linkSecrets(values: Partial<Record<secrets.SecretName, string>>) {
+  vi.spyOn(secrets, 'readSecret').mockImplementation(name => values[name])
+}
 
 beforeEach(() => {
   spyOnExports(webPush, {
@@ -10,21 +21,12 @@ beforeEach(() => {
 })
 
 describe('webpush service', () => {
-  const originalEnv = process.env
-
   beforeEach(() => {
     vi.clearAllMocks()
-    process.env = { ...originalEnv }
-  })
-
-  afterEach(() => {
-    process.env = originalEnv
   })
 
   it('throws error if VAPID environment variables are missing', async () => {
-    delete process.env.VAPID_SUBJECT
-    delete process.env.VAPID_PUBLIC_KEY
-    delete process.env.VAPID_PRIVATE_KEY
+    linkSecrets({})
 
     const subscription = {
       endpoint: 'https://fcm.googleapis.com/fcm/send/sub1',
@@ -38,9 +40,7 @@ describe('webpush service', () => {
   })
 
   it('calls setVapidDetails and sendNotification when configured', async () => {
-    process.env.VAPID_SUBJECT = 'mailto:admin@example.com'
-    process.env.VAPID_PUBLIC_KEY = 'pubkey'
-    process.env.VAPID_PRIVATE_KEY = 'privkey'
+    linkSecrets(VAPID_SECRETS)
 
     const subscription = {
       endpoint: 'https://fcm.googleapis.com/fcm/send/sub2',
@@ -63,9 +63,7 @@ describe('webpush service', () => {
   })
 
   it('passes the topic and TTL through to sendNotification', async () => {
-    process.env.VAPID_SUBJECT = 'mailto:admin@example.com'
-    process.env.VAPID_PUBLIC_KEY = 'pubkey'
-    process.env.VAPID_PRIVATE_KEY = 'privkey'
+    linkSecrets(VAPID_SECRETS)
 
     const subscription = {
       endpoint: 'https://fcm.googleapis.com/fcm/send/sub3',
@@ -83,9 +81,7 @@ describe('webpush service', () => {
   })
 
   it('refuses to send to an endpoint that is not a known push service', async () => {
-    process.env.VAPID_SUBJECT = 'mailto:admin@example.com'
-    process.env.VAPID_PUBLIC_KEY = 'pubkey'
-    process.env.VAPID_PRIVATE_KEY = 'privkey'
+    linkSecrets(VAPID_SECRETS)
 
     const subscription = {
       endpoint: 'https://attacker.example.com/sub',

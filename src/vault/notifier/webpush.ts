@@ -3,6 +3,7 @@ import {
   setVapidDetails,
 } from 'web-push'
 import type { WebPushSubscription } from '../types'
+import { readSecret } from '../secrets'
 import { isAllowedPushEndpoint } from 'src/shared/schemas/notifications'
 
 /** How long a push service's socket may go idle before the send fails */
@@ -15,9 +16,9 @@ function ensureVapidConfigured() {
     return
   }
 
-  const vapidSubject = process.env.VAPID_SUBJECT
-  const vapidPublicKey = process.env.VAPID_PUBLIC_KEY
-  const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY
+  const vapidSubject = readSecret('VAPID_SUBJECT')
+  const vapidPublicKey = readSecret('VAPID_PUBLIC_KEY')
+  const vapidPrivateKey = readSecret('VAPID_PRIVATE_KEY')
 
   if (!vapidSubject || !vapidPublicKey || !vapidPrivateKey) {
     throw new Error('Missing VAPID_SUBJECT, VAPID_PUBLIC_KEY, or VAPID_PRIVATE_KEY')
