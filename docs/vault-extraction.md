@@ -1,262 +1,73 @@
-# Vault Extraction Plan
+# Vault Library and Backwards Compatibility
 
-Goal: extract the vault (client-side encrypted, local-first, near real-time sync) into a reusable module that other projects can use. This document records where the code is coupled to Flock, the target shape and the order of work.
+The vault (client-side encrypted, local-first, near real-time sync) is a library in three Yarn workspaces under `packages/`, so that other apps can use it. [AGENTS.md](../AGENTS.md) lists the packages, their entry points and the import rules. [sync-design.md](sync-design.md) explains the engine; its rules are the library's invariants. This file covers how Flock plugs in, and how data formats are retired.
 
-Read [sync-design.md](sync-design.md) first. Its rules become the library's invariants.
+## The library boundary
 
-## Summary
-
-Extraction is feasible. Most of the engine is already generic. The WAL, poller, leader election, manifest reconciliation, recovery store, encrypted cross-tab adapter and CRDT list reconciler know nothing about Flock. The coupling falls into three groups:
-
-1. Flock logic inside the engine.
-2. App wiring: store and Sentry calls, Vite-only imports, hard-coded names and singletons.
-3. Protocol choices that are cheap to change while Flock is the only consumer and expensive after publishing.
-
-## Coupling inventory
-
-### Flock logic inside the engine
-
-| Where | What it knows | Replacement |
-|---|---|---|
-| `normalizeItemSnapshot` (`AutomergeDocStore`) | Flock zod schemas, group-only fields, the "Corrupt Item" error item | App-supplied `DocCodec`. The engine only needs `id` and `deleted`. |
-| `ItemOperations.recreateOversizedItem` | Rewrites `group.members`, resets `created` | `remapReferences` and `prepareRecreatedDoc` hooks |
-| `ItemOperations.forceOverwriteRecoveryItem` | Special-cases `prayedFor` | Removed. The JSON round-trip already copies it. |
-| `utils/metadataSync.ts` | Field-by-field merge of Flock settings | `MetadataSyncAdapter` (stage 1), then deleted (stage 2) |
-| `snapshotBuilder` / `utils/snapshot.ts` | Sends `person`/`group`/`topic` to the server | `DocCodec.snapshotKind` (stage 1), then dropped (stage 2, done) |
-| `syncProtocol`, `SyncEventHub`, `SyncBridge` | `Item`, `AccountMetadata`, `BackupSyncState` types | Generic `VaultDoc` / `VaultMetadata` types and a library-owned sync state export schema |
-| `generateItemId` in `src/utils` | Rule 2 depends on it | Library-owned ID generation |
-
-### App wiring
-
-- The main-thread client writes into `useAppStore` and calls Sentry directly. → `SyncStateSink` and `SyncTelemetry` interfaces supplied by the app.
-- `src/api/vault/index.ts` dynamically imports `useAppStore` and `SyncBridge`, and holds reminder and push-notification code. → host hooks; lock and remove-from-device orchestration moves to the app.
-- The worker is created with a Vite `new URL(...)` and loads Automerge's wasm via `?url`. → the app owns the worker entry file.
-- About 20 hard-coded `flock-`/`Flock` names for IndexedDB, BroadcastChannels, Web Locks, localStorage and WebAuthn. → `VaultStorageNames` configuration. **Flock must keep its exact existing names**, or users lose local docs, the WAL and the cached keyring.
-- The client is typed against the whole server router. → a library-owned `VaultRouter` type.
-- Server: the account schema, driver and accounts router mix generic auth and keyring with reminders and push subscriptions; table names default to `Flock*`.
-
-### Protocol choices (stage 2)
-
-1. **Account settings are stored on the server in plaintext** (`accounts.updateMetadata`). Make settings an encrypted Automerge doc with a fixed per-account ID created with the account. Keep its top level flat, because concurrent creation of the same nested map loses one side.
-2. **Drop the plaintext item `type`** sent with snapshots. The client never reads it back.
-3. **Bind ciphertexts to their document.** AES-GCM is used without associated data, so a malicious server could serve one item's snapshot as another's. Add the doc ID as associated data, with a format version on `CryptoResult`.
-4. **Opaque pagination tokens** instead of DynamoDB keys (`{account, syncId, cursor}`) on the wire, so non-Dynamo drivers are possible.
-5. **Legacy code** to delete, or to move behind library hooks and then into the migration app (see "Backwards compatibility"): the `cipher` item format (`decryptLegacyCipher`), the old salt encoding, lazy migration from per-store IndexedDB databases, the timestamp fallback in `ManifestDeltaCalculator` and the `compactItem` alias.
+- **The library knows nothing about Flock.** Flock supplies its item schemas through a `DocCodec`, its domain through `SyncDomain` hooks (`packages/vault-client/src/worker/domain.ts`), its store and telemetry through `SyncStateSink` and `SyncTelemetry`, and its session callbacks through `configureVaultHost` (`packages/vault-client/src/client/host.ts`). The app owns the worker entry file, because the worker and Automerge's wasm are loaded with bundler-specific imports.
+- **Storage names are configuration.** Every IndexedDB database, BroadcastChannel, Web Lock and localStorage key comes from `VaultStorageNames`. **Flock's names must never change**, or users lose local docs and the cached keyring; `src/app/vault/storageNames.spec.ts` pins them. The names live on `globalThis` (under a `Symbol.for` key), because they belong to the realm and must survive tests that reset modules.
+- **The main-thread client takes a sink, not event listeners.** Some handling reads state back (quota recovery checks the current status and warning), and a sink keeps that policy in the library.
+- **Keys.** The keyring is a `Keyring` class. The main thread keeps one; the sync worker owns another, loaded from `exportKeyringData`, and hands it to its components as a `KeyProvider`.
+- **`@vault/server` is a peer dependency of `@vault/client`,** whose source may import only its types, so the client never loads server code at runtime. There's no test-utilities entry, because it would make vitest a dependency of the package.
+- **Not published yet.** That waits for a second app.
 
 ### Scope limits
 
 - One user, many devices. Sharing docs between accounts needs a different key model.
-- Cross-device latency is bounded by the poll timer (30s, backing off to 5 min). A payload-free "poke" over SSE, WebSocket or web push could trigger `flush()` without the server seeing data.
-
-## Target shape
-
-| Package | Contents |
-|---|---|
-| `vault-shared` | Wire schemas, size limits, ID generation and isomorphic helpers (`src/shared/vault/` today) |
-| `vault-client` | Crypto, keyring and biometrics; worker engine (`/worker` subpath); main-thread client |
-| `vault-server` | Services, driver interface, Dynamo driver, tRPC routers and auth middleware |
-
-Flock keeps its item schemas, the codec and hooks, reminders and the notifier, and the store adapter. Legacy migrations go to the migration app.
+- Cross-device latency is bounded by the poll timer (see "Snapshot sync" in sync-design.md). A payload-free "poke" over SSE, WebSocket or web push could trigger `flush()` without the server seeing data.
 
 ## Backwards compatibility
 
-Every format change ships with full backwards compatibility, so anyone who opens the app is migrated as they use it. Later, the compatibility code is extracted into a separate migration app for accounts and devices that stayed away for too long. The main app then drops it, so legacy code doesn't stay in the codebase indefinitely.
+Format changes must not leave legacy code in the main app indefinitely. Each one is moved to a separate **migration app** for accounts and devices that stayed away too long, and deleted once nobody needs it.
 
 ### Shape
 
-- **Hooks in the library, implementations in Flock.** The library reads and writes only current formats. Each legacy format gets a generic hook (`LegacySettingsSource` is the model). Flock's implementations lived in `src/app/vault/legacy/` until level 1 was extracted, and now live in the migration app (`src/migrate/legacy/`). The main app may import only `src/migrate/detection.ts`, and a lint rule enforces this.
-- **Migration levels.** A migration level is a numbered set of migrations. Level 1 is stage 2. Two markers record how far migration has got:
-  - The **account level** (`dataVersion` on the account record) describes the server's data. Clients ask for it to be raised once their migrations finish. The server only raises it after checking the account's rows itself (one query on the account's partition) and never lowers it. `getSecurityParams` returns it, because the app has to decide where to send the user before deriving keys.
-  - The **device level** describes local data. It is kept in the account's sync metadata database (`deviceDataVersion`), because the worker writes it and workers have no localStorage. The worker writes it after a manifest sync without failures, by which point the session has run every local migration. A device with no vault data starts at the current level. The WAL doesn't count: it holds plaintext changes in the current format, never a legacy one.
-- **Old builds.** A device that has been away loads its cached build first, and that build talks to the server until the service worker updates it (`registerType: 'autoUpdate'`). The client sends its protocol version in a header; builds from before the header count as version 0. The server rejects writes below `minProtocolVersion` with a dedicated error, and the client responds by updating the service worker and reloading. Server shims that exist only for old builds (dropping legacy fields, accepting writes and discarding them) are removed when the minimum is raised. That can happen weeks after a release, independently of the migration app.
-- **Destructive cleanups wait.** A server migration that removes data a legacy path still reads (`removeLegacyAccountMetadata`, removing `cipher`) runs only when its level is retired, because until then the migration app needs that data.
+- **Hooks in the library, implementations in Flock.** The library reads and writes only current formats. Each legacy format gets a generic hook (`LegacySettingsSource`, `decodeLegacyItem`, `migrateLocalData`, `decodeLegacySalt`, `deriveLegacyKey`), and Flock implements them in the migration app (`src/migrate/legacy/`). The migration app is rebuilt against the current library, so these hook signatures have to stay stable. The main app may import only `src/migrate/detection.ts`, and lint enforces this.
+- **Migration levels.** A level is a numbered set of migrations (`src/shared/flockDataVersion.ts`). Two markers record how far migration has got, with separate minimums (`MIN_DEVICE_DATA_VERSION`, `MIN_ACCOUNT_DATA_VERSION`), because a level can change only one of them:
+  - The **account level** (`dataVersion` on the account record) describes the server's data. `accounts.raiseDataVersion` asks the app's `DataVersionPolicy` (`src/vault/flockDataVersion.ts`) for blockers, checking the account's rows itself (`listItemFormats` projects each item's format without its payload), and raises the level with a condition that never lowers it. `getSecurityParams` returns it, because the app has to decide where to send the user before deriving keys. New accounts start at `FLOCK_DATA_VERSION`.
+  - The **device level** (`deviceDataVersion` in the account's sync metadata, because the worker writes it and workers have no localStorage) describes local data. `DataVersionTracker` writes it after a manifest sync without failures, by which point the session has run every local migration. A device with no vault data starts at the current level.
+- **Old builds.** A device that has been away loads its cached build first. Every tRPC client sends `x-vault-protocol: VAULT_PROTOCOL_VERSION`, and the server rejects mutations below `MIN_PROTOCOL_VERSION` (`src/vault/api/index.ts`, which lists what each version retired) with `PRECONDITION_FAILED`/`CLIENT_OUTDATED`; queries stay open. The client broadcasts it on the vault events channel, and Flock's handler (`src/app/vault/clientOutdated.ts`) forces the service worker update, or reloads, at most once every five minutes before asking the user to. Normally a new version waits for the user to tap Reload (`registerType: 'prompt'`), because the reload locks the vault in every open tab. Server shims kept only for old builds go when the minimum is raised.
+- **Destructive cleanups wait.** A server migration that removes data a legacy path still reads runs only once its level is retired.
 
-### Extraction
+### The migration app
 
-1. Move `src/app/vault/legacy/` and Flock's legacy server procedures into the migration app: a separate Vite entry built against the current library plus the legacy hooks, with a login screen and a progress view. It must be served from the **same origin** (for example `/migrate/`), because local data in IndexedDB and localStorage is per origin. The service worker must not serve the main app's shell for that path. The legacy server procedures go into a `migration` router that only the migration app calls.
-2. In the main app, route to the migration app when the stored account's device level is below the minimum (checked at startup, before the worker opens) or when `getSecurityParams` reports an account level below the minimum.
-3. The migration app logs in, runs that level's migrations, raises both levels and returns to the main app.
-4. Retire a level once the account-level scan shows no accounts below it, or the rest are accepted as abandoned. `lastAccess` on the account (set at login and when a session is renewed) makes that call possible. Then run the level's destructive cleanups and delete its migrations from the migration app.
+A second page of Flock's Vite build (`migrate/index.html` → `src/migrate/main.tsx`), served at `/migrate/`. It must be same-origin, because local data is per origin; it ships in the same deploy and the service worker precaches it.
 
-The migration app is rebuilt against the current library, so the library keeps the legacy hooks after extraction and their signatures have to stay stable. Each new level follows the same path: compatibility in the main app first, then extraction.
+- **Its worker** (`migrate.worker.ts`) runs the main app's engine and domain plus every legacy hook, `upgradeSnapshotFormat`, and `fetchManifestEverySync` (otherwise a device that synced within `manifestSyncMinGap` would skip the manifest and never see a legacy row).
+- **Flow:** it logs in (online only), announces itself on the `flock-migration` BroadcastChannel so the main app's tabs lock and its engine is the only one running, runs the levels' migrations, polls `SyncApi.checkDataVersion` until both levels reach their minimums, then clears legacy local stores, locks and returns to `/`.
+- **Blockers that remain** once sync has settled (such as an item that won't decrypt, quarantined to manual recovery) are listed, with **Try again** (a full resync) and **Continue**, which defers the main app's account-level check on this device for 30 days (`deferMigration`).
+- **Server:** its legacy procedures are in the `migration` router (`src/vault/trpc/routers/migration.ts`).
+- **Testing by hand:** `scripts/seedLegacyAccount.ts` puts a local account back at level 0.
 
-Status for level 1: steps 1–3 **done**; step 4 waits for the account-level scan.
+The main app sends data below a minimum to `/migrate/` (`goToMigration`) from four places:
 
-As built:
+- **The worker** (`SyncWorkerConfig.minDataVersion`): below it, a device with an index or with legacy local data (`hasLegacyLocalData`) doesn't start. It emits `migrationRequired`, and `initRepo` rejects with `MigrationRequiredError`. This runs first in `initialize`, because starting would record the current level for a device whose only data is in a legacy layout.
+- **The hydrator:** with no `decodeLegacyItem`, a row without a snapshot is reported as `migration_required`, skipped rather than quarantined, and the sync doesn't count as complete.
+- **The login page:** when `getSecurityParams` reports an account level below the minimum, or no Argon2id parameters, it routes before deriving keys (unless deferred), and also on `UnsupportedKeyDerivationError` from cached parameters during an offline login.
+- **After every unlock** (`useAccountLevelCheck`): once online, because an offline login and a biometric unlock skip the login page's check.
 
-- **The migration app** is a second page of Flock's Vite build: `migrate/index.html` → `src/migrate/main.tsx`, served at `/migrate/`. It's same-origin, ships in the same deploy, and the service worker precaches it like the main app.
-  - Its worker (`migrate.worker.ts`) runs the main app's engine and domain plus every legacy hook:
-    - `decodeLegacyItem` and `legacySettings`
-    - `migrateLocalData`
-    - `upgradeSnapshotFormat`
-    - `fetchManifestEverySync`. Without it, a device that synced within the last `manifestSyncMinGap` would skip the manifest and never see a legacy row, and a skipped sync still counts as one without failures.
-  - Flow:
-    1. It logs in (online only), so the key derivation upgrade (2.5d) happens here.
-    2. It announces itself on the `flock-migration` BroadcastChannel, so the main app's tabs lock themselves and its engine is the only one running.
-    3. It syncs, polling `SyncApi.checkDataVersion` until both levels reach `MIN_DATA_VERSION`.
-    4. It clears the legacy local stores, locks, and returns to `/`, where the user logs in again.
-  - If blockers remain once sync has settled (for example a `cipher` row that won't decrypt, which is quarantined to manual recovery), the page lists them and offers:
-    - **Try again**: a full resync.
-    - **Continue**: defers the main app's account-level check on this device for 30 days (`deferMigration`). The quarantined items stay under data recovery.
-- **Gates in the main app.** The main app no longer passes the legacy hooks, `decodeLegacySalt` or `migrateLocalData`. Device and account levels have separate minimums (`MIN_DEVICE_DATA_VERSION`, `MIN_ACCOUNT_DATA_VERSION`), because a level can change only one of them. It sends data below the minimum to `/migrate/` (`goToMigration`) from four places:
-  - The **worker**: `SyncWorkerConfig.minDataVersion`. Below it, a device with an index or with any per-store legacy database (`hasLegacyLocalData`) doesn't start. The worker emits `migrationRequired` and `initRepo` rejects with `MigrationRequiredError`. This runs before anything else in `initialize`, because starting would record the current level for a device whose only data is in a legacy layout.
-  - The **hydrator**: with no `decodeLegacyItem`, a row without a snapshot is reported as `migration_required`. It is skipped rather than quarantined, and the sync doesn't count as complete. Flock's sink (`onMigrationRequired`) locks the vault and goes to `/migrate/`.
-  - The **login page**: when `getSecurityParams` reports an account level below the minimum, it routes before deriving keys (unless deferred). It also routes any account reported without Argon2id parameters, and on `UnsupportedKeyDerivationError`, which comes from cached parameters it no longer accepts during an offline login.
-  - **After every unlock** (`useAccountLevelCheck`): once online, password and biometric unlocks alike check the account level, since an offline login and biometric unlock skip the login page's check.
-- **The snapshot rewrite** (`SnapshotFormatUpgrade`) is opt-in, and only the migration app runs it. The main app still *reads* unbound ciphertexts, because older snapshots can be unbound.
-- **Server:** the migration app calls `migration.getLegacySettings` and `migration.clearLegacySettings` (`src/vault/trpc/routers/migration.ts`). The `accounts.getMetadata`, `accounts.clearMetadata` and `accounts.updateMetadata` shims for cached builds are gone.
-- **Testing:** `scripts/seedLegacyAccount.ts` puts a local account back at level 0, with a `cipher` item and plaintext settings, for checking the flow by hand. It first turns an Argon2id account back into a PBKDF2 one with a password-derived key v1.
+### Retiring a level
 
-Still to do for level 1:
+Retire a level once `countAccountsByDataVersion` (a read-only server migration that reports accounts by level, what holds back those below, and the oldest `lastAccess` among them) shows none left, or the rest are accepted as abandoned. `lastAccess` is set at login and when a session is renewed. Then run the level's destructive cleanups and delete its code from the migration app. Device levels can't be scanned, because the server can't see them.
 
-- ~~Raise `MIN_PROTOCOL_VERSION`, then remove the `accounts.*` shims.~~ Done: `MIN_PROTOCOL_VERSION` is 1, so builds that write unbound ciphertexts (protocol 0) can no longer write. Builds from between the protocol header and the migration app also send 1 and still call the shims, but they were live for only a day; their calls now fail with `NOT_FOUND` until they update.
-- Stop reading unbound ciphertexts in the main app and reject unbound writes on the server. Nothing reads sync messages since protocol 5 moved sync to the log, so this now waits only on snapshots, not on a message TTL.
-- Step 4: retire the level.
+## Levels
 
-Level 2 (Argon2id key derivation, no live data under a password-derived key) is described in Part 1 of [local-encryption.md](local-encryption.md). It changes only account data, so `MIN_DEVICE_DATA_VERSION` stays 1. Unlike level 1, it goes straight to the migration app: the account must choose a new password there, so there's no compatibility phase that migrates in the main app. The main app keeps a PBKDF2 hook (`src/app/vault/legacyKeyDerivation.ts`) only to unlock from cached parameters offline, until the level is retired.
+### Level 1: legacy formats
 
-## Stages
+Blockers (`flockDataVersionPolicy`, which reports every level's blockers together): synced settings in the record's plaintext `metadata` (`legacySettings`), and among rows that aren't deleted, an unbound snapshot (`unboundSnapshots`) or a `cipher` row without a `snapshot` (`legacyCipherItems`). Deleted rows don't count, because hydration never decrypts them.
 
-### Stage 1: decouple in place
+- **Plaintext account settings.** Settings now live in the encrypted account settings document (see sync-design.md). Only a client can encrypt, so after each manifest sync `AccountSettings.migrateLegacySettings` copies the app's `LegacySettingsSource` (the server's plaintext copy merged with the device's by `updatedAt`) into keys the document lacks, then clears the source. The device level counts this done once the synced keys are gone from local metadata.
+- **Unbound ciphertexts** (see "Doc-bound ciphertexts" in sync-design.md). `SnapshotFormatUpgrade` rewrites them, and only the migration app runs it. The main app still *reads* unbound ciphertexts, because older snapshots can be unbound.
+- **Pre-Automerge `cipher` items.** `SyncDomain.decodeLegacyItem` decodes a row with **no snapshot** (Flock's is `src/migrate/legacy/legacyItems.ts`), and the engine stores the result as a new document marked dirty, so a bound snapshot is uploaded at once. A row whose snapshot won't decrypt is quarantined, never decoded from `cipher`, which would replace the newer snapshot with pre-Automerge content. A snapshot write removes `cipher` from the row; a payload-less tombstone keeps it, since deleted rows are never read.
+- **Old salt encoding.** Salts from before `saltVersion` 1 were fed to PBKDF2 as the UTF-8 bytes of the base64 string. Re-deriving needs the password, so the server can't migrate them. The migration app passes `decodeLegacySalt` so such accounts can log in, and level 2's password change replaces the salt.
+- **Old local layouts.** `migrateLocalData` (`src/migrate/legacy/localData.ts`) imports Flock's per-store databases and older keys and value shapes, copying a value only when the new key is missing and only then removing the old one, so concurrent tabs are safe. Dropping it without a migration path would lose the index on devices that haven't run the app since the consolidation, and their unsynced items would never sync.
 
-No workspace packages yet. The library code stays in the tree, and Flock supplies the implementations.
+Still to do: retire the level. That allows the main app to stop reading unbound ciphertexts and the server to reject unbound writes, and runs the cleanups that wait for it: `removeLegacyAccountMetadata` (and `metadata` in `FlockAccountFieldsSchema`), removing leftover `cipher` fields, dropping `LegacyItemEnvelopeSchema` from the library, and dropping the server's `salt ?? account` fallback in `getSecurityParams` once `countAccountsByDataVersion` reports no account without a `salt`.
 
-Library zones:
+### Level 2: Argon2id and random data keys
 
-- `src/shared/vault/`: wire schemas, IDs, size limits and isomorphic helpers
-- `src/sync/`: worker engine and main-thread client
-- `src/api/vault/`, `src/api/runtime.ts`, `src/api/trackedFetch.ts`, `src/api/vaultTrpcClient.ts`: client crypto, keyring and API calls
-- `src/vault/services/`, `src/vault/drivers/`, `src/vault/trpc/trpc.ts`, `src/vault/trpc/vaultRouter.ts`, `src/vault/trpc/routers/{accounts,items,sync}.ts`, `src/vault/util.ts`: server
+Part 1 of [local-encryption.md](local-encryption.md). Blockers: `legacyKeyDerivation` (no Argon2id `kdf`) and `passwordDerivedDataKey`. It changes only account data and goes straight to the migration app, because the account must choose a new password there.
 
-Everything else is Flock. Flock's client wiring lives in `src/app/vault/`, and its server wiring in `src/vault/flockDriver.ts`, `src/vault/trpc/root.ts` and `src/vault/trpc/routers/flockAccounts.ts`. Stage 3 moved these zones into `packages/` (paths elsewhere in this document are from before that move).
+### Level 3: sealed local data
 
-Status: **done.** The lint rule reports no violations, specs included.
-
-- [x] Generic schemas, limits and `generateItemId` moved into `src/shared/vault/`. `ItemEnvelopeMetadataSchema.type` and the server's stored `metadata.type` are now plain strings.
-- [x] `DocCodec`, `SyncDomainHooks` and `MetadataSyncAdapter` (`src/sync/worker/domain.ts`). Flock's implementations are in `src/app/vault/syncDomain.ts` and `metadataSync.ts`. Without a domain, the engine passes documents through and keeps metadata local.
-- [x] `VaultDoc` / `VaultMetadata` types through the engine and events; `SyncApi`, `SyncBridgeService` and `SyncStateSink` are generic over the app's types.
-- [x] `VaultStorageNames` (`src/sync/shared/storageNames.ts`); `FLOCK_STORAGE_NAMES` reproduces every existing name. Legacy per-store databases are opt-in via `legacySyncDatabases`.
-- [x] `exposeSyncWorker(config)` started from Flock's `src/app/vault/vault.worker.ts`.
-- [x] `createSyncBridge({ createWorker, sink, telemetry, getAccountId, lockVault })`; Flock's instance (Zustand sink, Sentry telemetry) is `src/app/vault/syncBridge.ts`.
-- [x] `configureVaultHost` hooks (`getAccountId`, `onSessionLost`); the vault exposes `lockVaultKeys` and `clearVaultDeviceData`. `loadAccount`, `lockVault` and `removeVaultFromDevice` live in `src/app/vault/session.ts`, and reminder calls in `src/api/notificationClient.ts`.
-- [x] `src/api/vaultTrpcClient.ts` typed against `VaultRouter`, with `configureVaultEndpoint`.
-- [x] Server: Flock's account fields and procedures split out; `DynamoDriver` takes table names (or the env vars) and `accountDefaults`; `updateAccountData<TExtra>` accepts app fields; `accounts.*` paths are unchanged via `mergeRouters`.
-- [x] Lint rule (`import-x/no-restricted-paths`).
-
-Differences from the plan:
-
-- The shared directory is `src/shared/vault/` rather than `src/shared/protocol/`, because it also holds isomorphic helpers (`concurrency`, `syncErrors`).
-- The main-thread client takes a `SyncStateSink` object rather than exposing `on(event)`. Some event handling reads state back (quota recovery checks the current status and warning), and a sink keeps that policy in the library.
-- `remapReferences` returns the changes to apply rather than editing a draft, so recreation still merges `members` through the CRDT list reconciler exactly as before.
-- Storage names live on `globalThis` (under a `Symbol.for` key), because they belong to the realm and must survive tests that reset modules.
-- The worker still imports the module-level keyring in `src/api/vault`. Both sides are library code, so a `KeyProvider` interface is deferred to stage 3 (done there).
-- `SyncWorkerHealthMonitor` now reports through the bridge's status callbacks, so its warnings also get Sentry breadcrumbs.
-
-Follow-ups noticed along the way:
-
-- `getAuthToken` in `src/vault/api/util.ts` is only used by its test. (Deleted in stage 3.)
-
-### Stage 2: protocol changes
-
-Each item under "Protocol choices" above, with a Flock data migration.
-
-- [x] 2.1: Account settings live in an encrypted settings document (`AccountSettings`) with the fixed ID `settings-${account}` (`settingsDocId`). It syncs like any other document and stays in the item index, so manifest sync, key rotation and backups include it, but the worker keeps it out of the app's item stream and emits its keys as `metadataUpdated` instead. The app lists the synced keys in `SyncDomain.syncedMetadataKeys`; other keys stay on the device. The document is created on the first write, never deleted or recreated, and edits nested values in place so concurrent edits merge. `MetadataSyncAdapter`, the engine's `updatedAt` stamping and the library's `accounts.getMetadata`/`updateMetadata` and account `metadata` field are gone.
-  - Migration has to run on the client, because only clients can encrypt. After each manifest sync, `AccountSettings.migrateLegacySettings` asks the app's `LegacySettingsSource` for legacy settings, writes the keys the document lacks, clears the source and removes the synced keys from local metadata. Running it again is harmless. Flock's source (`src/app/vault/legacySettings.ts`) merges the server's plaintext copy with the device's copy by `updatedAt`, as before, and clears the server copy.
-  - Flock's router keeps `accounts.getMetadata` (read-only), `accounts.updateMetadata` (accepts and discards writes from cached clients, whose settings stop syncing until they update) and adds `accounts.clearMetadata`. Deploy the server before the client.
-  - Compatibility: `legacySettings.ts` moves to `src/app/vault/legacy/`. The account level counts this as done once the account record has no `metadata`; the device level, once the synced keys are gone from local metadata. `accounts.updateMetadata` only serves old builds and goes when `minProtocolVersion` is raised. At extraction, `accounts.getMetadata`, `accounts.clearMetadata` and `LegacySettingsSource`'s implementation move to the migration app. `removeLegacyAccountMetadata` and the removal of `FlockAccountFieldsSchema.metadata` wait until level 1 is retired.
-- [x] 2.2: Snapshots no longer carry a plaintext `type`, and `DocCodec.snapshotKind` is gone. The server stops requiring `metadata.type`, and each new snapshot write replaces the whole `metadata` map, so it drops the field. Run the `removeItemTypeMetadata` migration to strip it from older rows. Deploy the server before the client: the old server rejects snapshots without `type`, while the new one ignores the `type` that cached old clients still send.
-  - Compatibility: no client migration. Leftover `type` fields are harmless, so `removeItemTypeMetadata` can run at any time. Ignoring `type` only serves old builds and goes when `minProtocolVersion` is raised.
-- [x] 2.4: Pagination tokens are opaque strings (`PageToken`): `pullCursors[].pageToken` and `globalPageToken` in `pollSync` requests, `nextPageToken` and `globalNextPageToken` in responses. Drivers issue and check them (`getSyncMessages`, `getGlobalSyncMessagesAfterCursor`, `validatePageToken`, `InvalidPageTokenError`); the Dynamo driver encodes its `LastEvaluatedKey` as base64url JSON and keeps the old account and item checks. The service and router no longer know the key shape.
-  - No migration or deploy order. The fields were renamed, so an old client and a new server (or the reverse) each drop the other's field, and the client pages by cursor instead, which pulls already support.
-- [x] 2.3: Snapshots and sync messages are encrypted with the item ID as AES-GCM associated data and carry `format: 2` (`DOC_BOUND_FORMAT`), so a ciphertext only decrypts as the item it was written for. Only the doc ID is bound: an account binding adds nothing while keys are per account, and swapping a snapshot for a message of the same item already fails to parse. The keyring, cross-tab messages and backup files stay unbound, because the server cannot swap them for anything useful.
-  - Unbound ciphertexts still decrypt, so the binding protects nothing against a malicious server yet: it can keep serving unbound ciphertexts it has stored. After each manifest sync without failures, `SnapshotFormatUpgrade` rewrites every snapshot once per device through `ItemReencryptor` (no key rotation). Sync messages expire after 90 days.
-  - Deploy the server before the client. The server schemas and the Dynamo driver keep `format`; an old server drops it, which leaves bound ciphertexts undecryptable. Cached old clients cannot read bound ciphertexts until they update.
-  - Compatibility: the account level counts this as done once none of the account's rows that aren't deleted has an unbound snapshot. Deleted rows don't count, because hydration never decrypts them. The library gets an `acceptUnboundCiphertexts` option, which Flock sets now. `SnapshotFormatUpgrade`'s once-per-device trigger moves to `src/app/vault/legacy/`; the rewrite itself (`ItemReencryptor.run`) stays in the library. At extraction, the main app stops accepting unbound ciphertexts and the server rejects unbound writes, while the migration app keeps reading them so it can rewrite them.
-
-- [x] 2.5: Legacy code and the infrastructure for the compatibility model. Ship 2.5b before anything is extracted: the markers only count what builds released after it record.
-  - [x] 2.5a: Dead code, deleted outright because nothing depends on it.
-    - The `compactItem` alias (`ItemOperations`, `sync.worker.ts`, `syncProtocol.ts`, `SyncBridge`, and its mention in `sync-design.md`). The bridge and the worker ship in the same bundle, so there's no version skew.
-    - The timestamp fallback in `ManifestDeltaCalculator`. `ManifestSyncManager` has always passed `localVersionsMap` since the switch to versions. Make it required, and delete the fallback branches, `clockSkew` and `SKEW_BUFFER_MS`. `localLastModifiedMap` stays, because quarantine and tombstone tracking use it.
-    - The "legacy single key" branch in `initWorkerVault`. Every caller passes `exportKeyringData()`, which always has an `activeVersion`.
-    - `compactedAt` in the item metadata schemas. Nothing reads or writes it.
-  - [x] 2.5b: Infrastructure.
-    - `src/app/vault/legacy/` holds `legacySettings.ts`. A lint zone lets only Flock's vault wiring (`setup.ts`, `session.ts`, `syncDomain.ts`, `vault.worker.ts`) import it.
-    - Protocol version: every tRPC client built with `createVaultLinks` (the vault's and Flock's) sends `x-vault-protocol: VAULT_PROTOCOL_VERSION` (`src/shared/vault/protocol.ts`). `createVaultContext({ minProtocolVersion })` makes `publicProcedure` (and so every procedure) reject mutations below the minimum with `PRECONDITION_FAILED`/`CLIENT_OUTDATED`; queries stay open. Flock's minimum is `MIN_PROTOCOL_VERSION` in `src/vault/api/index.ts` (0 at first, raised to 1 after level 1 was extracted), and the header is allowed through CORS. The client link broadcasts `CLIENT_OUTDATED` on the vault events channel, so a failure in the worker reaches the main thread too. `configureVaultHost({ onClientOutdated })` listens for it, and Flock's handler (`src/app/vault/clientOutdated.ts`) fetches the new service worker, or reloads, at most once every five minutes before asking the user to.
-      - Fix: as first built, the sync worker's own client (`SyncWorkerClient`, for `pollSync` and `putSnapshots`) didn't use `createVaultLinks`, so builds before this fix send sync writes without the header and count as protocol 0 there. It now passes its session token to `createVaultLinks({ authToken })`.
-      - Fix: as first built, `trackedFetch` (the fetch both tRPC clients use) threw `ApiHttpError` for every failed response, so tRPC never parsed the error body and `CLIENT_OUTDATED` was never recognised. Failed responses with a JSON body now go back to tRPC, so errors carry the server's `data.code`, `httpStatus` and message. Failed responses without a JSON body (such as a gateway's HTML error page) still throw `ApiHttpError`.
-      - Fix: the service worker never handled `SKIP_WAITING`, so a new version only took over once every Flock window had closed, and the handler's wait for it to reload the page never ended. Flock now registers the worker in `prompt` mode (`src/app/appUpdate.ts`). A new version takes over only when the user taps Reload on the update prompt, because the reload locks the vault in every open tab. Applying one mid-session also made logged-in pages load chunks the host no longer serves correctly. `handleClientOutdated` forces the update through instead, because this build can no longer write.
-    - Account level: `dataVersion` and `lastAccess` on the account record. `lastAccess` was already written at creation; it is now also set at login and when a session is renewed. `getSecurityParams` returns `dataVersion` (0 when unset). `accounts.raiseDataVersion` asks the app's `DataVersionPolicy` (passed to `createVaultContext`) for blockers and, if there are none, raises the version with a condition that never lowers it. Drivers gained `raiseDataVersion` and `listItemFormats`, which projects each item's format without its payload. New Flock accounts start at `FLOCK_DATA_VERSION` (`src/shared/flockDataVersion.ts`) through the driver's account defaults.
-    - Device level: `DataVersionTracker` in the worker records `SyncDomain.dataVersion` as described under "Shape". As leader, once `SnapshotFormatUpgrade` reports the device's snapshots bound, it calls `raiseDataVersion` once per session and logs any blockers.
-    - Level 1 checks (`flockDataVersionPolicy`, `src/vault/flockDataVersion.ts`): no synced settings in the record's `metadata` (`legacySettings`), `saltVersion` 1 with `iterations` set (`legacyKeyDerivation`), and among rows that aren't deleted, no unbound snapshot (`unboundSnapshots`) and no `cipher` row without a `snapshot` (`legacyCipherItems`). Iterations below the default are upgraded at login (2.5d) but don't block the level, because no legacy code reads them.
-    - `countAccountsByDataVersion` replaces `countUnboundSnapshots`. It reports accounts by version, what holds back the ones below the current version, how many are ready to raise, and the oldest `lastAccess` among them.
-  - [x] 2.5c: Local storage layout.
-    - Library: a `migrateLocalData(accountId)` hook in the worker config, run in `SyncWorkerContext.initialize()` before any store is read. Remove the following, so stores only read the current shape:
-      - the legacy options and `migrateLegacyData` in `ScopedMetadataStore`
-      - `LEGACY_KEYS`, `getLegacySyncDatabaseNames`, `hasLegacyDatabase` and `probeDatabaseExists`
-      - `VaultStorageNames.legacySyncDatabases`
-      - `clearLegacySyncDatabases` in `localDataCleanup`
-      - `CursorStore.shouldUpgradeInPlace`, and the numeric form in `LastModifiedStore`
-    - Flock (`legacy/localData.ts`): a one-shot import that brings over:
-      - the four per-store databases (until 2026-09-14)
-      - legacy keys in the consolidated store
-      - the old `manual-recovery-metadata` store and the deduplication in `manualRecoveryStore.runMigration`
-      - cursor arrays and numeric `lastModified` entries
-      
-      It copies a value only when the new key is missing, and only then removes the old one, so tabs running it at the same time are safe. Its cleanup runs from `removeVaultFromDevice`.
-    - Dropping this without a migration path would lose the index doc on devices that haven't run the app since the consolidation. Their unsynced items would stay in Automerge storage but drop out of the index, so nothing would sync them.
-    - As built: the hook is `SyncWorkerConfig.migrateLocalData`, and the context runs it under a new per-account Web Lock (`accountPrefixes.localDataMigrationLock`, `flock-local-data-migration-` in Flock), so a tab can't copy an old value over one another tab's engine wrote after migrating. A failure in the current stores fails initialization, because starting would create an empty index that the next run would then keep; an unreadable per-store database is logged and skipped, as before. Probes only run while a current key is missing. The library's `SYNC_METADATA_KEYS` lost `manualRecoveryMigrated`, which Flock keeps under the same name.
-  - [x] 2.5d: Old salt encoding. Re-deriving the key needs the password, so the server can't migrate this. Upgrading at login is the intended behaviour, including signing out other sessions.
-    - Library: key derivation only knows `saltVersion: 1`. Flock supplies `decodeLegacySalt` (UTF-8 bytes of the base64 string) through `configureVaultHost` from `legacy/`.
-    - Upgrade at login: after an online login with a legacy salt (or iterations below the default), call `changePassword(account, password, password)`. Data keys are unaffected, because key `'1'` (the original derived key) is stored in the keyring the change re-wraps.
-    - Like any password change, this signs out other sessions and clears biometric unlock on this device. It has to: a device still holding the old master key could upload a keyring wrapped with it (key rotation goes through `storeVault`), which the new salt can't open. Tell the user why they're signed out elsewhere.
-    - Server: drop the `salt ?? account` fallback in `getSecurityParams` once the scan shows no account without a `salt`.
-    - As built:
-      - `deriveVaultKey` takes `decodeLegacySalt` and throws `UnsupportedKeyDerivationError` for any other `saltVersion` without it. `configureVaultHost({ decodeLegacySalt })` passes it to every derivation, all of which run on the main thread.
-      - `loginVault` returns `{ keyDerivationUpgraded, biometricsCleared }`. It upgrades when `needsKeyDerivationUpgrade` says so, a session was established and the server's keyring was loaded (`syncKeyringFromServer` now returns whether it was). Without the server's keyring, the re-wrapped keyring could miss rotated keys. Rather than going through `changePassword`, it calls the same internal `rewrapMasterKey` with the `keyHash` it already has, so PBKDF2 runs only once more. A failed upgrade is logged and retried at the next login. Flock's login page tells the user that other devices will ask them to log in again, and that biometric unlock was turned off if it was on.
-      - Biometric unlock on another device then fails, because its saved master key is stale. When the server rejects that key (401, as opposed to a network error), `unlockWithBiometrics` clears the biometric data and the cached keyring, which is wrapped with the same key, and throws `StaleBiometricKeyError`. The login page then asks for the password. This applies after any password change.
-      - `countAccountsByDataVersion` also reports how many accounts have no stored `salt`. The fallback stays until that count is zero.
-  - [x] 2.5e: The `cipher` item format.
-    - Library: a `decodeLegacyItem` hook on `SyncDomain`, which `ManifestHydrator` calls when an item has no usable snapshot. It replaces `hydrateLegacyCipher`/`decryptLegacyCipher`, and Flock's implementation in `legacy/` decrypts `cipher`.
-    - Items decoded this way are marked dirty, so they upload a bound snapshot straight away. Today they are stored with `markDirty: false` and reach the server only through the one-off rewrite.
-    - Server: `DynamoDriver.set` removes `cipher` when it writes a snapshot. At present it only sets fields, so rows keep both.
-    - At extraction: `LegacyItemEnvelopeSchema`, the `cipher` fields and the legacy branch of `validateItem` leave the library. `metadata.iv` (written as `''` for snapshots) becomes optional on the client now and stops being written once `minProtocolVersion` excludes builds that require it. At retirement: a `removeLegacyCipher` migration.
-    - As built:
-      - `SyncDomain.decodeLegacyItem(item, { ensureKey })` takes the row as the server returned it (`LegacyItemEnvelope`, typed loosely, so the signature survives `cipher` leaving the library's types) and returns the document's content or null. `ensureKey` is the engine's usual wait for a missing key version. Flock's implementation is `src/app/vault/legacy/legacyItems.ts`.
-      - Only rows with **no snapshot** reach the hook. An undecryptable snapshot used to fall back to `cipher`. Now that decoded items are uploaded, that would replace the newer snapshot with pre-Automerge content, so such rows are quarantined like any other undecryptable snapshot. This matches the server's `legacyCipherItems` check.
-      - `ManifestHydrator` stores decoded items with `markDirty: true`, separately from other hydrated items.
-      - `DynamoDriver.set` adds `REMOVE cipher` to its update when it writes a snapshot. The versioned put already replaced the whole row. A payload-less tombstone keeps `cipher`, which is never read for deleted rows.
-      - `ItemEnvelopeMetadataSchema.iv` is optional; `LegacyItemEnvelopeSchema` still requires it.
-
-### Stage 3: workspaces
-
-Move the library zones into `packages/*`, rewrite `src/...` alias imports and move the tests with them.
-
-Status: **done.**
-
-- Three Yarn workspaces, each keeping its zone's internal layout so relative imports moved unchanged:
-  - `@vault/shared` (`packages/vault-shared/src/`, from `src/shared/vault/`)
-  - `@vault/client` (`packages/vault-client/src/`: `api/vault/`, `api/{runtime,trackedFetch,vaultTrpcClient}.ts` and `sync/`)
-  - `@vault/server` (`packages/vault-server/src/`: `services/`, `drivers/`, `util.ts`, `trpc/{trpc,vaultRouter}.ts` and `trpc/routers/{accounts,items,sync}.ts`)
-- Packages are private and export TypeScript source through explicit `exports` maps, with no build step; Vite, Vitest, tsx and SST's esbuild compile them from the linked workspace. An export exists for each module Flock imports: `@vault/client` is `api/vault/index.ts`, `@vault/client/<file>` the rest of `api/vault/`, `/trpc` the tRPC client, `/sync/...` the engine's paths and `/testing` the worker test utilities; `@vault/server` has `/trpc`, `/router`, `/routers/*`, `/drivers/*` and `/services/dataVersion`; `@vault/shared/<file>` is every shared module.
-- Boundaries: packages have their own tsconfig with no `src/*` alias. Lint forbids packages from importing `src/` or anything their `package.json` doesn't declare, `@vault/shared` from importing the client or server, and the server from importing the client. This replaces `VAULT_LIBRARY_PATHS`.
-- Tests: each package is a Vitest project with its own setup. Client specs configure `createVaultStorageNames('test')`, so no library test depends on Flock's names; `src/app/vault/storageNames.spec.ts` pins Flock's instead.
-- `KeyProvider`: the keyring state moved into a `Keyring` class (`api/vault/Keyring.ts`). The main thread keeps one in `index.ts`; the sync worker owns another, loaded from `exportKeyringData`, and passes it to its components as a `KeyProvider` (`hasKey`, `waitForKey`, `encryptBytes`, `decryptBytes`). `initWorkerVault` is gone, and nothing in the worker reads keys from `api/vault/index.ts`. `LegacyItemContext` gained `decrypt`, because the worker realm's module keyring is no longer loaded; Flock's `decodeLegacyCipherItem` uses it instead of `decryptObject`, which was removed.
-- `getAuthToken` (Flock's server, unused) was deleted. `api/vault/util.ts` stopped relying on Flock's global `window.Cypress` type.
-
-Follow-ups (done; the paths and entry points above are from before them):
-
-- Entry points. The exports map had one entry per module Flock imported, mirroring the file layout. Each package now has a few curated barrels instead:
-  - `@vault/shared`: every shared module (`src/index.ts`).
-  - `@vault/client` (`src/index.ts`): the main thread's API. That covers accounts and keys (`api/vault.ts`, with the in-memory keys in `api/VaultKeyState.ts`), sessions (`api/session.ts`), biometric unlock (`api/biometrics.ts`), the cached keyring and stored metadata (`api/keyringCache.ts`, `api/storedMetadata.ts`), the host hooks (`api/vaultHost.ts`), re-encryption, the tRPC client and its fetch, `createSyncBridge` and its host types, and the few sync types and helpers Flock's UI reads.
-  - `@vault/client/worker` (`src/worker.ts`): `exposeSyncWorker`, the `domain.ts` hooks, `Keyring` and the storage primitives `migrateLocalData` needs. Only the app's worker imports it, so the engine stays out of the main bundle.
-  - `@vault/client/storageNames`: `storageNames.ts`, which has no imports. It is separate so test setup can configure names without evaluating the rest of the client. Otherwise the client's modules bind the real `localforage` before a spec can mock it.
-  - `@vault/server` (`src/index.ts`): the tRPC context and routers, services, the driver interface (`VaultDriver`), credential checks and errors. Apps pass their driver to `createVaultContext({ vault })`.
-  - `@vault/server/dynamo`: the DynamoDB driver.
-- `api/vault/` was flattened into the client's `api/`, with `index.ts` renamed `api/vault.ts`.
-- The client's layout was flattened, since the package boundary made the `sync/` level redundant: `sync/{worker,client,shared,utils}/` moved up to `src/`, and `api/` became `keys/`, because it holds crypto, the keyring, KDF, sessions and biometrics more than API calls. The worker entry moved from `src/worker.ts` to `src/worker/index.ts`. Lint now also keeps `utils/` and `shared/` from importing `keys/`, `client/` or `worker/`.
-- `@vault/server` is a peer dependency of `@vault/client` (and a dev dependency, for the integration spec that runs the real sync router). The client's source may only import its types, and lint enforces this, so at runtime the client never loads server code. Apps install both packages anyway.
-- `@vault/client/testing` is gone. A test-utilities entry would make vitest a dependency of the published package, so Flock's `legacy/localData.spec.ts` keeps its own in-memory localforage fake.
-
-### Stage 4: publish
-
-Only once a second app uses it.
+Part 2 of [local-encryption.md](local-encryption.md). It changes only device data.

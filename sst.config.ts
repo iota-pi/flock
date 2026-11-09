@@ -69,7 +69,7 @@ export default $config({
       },
     });
     // Nothing reads or writes this since the sync log replaced it. It stays for repairs until its
-    // rows expire (docs/sync-log-plan.md), and no function links to it.
+    // rows expire (see "First start" in docs/sync-design.md), and no function links to it.
     new sst.aws.Dynamo("FlockSyncMessages", {
       fields: {
         syncId: "string",

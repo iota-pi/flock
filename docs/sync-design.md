@@ -22,7 +22,7 @@ Each account has one strictly ordered log, the `FlockSyncLog` table, keyed by `a
 
 ### Server
 
-- **Rows are contiguous.** Every committed push uses exactly the next seqs, and a failed push uses none. One `TransactWriteItems` updates the head row (`seq: 0`, with the condition `head = :expected`) and puts each message, so a transaction for seqs `e+1…` can commit only after the one for `…e`. The head row isn't on the `FlockAccounts` record, because `extendSession` writes that on every request, and a write to an item in a running transaction fails.
+- **Rows are contiguous.** Every committed push uses exactly the next seqs, and a failed push uses none. One `TransactWriteItems` updates the head row (`seq: 0`, with the condition `head = :expected`) and puts each message, so a transaction for seqs `e+1…` can commit only after the one for `…e`. The head row isn't on the `FlockAccounts` record, because `extendSession` writes that on every request, and a write to an item in a running transaction fails. All of an account's appends serialise on the head row, which is fine for one user's devices; a shared account would need a sub-log per device.
 - **Reads are consistent `Query`s on the base table,** strictly `seq > after`, with no GSI, page token or lookback. DynamoDB documents `Query` as read-committed, which may show some rows of a multi-row transaction and not others. Contiguity makes that harmless, because the client never moves past a missing seq it might still see.
 - **A row's `encryptedMessage` is a run of Automerge change chunks** encrypted with the item's ID. There's only one kind of row, and an item's change set can span several rows, in dependency order.
 - **Rows expire after `SYNC_LOG_TTL_DAYS` (30).** Snapshots are the lasting copy (see "Snapshot coverage").
@@ -118,6 +118,10 @@ Records don't hold back polling or any other item. An `awaitingHeads` item goes 
 
 Two devices can upload an `awaitingSnapshot` item at once. S2 can't help, because the loser's changes never reached the log, but S3 does: its next manifest sync merges the winner, finds it has other heads too, and uploads again.
 
+- **The WAL wasn't migrated.** Nothing replays it, because each device's doc nearly always holds the same changes. A change that only reached the WAL (a tab killed straight after an edit, or a doc save that failed on full storage) was dropped at the cut: the one accepted exception to never resetting local data without the user confirming.
+- **Removing first start.** Its code stays until no device can still be on a pre-log build, and goes only with a later `MIN_PROTOCOL_VERSION` bump once every device has run it: a device that skipped it would trust old server heads.
+- **`FlockSyncMessages`** (the table the log replaced) is neither read nor written. It stays for repairs until its rows expire (90 days after the cut on 2026-11-05), and can then come out of `sst.config.ts`.
+
 ## Snapshot sync
 
 - `SnapshotManager` debounces dirty items (30s default, 5 min max wait) and uploads encrypted full Automerge binaries. Failures back off at 2s → 5s → 10s → 30s → 60s. After `MAX_CONSECUTIVE_SNAPSHOT_FAILURES` (5, `SnapshotPusher`), the item is dropped from the dirty queue.
@@ -139,7 +143,7 @@ Two devices can upload an `awaitingSnapshot` item at once. S2 can't help, becaus
 | Quarantined, V_server ≤ max(V_failed, V_base) | Skip (unless forced) |
 | Quarantined, V_server > max(V_failed, V_base) | Fetch the snapshot to retry recovery |
 
-Physical timestamps (`localModifiedAt`, `serverTime`, `SKEW_BUFFER_MS`) remain only as a legacy fallback for records that have no version.
+Timestamps (`localModifiedAt`, `modifiedAt`) only track tombstones and quarantines; no decision compares clocks.
 
 V_base advances only when this device pushes or hydrates a snapshot, not when the log delivers the same changes. So every item edited on another device looks stale, whether or not this device missed anything. **Heads in the manifest** keep that cheap:
 
@@ -242,14 +246,14 @@ Cross-tab sync is an ephemeral optimisation. IndexedDB and the server remain the
 - Sync log database (`syncLogDatabase` + account), which `SyncLogDatabase` opens directly rather than through localforage: pending marks, parked entries, first-start records, S2 rechecks and S3 records. None of it needs a seal: it holds IDs, heads and counters, and parked entries hold the server's ciphertext.
 - A WAL left by an older build, in its own databases, until first start clears it. Nothing reads it.
 - Sync metadata: one database per account, `flock-sync-metadata-${accountId}` in Flock (store `sync-metadata`), opened once via `getSyncMetadataStorage(accountId)`. Its keys are `logCursor`, `logLastPullAt`, `indexDoc` or `indexDocSealed`, `lastModified` (including `baseVersion`), `syncedHeads`, `snapshotsDocBound`, `deviceDataVersion`, `firstStartReset`, `firstStartSynced` and `walCleared`. The stores only read the current layout.
-- Sealed storage (`upgradeLocalEncryption`, docs/local-encryption.md Part 2): user content is sealed with a per-device storage key (DSK), wrapped with a data key and kept in the sealed Automerge database's `meta` store (`dsk`, plus `upgradedAt`).
+- Sealed storage (`upgradeLocalEncryption`, Part 2 of [local-encryption.md](local-encryption.md)): user content is sealed with a per-device storage key (DSK), wrapped with a data key and kept in the sealed Automerge database's `meta` store (`dsk`, plus `upgradedAt`).
   - **What's sealed:** Automerge chunks go to the sealed Automerge database (`sealedAutomergeDatabase`) as `{ key, v, iv, ct }`. The index is sealed under `indexDocSealed`.
   - **What stays readable:** storage keys, the sync log database and the other metadata keys hold no user content.
   - **Associated data:** each record is bound to its account, store and position, so a record moved anywhere else fails to open.
   - **`openLocalStorage`** picks sealed or plaintext storage under the `localDataMigrationLock`, after the `migrateLocalData` hook and before the Repo exists. It copies any plaintext data across and retires the plaintext stores once no other engine holds the account's sync locks.
   - **Decrypt failures:** a record that fails to decrypt is never treated as missing. The document is quarantined as `localDecryption`, and if the DSK itself can't be opened, sync stops and the app is asked (`onLocalDataUnavailable`). Nothing is ever reset automatically.
 - Older layouts: the worker config's `migrateLocalData(accountId)` hook runs at the start of `SyncWorkerContext.initialize()`, before any store is read, under the `localDataMigrationLock` Web Lock so tabs take turns. A failure fails initialization, because starting would create an empty index that a later migration would keep over the old one. Flock passes this hook only in its migration app (`src/migrate/legacy/localData.ts`). It imports Flock's per-store databases, the consolidated store's earlier keys and old value shapes, and deduplicates manual recovery entries (its own `manualRecoveryMigrated` key).
-- Data levels: with `minDataVersion` set, `initialize()` first checks `deviceDataVersion`. Below the minimum, a device with an index, or with data the app's `hasLegacyLocalData` hook finds, doesn't start: the worker emits `migrationRequired` instead. This check has to come first, because starting records the current level for a device with no index. Likewise, a server row without a snapshot, when the app has no `decodeLegacyItem` hook, is skipped rather than quarantined and reported as `migrationRequired` (see "Backwards compatibility" in `docs/vault-extraction.md`).
+- Data levels: with `minDataVersion` set, `initialize()` first checks `deviceDataVersion`. Below the minimum, a device with an index, or with data the app's `hasLegacyLocalData` hook finds, doesn't start: the worker emits `migrationRequired` instead. This check has to come first, because starting records the current level for a device with no index. Likewise, a server row without a snapshot, when the app has no `decodeLegacyItem` hook, is skipped rather than quarantined and reported as `migrationRequired` (see "Backwards compatibility" in [vault-extraction.md](vault-extraction.md)).
 - All storage names come from `VaultStorageNames` (`packages/vault-client/src/shared/storageNames.ts`). Renaming one orphans the data stored under the old name.
 - Logout or reset: `clearAccountLocalData` → `clearSyncMetadataStorage` drops the whole metadata database. The store-level `.clear()` only clears its own key.
 

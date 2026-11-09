@@ -20,7 +20,7 @@ import { CLIENT_OUTDATED_MESSAGE, CURRENT_SALT_VERSION, getDefaultKdf, PROTOCOL_
  *   they stop re-creating the plaintext stores that sealed builds retire.
  * - At 4, keyring uploads must prove the master key (`currentAuthToken`). Builds that don't send it
  *   update instead of failing a key rotation.
- * - At 5, sync moves to the log (docs/sync-log-plan.md). Builds that still push sync messages update,
+ * - At 5, sync moves to the log (docs/sync-design.md). Builds that still push sync messages update,
  *   and `sync.pollSync` stays only to tell them to.
  */
 export const MIN_PROTOCOL_VERSION = 5
