@@ -14,8 +14,8 @@ export type AutoLockSettings = {
 export const INACTIVITY_PRESETS = [1, 2, 5, 10, 20, 60] as const
 
 export const DEFAULT_AUTO_LOCK_SETTINGS: AutoLockSettings = {
-  mode: 'never',
-  inactivityMinutes: 5,
+  mode: 'inactivity',
+  inactivityMinutes: 10,
 }
 
 export function readAutoLockSettings(): AutoLockSettings {
