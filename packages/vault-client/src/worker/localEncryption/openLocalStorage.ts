@@ -1,7 +1,6 @@
 import type { StorageKey } from '@automerge/automerge-repo/slim'
-import { getAutomergeDBName } from '../AutomergeRepoManager'
 import { VaultIndexedDBStorageAdapter } from '../VaultIndexedDBStorageAdapter'
-import { getSealedAutomergeDBName } from '../../shared/localDatabaseNames'
+import { getAutomergeDBName, getSealedAutomergeDBName } from '../../shared/localDatabaseNames'
 import { databaseExists as defaultDatabaseExists } from '../../utils/databaseExists'
 import { isQuotaError } from '../../utils/storageQuota'
 import type { LocalKeyWrapper } from '../../keys/Keyring'

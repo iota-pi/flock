@@ -42,10 +42,6 @@ class QuotaHandlingStorageAdapter implements AutomergeStorageAdapter {
   }
 }
 
-export function getAutomergeDBName(accountId: string): string {
-  return `${getVaultStorageNames().accountPrefixes.automergeDatabase}${accountId}`
-}
-
 export interface AutomergeRepoManagerOptions {
   onKeyVersionMissing?: (kver: string) => void
   onDocumentReceived?: (documentId: DocumentId) => void
