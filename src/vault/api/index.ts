@@ -1,5 +1,4 @@
 import Fastify from 'fastify'
-import cookie from '@fastify/cookie'
 import cors from '@fastify/cors'
 import * as Sentry from '@sentry/node'
 import { TRPCError } from '@trpc/server'
@@ -50,7 +49,6 @@ async function createServer(devMode = false) {
     },
     bodyLimit: 10 * 1024 * 1024,
   })
-  await server.register(cookie)
   await server.register(cors, {
     origin: [
       /^https:\/\/flock(-[^.]+)?\.cross-code\.org$/,
