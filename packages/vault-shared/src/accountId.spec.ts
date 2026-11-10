@@ -28,6 +28,14 @@ describe('account IDs', () => {
       expect(normalizeAccountId('lion')).toBe('lion')
       expect(normalizeAccountId('LOUD')).toBe('loud')
     })
+
+    it('gives UUID IDs their canonical hyphens, however they were typed', () => {
+      const uuid = '0f8e2a4c-1b3d-4e5f-9a7b-6c8d0e2f4a1b'
+      expect(normalizeAccountId(uuid)).toBe(uuid)
+      expect(normalizeAccountId(uuid.toUpperCase())).toBe(uuid)
+      expect(normalizeAccountId(uuid.replace(/-/g, ''))).toBe(uuid)
+      expect(normalizeAccountId(` ${uuid.replace(/-/g, ' ')} `)).toBe(uuid)
+    })
   })
 
   describe('isValidNewAccountId', () => {
@@ -49,6 +57,12 @@ describe('account IDs', () => {
       expect(describeAccountIdProblem('ABCD-1234')).toBeNull()
       expect(describeAccountIdProblem('lion')).toBeNull()
       expect(describeAccountIdProblem('ab12')).toBeNull()
+      expect(describeAccountIdProblem('0f8e2a4c-1b3d-4e5f-9a7b-6c8d0e2f4a1b')).toBeNull()
+      expect(describeAccountIdProblem('0F8E2A4C1B3D4E5F9A7B6C8D0E2F4A1B')).toBeNull()
+    })
+
+    it('rejects UUID-length IDs that are not hex', () => {
+      expect(describeAccountIdProblem('0f8e2a4c-1b3d-4e5f-9a7b-6c8d0e2f4a1z')).not.toBeNull()
     })
 
     it('explains IDs of the wrong length', () => {
@@ -69,6 +83,7 @@ describe('account IDs', () => {
 
     it('shows legacy and unrecognised IDs as they are', () => {
       expect(formatAccountId('ab12')).toBe('ab12')
+      expect(formatAccountId('0f8e2a4c-1b3d-4e5f-9a7b-6c8d0e2f4a1b')).toBe('0f8e2a4c-1b3d-4e5f-9a7b-6c8d0e2f4a1b')
       expect(formatAccountId('')).toBe('')
     })
   })
