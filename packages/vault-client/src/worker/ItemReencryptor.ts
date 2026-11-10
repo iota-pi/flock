@@ -41,6 +41,15 @@ class DeferredBuildError extends Error {
   }
 }
 
+/**
+ * Whether an error building an item's snapshot (such as a push to the log on the way) stops the whole
+ * run. An outage, an auth error or a refused build says nothing about the item, so it isn't quarantined.
+ */
+function isRunStoppingError(error: unknown): boolean {
+  const classified = classifySyncError(error)
+  return classified.isNetwork || classified.isServerError || classified.isAuth || isClientOutdatedError(error)
+}
+
 /** One call's options for `ItemReencryptor.run`. A scheduled retry runs with the same ones. */
 export interface ReencryptRunOptions extends ReencryptOptions {
   onProgress?: (done: number, total: number) => void
@@ -318,8 +327,7 @@ export class ItemReencryptor {
           result.failed.push({ itemId, error: outcome.reason.message })
           continue
         }
-        const classified = classifySyncError(outcome.reason)
-        if (classified.isNetwork || classified.isServerError || classified.isAuth) {
+        if (isRunStoppingError(outcome.reason)) {
           throw outcome.reason
         }
         const error = `Failed to build snapshot for item ${itemId}: ${errorMessage(outcome.reason)}`
@@ -389,8 +397,7 @@ export class ItemReencryptor {
         signal,
         shouldRetry: err => {
           if (err instanceof DeferredBuildError) return err.canRetry
-          const classified = classifySyncError(err)
-          return !(classified.isNetwork || classified.isServerError || classified.isAuth)
+          return !isRunStoppingError(err)
         },
         onRetry: (err, attempt) => {
           log.warn(

@@ -625,6 +625,23 @@ describe('ItemReencryptor.run', () => {
       expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
     })
 
+    it('stops without quarantining anything when the server refuses a push while building', async () => {
+      setApiAuthToken('mock-token')
+      mockListItemIds.mockResolvedValue(['item-1'])
+      const refused = { message: 'CLIENT_OUTDATED', data: { code: 'PRECONDITION_FAILED', httpStatus: 412 } }
+      const builder = { build: vi.fn().mockResolvedValue({ type: 'deferred', reason: 'unpushed' }) }
+      const pushToLog = vi.fn()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValue(refused)
+      const reencryptor = new ItemReencryptor({ ...context, builder: builder as any, pushToLog })
+
+      await expect(reencryptor.run()).rejects.toBe(refused)
+
+      expect(builder.build).toHaveBeenCalledTimes(1)
+      expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
+      expect(mockPutSnapshots).not.toHaveBeenCalled()
+    })
+
     it('stops and schedules a retry when a push fails on the network', async () => {
       const scheduleRetry = vi.spyOn(itemReencryptor, 'scheduleRetry').mockReturnValue(0)
       setApiAuthToken('mock-token')
