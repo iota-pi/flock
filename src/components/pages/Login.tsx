@@ -13,7 +13,7 @@ import { styled } from '@mui/material/styles'
 import { ROUTES } from './routes'
 import { resolveRedirectRoute, type RedirectRouteState } from './redirectUtils'
 import { useAppStore } from 'src/state/store'
-import { checkForAppUpdate, isApplyingAppUpdate, whileLoggingIn } from 'src/app/appUpdate'
+import { checkForAppUpdate, isApplyingAppUpdate, whenStartupUpdateChecked, whileLoggingIn } from 'src/app/appUpdate'
 import { isChunkLoadError, recoverFromChunkLoadError } from 'src/app/brokenBuild'
 import {
   FingerprintIcon,
@@ -175,6 +175,11 @@ function LoginPage() {
   const biometricLabel = getBiometricLabel()
   const [wasManuallyLocked] = useState(consumeManualLock)
   const hasAutoPromptedRef = useRef(false)
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   // Pick up a new version of the app before signing in: applying it reloads the page, which would
   // lock a signed-in session (see appUpdate.ts)
@@ -341,7 +346,10 @@ function LoginPage() {
 
     const prompt = () => {
       hasAutoPromptedRef.current = true
-      queueMicrotask(() => {
+      // A new version found at launch reloads the page before the user unlocks, instead of waiting
+      // for the next launch (see appUpdate.ts)
+      void whenStartupUpdateChecked().then(() => {
+        if (!mountedRef.current || isApplyingAppUpdate()) return
         void handleClickBiometricUnlock()
       })
     }

@@ -219,47 +219,139 @@ describe('app updates', () => {
     })
   })
 
-  describe('a version already waiting at startup', () => {
+  describe('applying a new version while the page is untouched', () => {
+    type Worker = EventTarget & {
+      state: string
+      postMessage: Mock<(message: { type: string }, transfer?: MessagePort[]) => void>
+    }
     let windows: number | undefined
-    let waiting: { postMessage: Mock<(message: { type: string }, transfer?: MessagePort[]) => void> }
+    let swRegistration: {
+      waiting: Worker | null
+      installing: Worker | null
+      update: Mock<() => Promise<void>>
+    }
     let container: EventTarget & {
       controller: object | null
-      getRegistration: () => Promise<{ waiting: typeof waiting | null }>
+      getRegistration: () => Promise<typeof swRegistration>
     }
 
-    beforeEach(() => {
-      windows = 1
-      waiting = {
-        postMessage: vi.fn((message, transfer) => {
+    function createWorker(state: string): Worker {
+      return Object.assign(new EventTarget(), {
+        state,
+        postMessage: vi.fn((message: { type: string }, transfer?: MessagePort[]) => {
           if (message.type === 'COUNT_WINDOWS' && windows !== undefined) {
             transfer?.[0]?.postMessage({ windows })
           }
         }),
-      }
+      })
+    }
+
+    function finishInstalling(worker: Worker) {
+      worker.state = 'installed'
+      swRegistration.installing = null
+      swRegistration.waiting = worker
+      worker.dispatchEvent(new Event('statechange'))
+    }
+
+    beforeEach(() => {
+      windows = 1
+      swRegistration = { waiting: createWorker('installed'), installing: null, update: vi.fn(async () => undefined) }
       container = Object.assign(new EventTarget(), {
         controller: {},
-        getRegistration: async () => ({ waiting }),
+        getRegistration: async () => swRegistration,
       })
       Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: container })
       stopAppUpdates()
     })
 
     afterEach(() => {
+      vi.useRealTimers()
       delete (navigator as { serviceWorker?: unknown }).serviceWorker
     })
 
-    const skipWaitingSent = () => waiting.postMessage.mock.calls.some(([message]) => message.type === 'SKIP_WAITING')
+    const skipWaitingSent = (worker = swRegistration.waiting) => (
+      worker?.postMessage.mock.calls.some(([message]) => message.type === 'SKIP_WAITING') ?? false
+    )
 
-    it('applies it when this is the only window', async () => {
+    it('applies a version already waiting at startup when this is the only window', async () => {
       register()
       await vi.waitFor(() => expect(skipWaitingSent()).toBe(true))
+      expect(appUpdate.isApplyingAppUpdate()).toBe(true)
+      expect(swRegistration.update).not.toHaveBeenCalled()
+    })
+
+    it('applies a version that finishes installing during startup, before the startup check settles', async () => {
+      const installing = createWorker('installing')
+      swRegistration.waiting = null
+      swRegistration.update.mockImplementation(async () => {
+        swRegistration.installing = installing
+      })
+      let settled = false
+      register()
+      void appUpdate.whenStartupUpdateChecked().then(() => { settled = true })
+
+      await vi.waitFor(() => expect(swRegistration.update).toHaveBeenCalledTimes(1))
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(settled).toBe(false)
+
+      finishInstalling(installing)
+      await vi.waitFor(() => expect(settled).toBe(true))
+      expect(skipWaitingSent(installing)).toBe(true)
+      expect(appUpdate.isApplyingAppUpdate()).toBe(true)
+    })
+
+    it('stops holding up the startup check when installing takes too long', async () => {
+      vi.useFakeTimers()
+      swRegistration.waiting = null
+      swRegistration.update.mockImplementation(async () => {
+        swRegistration.installing = createWorker('installing')
+      })
+      let settled = false
+      register()
+      void appUpdate.whenStartupUpdateChecked().then(() => { settled = true })
+
+      await vi.advanceTimersByTimeAsync(appUpdate.STARTUP_UPDATE_WAIT_MS - 1)
+      expect(settled).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(settled).toBe(true)
+      expect(appUpdate.isApplyingAppUpdate()).toBe(false)
+    })
+
+    it('applies a version found later while the page is still untouched', async () => {
+      swRegistration.waiting = null
+      register()
+      await appUpdate.whenStartupUpdateChecked()
+
+      swRegistration.waiting = createWorker('installed')
+      options.onNeedRefresh?.()
+      await vi.waitFor(() => expect(skipWaitingSent()).toBe(true))
+    })
+
+    it('leaves a version found later to the prompt once the user has used the page', async () => {
+      swRegistration.waiting = null
+      register()
+      await appUpdate.whenStartupUpdateChecked()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a' }))
+      swRegistration.waiting = createWorker('installed')
+      options.onNeedRefresh?.()
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(swRegistration.waiting.postMessage).not.toHaveBeenCalled()
+      expect(useAppStore.getState().appUpdateReady).toBe(true)
+    })
+
+    it('leaves it to the prompt while logged in', async () => {
+      useAppStore.setState({ loggedIn: true })
+      register()
+      await appUpdate.whenStartupUpdateChecked()
+      expect(skipWaitingSent()).toBe(false)
     })
 
     it('leaves it to the prompt when other windows are open', async () => {
       windows = 2
       register()
-      await vi.waitFor(() => expect(waiting.postMessage).toHaveBeenCalledTimes(1))
-      await new Promise(resolve => setTimeout(resolve, 10))
+      await appUpdate.whenStartupUpdateChecked()
+      expect(swRegistration.waiting?.postMessage).toHaveBeenCalledTimes(1)
       expect(skipWaitingSent()).toBe(false)
     })
 
@@ -269,25 +361,30 @@ describe('app updates', () => {
       register()
       await vi.advanceTimersByTimeAsync(1_000)
       expect(skipWaitingSent()).toBe(false)
-      vi.useRealTimers()
     })
 
-    it('leaves it alone once a login has started', async () => {
+    it('leaves it alone once a login has started, even one that was cancelled', async () => {
       let finishLogin: () => void = () => {}
       register()
-      const login = appUpdate.whileLoggingIn(() => new Promise<void>(resolve => { finishLogin = resolve }))
-      await vi.waitFor(() => expect(waiting.postMessage).toHaveBeenCalledTimes(1))
+      const login = appUpdate.whileLoggingIn(() => new Promise<void>((resolve, reject) => {
+        finishLogin = () => reject(new Error('Cancelled'))
+      }))
+      await appUpdate.whenStartupUpdateChecked()
+      expect(skipWaitingSent()).toBe(false)
+
+      finishLogin()
+      await expect(login).rejects.toThrow('Cancelled')
+      options.onNeedRefresh?.()
       await new Promise(resolve => setTimeout(resolve, 10))
       expect(skipWaitingSent()).toBe(false)
-      finishLogin()
-      await login
     })
 
     it('does nothing on a page no service worker controls', async () => {
       container.controller = null
       register()
-      await new Promise(resolve => setTimeout(resolve, 10))
-      expect(waiting.postMessage).not.toHaveBeenCalled()
+      await appUpdate.whenStartupUpdateChecked()
+      expect(swRegistration.waiting?.postMessage).not.toHaveBeenCalled()
+      expect(swRegistration.update).not.toHaveBeenCalled()
     })
   })
 })
