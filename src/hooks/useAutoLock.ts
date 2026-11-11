@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react'
-import { readAutoLockSettings, subscribeAutoLockSettings } from '../app/vault/autoLockStore'
+import { clearManualLock, readAutoLockSettings, subscribeAutoLockSettings } from '../app/vault/autoLockStore'
 import { lockVault } from '../app/vault/session'
 import { useLoggedIn } from '../state/selectors'
 
@@ -15,6 +15,8 @@ export default function useAutoLock(): void {
 
   useEffect(() => {
     if (!loggedIn) return
+    // Unlocking ends a manual lock, so the next automatic one prompts for biometrics again
+    clearManualLock()
 
     let isMounted = true
 

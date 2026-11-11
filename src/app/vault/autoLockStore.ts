@@ -60,11 +60,16 @@ export function markManualLock() {
   sessionStorage.setItem(MANUAL_LOCK_KEY, 'true')
 }
 
-/** Whether the user locked the app themselves. Reading it clears it. */
-export function consumeManualLock(): boolean {
-  const manual = sessionStorage.getItem(MANUAL_LOCK_KEY) === 'true'
+/**
+ * Whether the user locked the app themselves. It lasts until they unlock, so it survives the lock
+ * screen reloading into a new version (src/app/appUpdate.ts).
+ */
+export function isManualLock(): boolean {
+  return sessionStorage.getItem(MANUAL_LOCK_KEY) === 'true'
+}
+
+export function clearManualLock() {
   sessionStorage.removeItem(MANUAL_LOCK_KEY)
-  return manual
 }
 
 export function getAutoLockSummary(settings = readAutoLockSettings()): string {

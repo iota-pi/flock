@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import download from 'js-file-download'
 import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
 import Divider from '@mui/material/Divider'
 import Typography from '@mui/material/Typography'
 
@@ -17,6 +18,10 @@ import { useVisibleItems } from 'src/state/selectors'
 import RemoveAccountDialog from '../dialogs/RemoveAccountDialog'
 import { createLogger } from 'src/utils/logger'
 import { formatAccountId } from '@vault/shared'
+import { requestAppUpdate } from 'src/app/appUpdate'
+import { getAppVersion } from 'src/app/appVersion'
+import { useAppStore } from 'src/state/store'
+import { describeAppUpdate } from '../AppUpdateSnackbar'
 
 const log = createLogger('Settings')
 
@@ -35,6 +40,8 @@ function SettingsPage() {
   const reencryptDialog = useDialogState('reencrypt')
   const autoLockDialog = useDialogState('autoLock')
   const [confirmRemoveAccountOpen, setConfirmRemoveAccountOpen] = useState(false)
+  // Still offered here after the user put off the update prompt
+  const appUpdateReady = useAppStore(state => state.appUpdateReady)
 
   const onExport = useCallback(
     async () => {
@@ -115,6 +122,18 @@ function SettingsPage() {
         <Typography color="textSecondary">
           Account ID: {formatAccountId(values.account)}
         </Typography>
+        <Typography color="textSecondary">
+          Version: {getAppVersion()}
+        </Typography>
+
+        {appUpdateReady && (
+          <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1, mt: 1 }}>
+            <Typography>{describeAppUpdate(true)}</Typography>
+            <Button size="small" variant="outlined" onClick={requestAppUpdate}>
+              Update
+            </Button>
+          </Box>
+        )}
       </Box>
       <Divider />
       <SettingsItemsList actionHandlers={actionHandlers} values={values} />

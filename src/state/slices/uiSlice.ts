@@ -6,6 +6,8 @@ import type { AppStore } from '../store'
 export interface UIState {
   activeRequests: number
   appUpdateReady: boolean
+  /** The user chose to update later, so the prompt stays hidden (Settings still offers it) */
+  appUpdateDismissed: boolean
   darkMode: boolean | null
   filters: FilterCriterion[]
   justCreatedAccount: boolean
@@ -16,6 +18,7 @@ type SetUiPayload = Partial<UIState>
 
 export interface UiSlice extends UIState {
   setAppUpdateReady: (ready: boolean) => void
+  dismissAppUpdate: () => void
   setUi: (payload: SetUiPayload) => void
   startRequest: () => void
   finishRequest: (error?: string) => void
@@ -24,6 +27,7 @@ export interface UiSlice extends UIState {
 const initialUiState: UIState = {
   activeRequests: 0,
   appUpdateReady: false,
+  appUpdateDismissed: false,
   darkMode: null,
   filters: DEFAULT_FILTER_CRITERIA,
   justCreatedAccount: false,
@@ -37,7 +41,9 @@ export const createUiSlice: StateCreator<
   UiSlice
 > = (set, get) => ({
   ...initialUiState,
-  setAppUpdateReady: ready => set({ appUpdateReady: ready }),
+  // A newer version prompts again, even if the user put off the last one
+  setAppUpdateReady: ready => set({ appUpdateReady: ready, appUpdateDismissed: false }),
+  dismissAppUpdate: () => set({ appUpdateDismissed: true }),
   setUi: payload => {
     set(() => ({ ...payload }))
   },

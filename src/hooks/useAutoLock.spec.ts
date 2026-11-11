@@ -19,6 +19,19 @@ describe('useAutoLock hook', () => {
     vi.restoreAllMocks()
   })
 
+  it('ends a manual lock once unlocked, but not while still locked', () => {
+    autoLockStore.markManualLock()
+    useAppStore.setState({ loggedIn: false })
+    const { rerender } = renderHook(() => useAutoLock())
+    expect(autoLockStore.isManualLock()).toBe(true)
+
+    act(() => {
+      useAppStore.setState({ loggedIn: true })
+    })
+    rerender()
+    expect(autoLockStore.isManualLock()).toBe(false)
+  })
+
   it('does nothing when mode is never', () => {
     autoLockStore.writeAutoLockSettings({ mode: 'never', inactivityMinutes: 5 })
     renderHook(() => useAutoLock())

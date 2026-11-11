@@ -32,7 +32,9 @@ export default function BackupReminderSnackbar() {
   const unsyncedItems = useAppStore(state => (
     (state.syncProgress?.pendingItems ?? 0) + (state.syncProgress?.quarantinedItems ?? 0)
   ))
-  const otherSnackbarOpen = useAppStore(state => state.isQuotaExceeded || state.appUpdateReady)
+  const otherSnackbarOpen = useAppStore(state => (
+    state.isQuotaExceeded || (state.appUpdateReady && !state.appUpdateDismissed)
+  ))
   const setMessage = useAppStore(state => state.setMessage)
   const quietUntil = useSyncExternalStore(subscribeBackupReminder, () => readBackupReminderQuietUntil(account))
   const today = useToday()
