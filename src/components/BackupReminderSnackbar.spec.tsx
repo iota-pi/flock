@@ -42,7 +42,7 @@ describe('BackupReminderSnackbar', () => {
       }),
     })
     act(() => {
-      useAppStore.setState({ account, syncProgress: null, isQuotaExceeded: false, appUpdateReady: false })
+      useAppStore.setState({ account, syncProgress: null, isQuotaExceeded: false, appUpdateReady: false, appUpdateDismissed: false })
     })
   })
 

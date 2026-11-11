@@ -14,23 +14,26 @@ export type AppUpdateOptions = {
 /*
  * Applying a new build reloads the page, which forgets the vault keys and locks the app. So a new
  * service worker only takes over when the user chooses to reload (the update snackbar), when this
- * build can no longer work (forceAppUpdate), or while a page that has just loaded is still untouched
- * and is the only Flock window, so the reload costs nothing. Until then a session keeps running the build it started
- * with, whose lazily loaded chunks are still in the old service worker's precache.
+ * build can no longer work (forceAppUpdate), or while the page is untouched and is the only Flock
+ * window, so the reload costs nothing. A page is untouched when it has just loaded, and again when the
+ * vault locks (by hand, or automatically), until the user does something on the lock screen. Until
+ * then a session keeps running the build it started with, whose lazily loaded chunks are still in the
+ * old service worker's precache.
  *
  * The new service worker takes over every tab at once, and each tab reloads (and locks) when it does.
  * The browser itself never swaps service workers on a reload while a page it controls stays open.
  *
  * A launch usually finds a new version partway through loading, after the page has checked for one
- * waiting. So at startup the page also looks for a new version itself and waits (briefly) for it to
- * install, and the login page holds its biometric prompt until then, so one launch is enough to update.
+ * waiting. So at startup, and when the vault locks, the page also looks for a new version itself and
+ * waits (briefly) for it to install, and the login page holds its biometric prompt until then, so one
+ * launch (or lock) is enough to update.
  */
 
 export const UPDATE_CHECK_INTERVAL_MS = 30 * 60_000
 const LOCK_TIMEOUT_MS = 5_000
 const WINDOW_COUNT_TIMEOUT_MS = 1_000
-/** How long the login page holds its biometric prompt for the startup update check */
-export const STARTUP_UPDATE_WAIT_MS = 5_000
+/** How long the login page holds its biometric prompt for the check that follows a launch or lock */
+export const UNTOUCHED_UPDATE_WAIT_MS = 5_000
 
 let updateServiceWorker: ((reloadPage?: boolean) => Promise<void>) | null = null
 let registration: ServiceWorkerRegistration | undefined
@@ -41,9 +44,10 @@ let forceUpdate = false
 let applying = false
 let loginsInProgress = 0
 let lastUpdateCheck = 0
-// Whether the user has done anything on this page, after which a reload would lose their work
+// Whether the user has done anything on this page since it loaded or locked, after which a reload
+// would lose their work
 let pageTouched = false
-let startupUpdateChecked: Promise<void> = Promise.resolve()
+let updateCheckSettled: Promise<void> = Promise.resolve()
 // Bumped when updates stop being watched, so async work started before then gives up
 let generation = 0
 
@@ -135,21 +139,21 @@ async function applyWaitingUpdateIfUntouched(): Promise<void> {
 }
 
 /**
- * Looks for a new version at startup and waits for it to install, so it can be applied before the
- * user starts using this page rather than at the next launch.
+ * Looks for a new version (at startup, or when the vault locks) and waits for it to install, so it
+ * can be applied before the user starts using this page rather than at the next launch.
  */
-async function checkForUpdateAtStartup(): Promise<void> {
+async function checkAndApplyWhileUntouched(): Promise<void> {
   const container = typeof navigator !== 'undefined' ? navigator.serviceWorker : undefined
   if (!container?.controller) return
   const swRegistration = await container.getRegistration()
   if (!swRegistration) return
   if (!swRegistration.waiting) {
-    const deadline = Date.now() + STARTUP_UPDATE_WAIT_MS
+    const deadline = Date.now() + UNTOUCHED_UPDATE_WAIT_MS
     lastUpdateCheck = Date.now()
     let timer: ReturnType<typeof setTimeout> | undefined
     await Promise.race([
       swRegistration.update().catch(() => undefined),
-      new Promise<void>(resolve => { timer = setTimeout(resolve, STARTUP_UPDATE_WAIT_MS) }),
+      new Promise<void>(resolve => { timer = setTimeout(resolve, UNTOUCHED_UPDATE_WAIT_MS) }),
     ])
     clearTimeout(timer)
     await waitForInstall(swRegistration.installing, Math.max(0, deadline - Date.now()))
@@ -157,12 +161,33 @@ async function checkForUpdateAtStartup(): Promise<void> {
   await applyWaitingUpdateIfUntouched()
 }
 
+function startUntouchedUpdateCheck(): void {
+  updateCheckSettled = checkAndApplyWhileUntouched().catch(error => log.error('Failed to check for a new version', error))
+}
+
 /**
- * Resolves once the startup check for a new version has finished (or given up waiting), for the
- * login page to hold its biometric prompt until then. Check `isApplyingAppUpdate` afterwards.
+ * Resolves once the check for a new version that follows a launch or lock has finished (or given up
+ * waiting), for the login page to hold its biometric prompt until then. Check `isApplyingAppUpdate`
+ * afterwards.
  */
-export function whenStartupUpdateChecked(): Promise<void> {
-  return startupUpdateChecked
+export function whenUpdateCheckSettled(): Promise<void> {
+  return updateCheckSettled
+}
+
+/**
+ * The lock screen has nothing to lose until the user starts unlocking, so a locked page counts as
+ * untouched again. Runs as the store changes, before the login page renders and waits on the check.
+ */
+function handleLoggedInChange(loggedIn: boolean, wasLoggedIn: boolean): void {
+  if (!wasLoggedIn || loggedIn || applying) return
+  pageTouched = false
+  startUntouchedUpdateCheck()
+}
+
+function checkForAppUpdateWhenOnline(): void {
+  if (document.visibilityState === 'visible') {
+    void checkForAppUpdate()
+  }
 }
 
 function checkForAppUpdateIfDue(): void {
@@ -197,14 +222,21 @@ export function registerAppUpdates(registerSW: RegisterSW, options: AppUpdateOpt
   pageTouched = false
   window.addEventListener('pointerdown', markPageTouched, { capture: true })
   window.addEventListener('keydown', markPageTouched, { capture: true })
-  startupUpdateChecked = checkForUpdateAtStartup().catch(error => log.error('Failed to check for a new version', error))
+  startUntouchedUpdateCheck()
+  const unsubscribeStore = useAppStore.subscribe((state, previous) => {
+    handleLoggedInChange(state.loggedIn, previous.loggedIn)
+  })
 
   // An installed app can stay open (or suspended in the background) for days without a page load
   document.addEventListener('visibilitychange', checkForAppUpdateIfDue)
+  // A check that came due while offline would otherwise wait for the next interval
+  window.addEventListener('online', checkForAppUpdateWhenOnline)
   const interval = setInterval(checkForAppUpdateIfDue, UPDATE_CHECK_INTERVAL_MS)
 
   return () => {
+    unsubscribeStore()
     document.removeEventListener('visibilitychange', checkForAppUpdateIfDue)
+    window.removeEventListener('online', checkForAppUpdateWhenOnline)
     window.removeEventListener('pointerdown', markPageTouched, { capture: true })
     window.removeEventListener('keydown', markPageTouched, { capture: true })
     clearInterval(interval)
@@ -216,12 +248,12 @@ export function registerAppUpdates(registerSW: RegisterSW, options: AppUpdateOpt
     updateRequested = false
     forceUpdate = false
     applying = false
-    startupUpdateChecked = Promise.resolve()
+    updateCheckSettled = Promise.resolve()
   }
 }
 
 /**
- * Applies a ready update now that the user has chosen to reload. Every open tab reloads with it, which
+ * Applies a ready update now that the user has chosen to update. Every open tab reloads with it, which
  * locks any that are logged in.
  */
 export function requestAppUpdate(): void {

@@ -13,7 +13,7 @@ import { styled } from '@mui/material/styles'
 import { ROUTES } from './routes'
 import { resolveRedirectRoute, type RedirectRouteState } from './redirectUtils'
 import { useAppStore } from 'src/state/store'
-import { checkForAppUpdate, isApplyingAppUpdate, whenStartupUpdateChecked, whileLoggingIn } from 'src/app/appUpdate'
+import { checkForAppUpdate, isApplyingAppUpdate, whenUpdateCheckSettled, whileLoggingIn } from 'src/app/appUpdate'
 import { isChunkLoadError, recoverFromChunkLoadError } from 'src/app/brokenBuild'
 import {
   FingerprintIcon,
@@ -43,7 +43,7 @@ import {
   normalizeAccountId,
 } from '@vault/shared'
 import { getBiometricLabel } from '../../utils/biometricLabel'
-import { consumeManualLock } from 'src/app/vault/autoLockStore'
+import { isManualLock } from 'src/app/vault/autoLockStore'
 import { goToMigration, isMigrationDeferred, MIN_ACCOUNT_DATA_VERSION } from 'src/migrate/detection'
 
 const log = createLogger('Login')
@@ -173,7 +173,7 @@ function LoginPage() {
   const [showPasswordForm, setShowPasswordForm] = useState(false)
   const [loading, setLoading] = useState(false)
   const biometricLabel = getBiometricLabel()
-  const [wasManuallyLocked] = useState(consumeManualLock)
+  const [wasManuallyLocked] = useState(isManualLock)
   const hasAutoPromptedRef = useRef(false)
   const mountedRef = useRef(true)
   useEffect(() => {
@@ -346,9 +346,9 @@ function LoginPage() {
 
     const prompt = () => {
       hasAutoPromptedRef.current = true
-      // A new version found at launch reloads the page before the user unlocks, instead of waiting
-      // for the next launch (see appUpdate.ts)
-      void whenStartupUpdateChecked().then(() => {
+      // A new version found at launch (or as the app locks) reloads the page before the user
+      // unlocks, instead of waiting for the next launch (see appUpdate.ts)
+      void whenUpdateCheckSettled().then(() => {
         if (!mountedRef.current || isApplyingAppUpdate()) return
         void handleClickBiometricUnlock()
       })

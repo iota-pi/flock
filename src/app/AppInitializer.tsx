@@ -12,6 +12,7 @@ import { initTrpcClient } from 'src/api/trpcClient'
 import { useNavigate } from 'react-router'
 import { refreshPushSubscription, syncReminderTimezone } from '../utils/pushNotifications'
 import { useAutoClearPrayerNotifications } from '../hooks/useAutoClearPrayerNotifications'
+import { getLaunchRoute, type LaunchQueue } from './launchRoute'
 
 const log = createLogger('AppInitializer')
 
@@ -63,6 +64,16 @@ export default function AppInitializer() {
     return () => {
       navigator.serviceWorker.removeEventListener('message', handleMessage)
     }
+  }, [navigate])
+
+  // The manifest's launch_handler focuses the open window when the app is launched again, and passes
+  // the launch URL here rather than reloading the page
+  useEffect(() => {
+    const launchQueue = (window as { launchQueue?: LaunchQueue }).launchQueue
+    launchQueue?.setConsumer(params => {
+      const route = getLaunchRoute(params.targetURL, window.location)
+      if (route) navigate(route)
+    })
   }, [navigate])
 
   useSyncCoordinatorLifecycle(account, loggedIn)

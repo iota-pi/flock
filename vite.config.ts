@@ -54,6 +54,10 @@ export default defineConfig({
         ],
         start_url: '.',
         display: 'standalone',
+        // Launching the installed app focuses its open window (Chromium only). A new window would make
+        // updates reload (and lock) more windows, and navigating the open one would reload it and lock
+        // it, so the app routes the launch URL itself (src/app/AppInitializer.tsx).
+        launch_handler: { client_mode: 'focus-existing' },
         theme_color: '#004d40',
         background_color: '#202020',
       },

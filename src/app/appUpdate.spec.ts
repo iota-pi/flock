@@ -59,14 +59,6 @@ describe('app updates', () => {
     expect(useAppStore.getState().appUpdateReady).toBe(false)
   })
 
-  it('does not apply an unrequested update when the app locks', () => {
-    useAppStore.setState({ loggedIn: true })
-    options.onNeedRefresh?.()
-
-    useAppStore.setState({ loggedIn: false })
-    expect(updateSW).not.toHaveBeenCalled()
-  })
-
   it('does not interrupt a login, and applies it afterwards if the login failed', async () => {
     let finishLogin: () => void = () => {}
     const login = appUpdate.whileLoggingIn(() => new Promise<void>((resolve, reject) => {
@@ -210,10 +202,20 @@ describe('app updates', () => {
       expect(registration.update).toHaveBeenCalledTimes(1)
     })
 
+    it('checks when the device comes back online while visible', () => {
+      window.dispatchEvent(new Event('online'))
+      expect(registration.update).toHaveBeenCalledTimes(1)
+
+      visibility = 'hidden'
+      window.dispatchEvent(new Event('online'))
+      expect(registration.update).toHaveBeenCalledTimes(1)
+    })
+
     it('stops checking once stopped', async () => {
       stopAppUpdates()
       await vi.advanceTimersByTimeAsync(appUpdate.UPDATE_CHECK_INTERVAL_MS)
       becomeVisible()
+      window.dispatchEvent(new Event('online'))
       expect(registration.update).not.toHaveBeenCalled()
       register()
     })
@@ -288,7 +290,7 @@ describe('app updates', () => {
       })
       let settled = false
       register()
-      void appUpdate.whenStartupUpdateChecked().then(() => { settled = true })
+      void appUpdate.whenUpdateCheckSettled().then(() => { settled = true })
 
       await vi.waitFor(() => expect(swRegistration.update).toHaveBeenCalledTimes(1))
       await new Promise(resolve => setTimeout(resolve, 10))
@@ -308,9 +310,9 @@ describe('app updates', () => {
       })
       let settled = false
       register()
-      void appUpdate.whenStartupUpdateChecked().then(() => { settled = true })
+      void appUpdate.whenUpdateCheckSettled().then(() => { settled = true })
 
-      await vi.advanceTimersByTimeAsync(appUpdate.STARTUP_UPDATE_WAIT_MS - 1)
+      await vi.advanceTimersByTimeAsync(appUpdate.UNTOUCHED_UPDATE_WAIT_MS - 1)
       expect(settled).toBe(false)
       await vi.advanceTimersByTimeAsync(1)
       expect(settled).toBe(true)
@@ -320,7 +322,7 @@ describe('app updates', () => {
     it('applies a version found later while the page is still untouched', async () => {
       swRegistration.waiting = null
       register()
-      await appUpdate.whenStartupUpdateChecked()
+      await appUpdate.whenUpdateCheckSettled()
 
       swRegistration.waiting = createWorker('installed')
       options.onNeedRefresh?.()
@@ -330,7 +332,7 @@ describe('app updates', () => {
     it('leaves a version found later to the prompt once the user has used the page', async () => {
       swRegistration.waiting = null
       register()
-      await appUpdate.whenStartupUpdateChecked()
+      await appUpdate.whenUpdateCheckSettled()
 
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a' }))
       swRegistration.waiting = createWorker('installed')
@@ -343,14 +345,14 @@ describe('app updates', () => {
     it('leaves it to the prompt while logged in', async () => {
       useAppStore.setState({ loggedIn: true })
       register()
-      await appUpdate.whenStartupUpdateChecked()
+      await appUpdate.whenUpdateCheckSettled()
       expect(skipWaitingSent()).toBe(false)
     })
 
     it('leaves it to the prompt when other windows are open', async () => {
       windows = 2
       register()
-      await appUpdate.whenStartupUpdateChecked()
+      await appUpdate.whenUpdateCheckSettled()
       expect(swRegistration.waiting?.postMessage).toHaveBeenCalledTimes(1)
       expect(skipWaitingSent()).toBe(false)
     })
@@ -369,7 +371,7 @@ describe('app updates', () => {
       const login = appUpdate.whileLoggingIn(() => new Promise<void>((resolve, reject) => {
         finishLogin = () => reject(new Error('Cancelled'))
       }))
-      await appUpdate.whenStartupUpdateChecked()
+      await appUpdate.whenUpdateCheckSettled()
       expect(skipWaitingSent()).toBe(false)
 
       finishLogin()
@@ -379,10 +381,87 @@ describe('app updates', () => {
       expect(skipWaitingSent()).toBe(false)
     })
 
+    describe('when the vault locks', () => {
+      async function startUsedSession() {
+        swRegistration.waiting = null
+        register()
+        await appUpdate.whenUpdateCheckSettled()
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a' }))
+        useAppStore.setState({ loggedIn: true })
+        swRegistration.update.mockClear()
+      }
+
+      it('applies a version that was waiting, holding the login page until it has', async () => {
+        await startUsedSession()
+        swRegistration.waiting = createWorker('installed')
+        options.onNeedRefresh?.()
+        expect(skipWaitingSent()).toBe(false)
+
+        useAppStore.setState({ loggedIn: false })
+        await appUpdate.whenUpdateCheckSettled()
+        expect(skipWaitingSent()).toBe(true)
+        expect(appUpdate.isApplyingAppUpdate()).toBe(true)
+        expect(useAppStore.getState().appUpdateReady).toBe(false)
+      })
+
+      it('looks for a new version and applies it once installed', async () => {
+        await startUsedSession()
+        const installing = createWorker('installing')
+        swRegistration.update.mockImplementation(async () => {
+          swRegistration.installing = installing
+          setTimeout(() => finishInstalling(installing), 0)
+        })
+
+        useAppStore.setState({ loggedIn: false })
+        await appUpdate.whenUpdateCheckSettled()
+        expect(swRegistration.update).toHaveBeenCalledTimes(1)
+        expect(skipWaitingSent(installing)).toBe(true)
+      })
+
+      it('leaves it to the prompt when other windows are open', async () => {
+        await startUsedSession()
+        windows = 2
+        swRegistration.waiting = createWorker('installed')
+
+        useAppStore.setState({ loggedIn: false })
+        await appUpdate.whenUpdateCheckSettled()
+        expect(skipWaitingSent()).toBe(false)
+      })
+
+      it('leaves a version found later to the prompt once the user starts unlocking', async () => {
+        await startUsedSession()
+        useAppStore.setState({ loggedIn: false })
+        await appUpdate.whenUpdateCheckSettled()
+
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a' }))
+        swRegistration.waiting = createWorker('installed')
+        options.onNeedRefresh?.()
+        await new Promise(resolve => setTimeout(resolve, 10))
+        expect(skipWaitingSent()).toBe(false)
+        expect(useAppStore.getState().appUpdateReady).toBe(true)
+      })
+
+      it('does not count the lock before an update as a lock', async () => {
+        const lockBeforeReload = vi.fn(async () => {
+          useAppStore.setState({ loggedIn: false })
+        })
+        swRegistration.waiting = null
+        register({ lockBeforeReload })
+        await appUpdate.whenUpdateCheckSettled()
+        swRegistration.update.mockClear()
+        useAppStore.setState({ loggedIn: true })
+        options.onNeedRefresh?.()
+
+        appUpdate.requestAppUpdate()
+        await vi.waitFor(() => expect(updateSW).toHaveBeenCalledTimes(1))
+        expect(swRegistration.update).not.toHaveBeenCalled()
+      })
+    })
+
     it('does nothing on a page no service worker controls', async () => {
       container.controller = null
       register()
-      await appUpdate.whenStartupUpdateChecked()
+      await appUpdate.whenUpdateCheckSettled()
       expect(swRegistration.waiting?.postMessage).not.toHaveBeenCalled()
       expect(swRegistration.update).not.toHaveBeenCalled()
     })
