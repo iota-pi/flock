@@ -216,4 +216,9 @@ A session token can't read anything without the keys, but it can make authentica
 - **The server stores only hashes of tokens** (`hashSessionToken`) and rejects records that hold a raw one.
 - **Sessions last 72 hours** (`SESSION_EXPIRY_MS`). Unlocked clients re-establish an expired session silently from the key hash.
 - **Keyring uploads prove the master key.** `accounts.updateKeyring` requires `currentAuthToken`, as `changePassword` does.
-- **Still open:** a token taken from a running, unlocked app works until it expires. Fixing that needs writes the server or other devices can authenticate, such as signatures from a key in the keyring.
+- **Accepted risk: a stolen token can still write.** A token taken from a running, unlocked app can tombstone or overwrite items. Sessions renew on use, so the token keeps working until the password is changed, which ends every other session. The fix would be signed writes ([signed-writes.md](signed-writes.md)), and we've decided not to build them, because they only help in a narrow case:
+  - **Most ways of stealing the token defeat signing anyway.** The token is kept only in memory, so the realistic routes are XSS, a malicious extension or a compromised device. Each of those can drive the unlocked app, and so can sign with its keys.
+  - **Leaks of request bodies usually include the auth token.** `accounts.login` and re-establishing a session send `keyHash` in the request body. That token can already rotate the keyring or change the password, and signing can't stop it.
+  - **What's left is narrow:** a session token leaked on its own, such as a logged `Authorization` header or a crash report, without any login request. That doesn't justify about two weeks of work, a new data level and a two-phase protocol rollout.
+
+  Reconsider if the threat changes, for example if tokens are ever persisted again, or if Flock starts storing data where a lost item can't be recovered from another device.
