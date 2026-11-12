@@ -11,6 +11,7 @@ import { ServerHeads } from './ServerHeads'
 import { SyncLogDatabase } from './stores/SyncLogDatabase'
 import { getSyncMetadataStorage, SYNC_METADATA_KEYS } from './stores/syncMetadataStorage'
 import { SYNC_LOG_STORES } from '../shared/syncLogStorage'
+import { FIRST_START_MAX_ATTEMPTS, SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
 import * as writeAheadLogStorage from '../shared/writeAheadLogStorage'
 import { spyOnExports } from '../../test/moduleMocks'
@@ -86,6 +87,11 @@ describe('first start', () => {
     let isDirty: AnyMock
     let findHandle: AnyMock
     let listRecoveryItems: AnyMock
+    let quarantine: AnyMock
+    let fetchSnapshots: AnyMock
+    let onKeyVersionMissing: AnyMock
+    let onWorkDue: AnyMock
+    let now: number
     let onManifestSynced: AnyMock
     let clearWriteAheadLog: AnyMock
     let firstStart: FirstStart
@@ -93,6 +99,27 @@ describe('first start', () => {
     async function start(records: ItemId[] = [ITEM]): Promise<void> {
       await runFirstStartLocalPart(ACCOUNT, async () => records)
       await firstStart.load()
+    }
+
+    function createFirstStart(): FirstStart {
+      return new FirstStart({
+        accountId: ACCOUNT,
+        db,
+        keys,
+        docStore: { findHandle } as unknown as FirstStartDeps['docStore'],
+        recoveryManager: { listRecoveryItems, quarantine } as unknown as FirstStartDeps['recoveryManager'],
+        serverHeads,
+        syncManifest,
+        fetchSnapshots,
+        onKeyVersionMissing,
+        onWorkDue,
+        pushPending,
+        getBaseVersion,
+        requestSnapshot,
+        isDirty,
+        onManifestSynced,
+        now: () => now,
+      })
     }
 
     function entry(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
@@ -109,23 +136,15 @@ describe('first start', () => {
       isDirty = vi.fn().mockReturnValue(false)
       findHandle = vi.fn().mockResolvedValue({ isReady: () => true, doc: () => doc })
       listRecoveryItems = vi.fn().mockResolvedValue([])
+      quarantine = vi.fn().mockResolvedValue(undefined)
+      fetchSnapshots = vi.fn().mockResolvedValue(undefined)
+      onKeyVersionMissing = vi.fn()
+      onWorkDue = vi.fn()
+      now = 1_000_000
       onManifestSynced = vi.fn()
       clearWriteAheadLog = vi.fn().mockResolvedValue(undefined)
       spyOnExports(writeAheadLogStorage, { clearWriteAheadLog })
-      firstStart = new FirstStart({
-        accountId: ACCOUNT,
-        db,
-        keys,
-        docStore: { findHandle } as unknown as FirstStartDeps['docStore'],
-        recoveryManager: { listRecoveryItems } as unknown as FirstStartDeps['recoveryManager'],
-        serverHeads,
-        syncManifest,
-        pushPending,
-        getBaseVersion,
-        requestSnapshot,
-        isDirty,
-        onManifestSynced,
-      })
+      firstStart = createFirstStart()
     })
 
     afterEach(async () => {
@@ -172,7 +191,9 @@ describe('first start', () => {
         await firstStart.onManifestProcessed([])
 
         expect(firstStart.stateOf(ITEM)).toBe('awaitingSnapshot')
-        expect(await db.getAll(SYNC_LOG_STORES.firstStart)).toEqual([{ itemId: ITEM, state: 'awaitingSnapshot' }])
+        expect(await db.getAll(SYNC_LOG_STORES.firstStart)).toEqual([
+          expect.objectContaining({ itemId: ITEM, state: 'awaitingSnapshot' }),
+        ])
         expect(requestSnapshot).toHaveBeenCalledWith(ITEM)
       })
 
@@ -228,12 +249,137 @@ describe('first start', () => {
         expect(firstStart.stateOf(ITEM)).toBe('awaitingHeads')
       })
 
-      it('forgets a deleted item', async () => {
+      it('forgets a deleted item, and its pending mark, so its whole history isn\'t pushed', async () => {
         await start()
 
         await firstStart.onManifestProcessed([entry({ isDeleted: true })])
 
         expect(firstStart.has(ITEM)).toBe(false)
+        expect(await db.count(SYNC_LOG_STORES.outbox)).toBe(0)
+      })
+    })
+
+    describe('an item whose doc lacks heads manifest sync believes it has merged', () => {
+      const unknownHeads = ['a'.repeat(64)]
+
+      async function processStuck(): Promise<void> {
+        await firstStart.onManifestProcessed([entry({ heads: await encryptSnapshotHeads(keys, ITEM, unknownHeads) })])
+      }
+
+      beforeEach(() => {
+        getBaseVersion.mockReturnValue(2)
+      })
+
+      it('leaves fetching to manifest sync while the base version is behind', async () => {
+        await start()
+        getBaseVersion.mockReturnValue(1)
+
+        await processStuck()
+        await firstStart.runDue()
+
+        expect(fetchSnapshots).not.toHaveBeenCalled()
+        expect(onWorkDue).not.toHaveBeenCalled()
+      })
+
+      it('fetches its snapshot at the next poll, and resolves once the doc has the heads', async () => {
+        await start()
+        const merged = Automerge.change(Automerge.clone(doc), d => { d.title = 'merged' })
+        const heads = Automerge.getHeads(merged)
+        fetchSnapshots.mockImplementation(async () => {
+          findHandle.mockResolvedValue({ isReady: () => true, doc: () => merged })
+        })
+
+        await firstStart.onManifestProcessed([entry({ heads: await encryptSnapshotHeads(keys, ITEM, heads) })])
+        expect(onWorkDue).toHaveBeenCalled()
+        await firstStart.runDue()
+
+        expect(fetchSnapshots).toHaveBeenCalledWith([ITEM], undefined)
+        expect(firstStart.has(ITEM)).toBe(false)
+        expect(serverHeads.get(ITEM)).toEqual(heads)
+      })
+
+      it('fetches only once a retry is due, and quarantines it after every try', async () => {
+        await start()
+        await processStuck()
+        await firstStart.runDue()
+        expect(fetchSnapshots).toHaveBeenCalledTimes(1)
+
+        await processStuck()
+        await firstStart.runDue()
+        expect(fetchSnapshots).toHaveBeenCalledTimes(1)
+
+        for (let round = 1; round < FIRST_START_MAX_ATTEMPTS; round += 1) {
+          now += SYNC_TIMEOUTS.firstStartRetryGap
+          await processStuck()
+          await firstStart.runDue()
+        }
+        expect(fetchSnapshots).toHaveBeenCalledTimes(FIRST_START_MAX_ATTEMPTS)
+        expect(quarantine).not.toHaveBeenCalled()
+
+        now += SYNC_TIMEOUTS.firstStartRetryGap
+        await processStuck()
+        await firstStart.runDue()
+        expect(fetchSnapshots).toHaveBeenCalledTimes(FIRST_START_MAX_ATTEMPTS)
+        expect(quarantine).toHaveBeenCalledWith(ITEM, 'unknown', expect.any(String))
+        expect(await db.getAll(SYNC_LOG_STORES.firstStart)).toEqual([{ itemId: ITEM, state: 'awaitingHeads' }])
+      })
+
+      it('gets every try again once recovery releases it', async () => {
+        await start()
+        for (let round = 0; round <= FIRST_START_MAX_ATTEMPTS; round += 1) {
+          await processStuck()
+          await firstStart.runDue()
+          now += SYNC_TIMEOUTS.firstStartRetryGap
+        }
+        expect(quarantine).toHaveBeenCalledTimes(1)
+        fetchSnapshots.mockClear()
+
+        await processStuck()
+        await firstStart.runDue()
+
+        expect(fetchSnapshots).toHaveBeenCalledTimes(1)
+      })
+
+      it('remembers its tries across restarts', async () => {
+        await start()
+        await processStuck()
+
+        firstStart = createFirstStart()
+        await firstStart.load()
+        await processStuck()
+        await firstStart.runDue()
+
+        expect(fetchSnapshots).not.toHaveBeenCalled()
+      })
+
+      it('fails the poll when the fetch fails, leaving the next try for a later manifest sync', async () => {
+        await start()
+        await processStuck()
+        fetchSnapshots.mockRejectedValueOnce(new Error('offline'))
+
+        await expect(firstStart.runDue()).rejects.toThrow('offline')
+        await firstStart.runDue()
+
+        expect(fetchSnapshots).toHaveBeenCalledTimes(1)
+      })
+    })
+
+    describe('a missing key', () => {
+      it('asks for the key, and quarantines the item once every try has failed', async () => {
+        await start()
+        const heads = await encryptSnapshotHeads(keys, ITEM, docHeads)
+        vi.spyOn(keys, 'hasKey').mockReturnValue(false)
+
+        for (let round = 0; round < FIRST_START_MAX_ATTEMPTS; round += 1) {
+          await firstStart.onManifestProcessed([entry({ heads })])
+          now += SYNC_TIMEOUTS.firstStartRetryGap
+        }
+        expect(onKeyVersionMissing).toHaveBeenCalledTimes(FIRST_START_MAX_ATTEMPTS)
+        expect(onKeyVersionMissing).toHaveBeenCalledWith(expect.any(String))
+        expect(quarantine).not.toHaveBeenCalled()
+
+        await firstStart.onManifestProcessed([entry({ heads })])
+        expect(quarantine).toHaveBeenCalledWith(ITEM, 'unknown', expect.stringContaining('Key version'))
       })
     })
 
@@ -266,14 +412,34 @@ describe('first start', () => {
         expect(firstStart.stateOf(ITEM)).toBe('awaitingHeads')
       })
 
-      it('asks again for a snapshot whose dirty flag was lost', async () => {
+      it('asks again for a snapshot whose dirty flag was lost, once a retry is due', async () => {
         await start()
         await firstStart.onManifestProcessed([])
         requestSnapshot.mockClear()
 
         await firstStart.onManifestProcessed([])
+        expect(requestSnapshot).not.toHaveBeenCalled()
 
+        now += SYNC_TIMEOUTS.firstStartRetryGap
+        await firstStart.onManifestProcessed([])
         expect(requestSnapshot).toHaveBeenCalledWith(ITEM)
+      })
+
+      it('quarantines an item whose snapshot is never stored', async () => {
+        await start()
+        isDirty.mockReturnValue(true)
+        await firstStart.onManifestProcessed([])
+
+        for (let round = 1; round < FIRST_START_MAX_ATTEMPTS; round += 1) {
+          now += SYNC_TIMEOUTS.firstStartRetryGap
+          await firstStart.onManifestProcessed([])
+        }
+        expect(quarantine).not.toHaveBeenCalled()
+
+        now += SYNC_TIMEOUTS.firstStartRetryGap
+        await firstStart.onManifestProcessed([])
+        expect(quarantine).toHaveBeenCalledWith(ITEM, 'snapshotFailure', expect.any(String))
+        expect(firstStart.stateOf(ITEM)).toBe('awaitingSnapshot')
       })
     })
 
@@ -385,20 +551,7 @@ describe('first start', () => {
         await vi.waitFor(() => expect(clearWriteAheadLog).toHaveBeenCalledTimes(1))
         expect(await getSyncMetadataStorage(ACCOUNT).getItem(SYNC_METADATA_KEYS.WAL_CLEARED)).toBeNull()
 
-        const nextStart = new FirstStart({
-          accountId: ACCOUNT,
-          db,
-          keys,
-          docStore: { findHandle } as unknown as FirstStartDeps['docStore'],
-          recoveryManager: { listRecoveryItems } as unknown as FirstStartDeps['recoveryManager'],
-          serverHeads,
-          syncManifest,
-          pushPending,
-          getBaseVersion,
-          requestSnapshot,
-          isDirty,
-          onManifestSynced,
-        })
+        const nextStart = createFirstStart()
         await nextStart.load()
         await nextStart.ensureSynced()
 

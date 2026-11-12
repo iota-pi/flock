@@ -107,14 +107,16 @@ The log started empty at the cut, and nothing was copied from `FlockSyncMessages
 | Manifest entry | Result |
 |---|---|
 | Heads decrypt, and the doc has them | Set server heads to them and remove the record |
-| Heads decrypt, but the doc lacks them | Stays `awaitingHeads`: the snapshot hasn't merged yet |
+| Heads decrypt, but the doc lacks them (or won't load) | Stays `awaitingHeads`: the snapshot hasn't merged yet. If the base version has already reached the manifest's, manifest sync will never fetch it, so it's queued for a targeted fetch (a retry) |
 | No snapshot | Move to `awaitingSnapshot` and mark it dirty |
 | No heads, or heads that fail in any other way | If the base version has reached the manifest's, move to `awaitingSnapshot` and mark it dirty. Otherwise stay, so an upload can't replace a snapshot the doc lacks |
-| Key missing | Stays `awaitingHeads` |
+| Key missing | Stays `awaitingHeads`, and asks the main thread for the key (a retry) |
 | Quarantined | Stays `awaitingHeads`, with recovery |
-| Deleted | Remove the record |
+| Deleted | Remove the record and the pending mark |
 
 Records don't hold back polling or any other item. An `awaitingHeads` item goes through the table again after every manifest sync and keyring update. Until then push skips it, because it would send its whole history, and S1 defers its snapshot. An `awaitingSnapshot` item is exempt from S1 and isn't pushed, and its confirmed snapshot's heads become its server heads.
+
+**Stuck items.** A record keeps the item's pending mark, so an item that never resolves would show as waiting to sync for good. Each try at resolving one is counted on its record and spaced at least `firstStartRetryGap` apart: a targeted fetch, a request for a missing key, or a request for an `awaitingSnapshot` item's own snapshot (moving to `awaitingSnapshot` is its first). The targeted fetches run in `FirstStart.runDue`, after healing in the leader's poll, through `ManifestSyncManager.fetchSnapshots`, which ignores base versions. The item is then resolved straight away, without waiting for the next manifest sync. A fetch error fails the poll (rule 4), and the try still counts. After `FIRST_START_MAX_ATTEMPTS` tries the item is quarantined (`unknown`, or `snapshotFailure` for its own snapshot) and its count reset. Recovery then shows it rather than the pending count, and gets every try again once released. Normal manifest syncs are unchanged: only items holding a record can trigger a fetch, and a redundant fetch is a harmless CRDT merge.
 
 Two devices can upload an `awaitingSnapshot` item at once. S2 can't help, because the loser's changes never reached the log, but S3 does: its next manifest sync merges the winner, finds it has other heads too, and uploads again.
 
