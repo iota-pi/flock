@@ -24,7 +24,9 @@ import { isResourceInUseError } from './dynamoErrors'
 import { getConnectionParams, resolveVaultTableNames, type VaultTableNames } from './config'
 import { getVaultTableDefinitions } from './tables'
 import type { DynamoContext } from './commands'
+import type { FailedLoginRecord } from '../../loginThrottle'
 import * as accountRecords from './accountRecords'
+import * as loginThrottleRecords from './loginThrottleRecords'
 import * as itemRecords from './itemRecords'
 import * as syncLog from './syncLog'
 
@@ -106,8 +108,16 @@ export default class DynamoDriver implements VaultDriver {
     return accountRecords.getAccountRecord(this.context, data)
   }
 
+  async getLoginThrottle(data: BaseData): Promise<FailedLoginRecord> {
+    return loginThrottleRecords.getLoginThrottle(this.context, data)
+  }
+
   async recordFailedLogin(data: BaseData): Promise<void> {
-    return accountRecords.recordFailedLogin(this.context, data)
+    return loginThrottleRecords.recordFailedLogin(this.context, data)
+  }
+
+  async removeLoginDevice(data: BaseData & { device: string }): Promise<void> {
+    return accountRecords.removeLoginDevice(this.context, data)
   }
 
   async updateAccountData<TExtra extends object = Record<never, never>>(
@@ -116,7 +126,7 @@ export default class DynamoDriver implements VaultDriver {
     return accountRecords.updateAccountData<TExtra>(this.context, params)
   }
 
-  async addSession(data: AuthData & { expiry: number }): Promise<void> {
+  async addSession(data: AuthData & { expiry: number, device?: string }): Promise<void> {
     return accountRecords.addSession(this.context, data)
   }
 

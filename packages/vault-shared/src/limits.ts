@@ -41,3 +41,9 @@ export const MAX_FETCH_RESPONSE_CHARS = 4 * 1024 * 1024
  * How many days a row stays in an account's sync log.
  */
 export const SYNC_LOG_TTL_DAYS = 30
+
+/**
+ * Most devices an account remembers as having logged in before (see loginDevices.ts in
+ * @vault/server). Registering another forgets the earliest.
+ */
+export const MAX_LOGIN_DEVICES = 10

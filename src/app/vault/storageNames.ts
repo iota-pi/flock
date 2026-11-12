@@ -5,6 +5,7 @@ export const FLOCK_STORAGE_NAMES: VaultStorageNames = {
   vaultMetadataKey: 'FlockVaultMeta',
   keyringCacheKey: 'FlockKeyringCache',
   biometricDataKey: 'FlockBiometricData',
+  loginDeviceKey: 'FlockLoginDevice',
   vaultEventsChannel: 'flock-vault-events',
   authDatabase: 'FlockVaultDB',
   webAuthnRpName: 'Flock',

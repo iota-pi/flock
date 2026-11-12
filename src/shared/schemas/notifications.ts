@@ -1,7 +1,8 @@
 import { z } from 'zod'
+import { MAX_LOGIN_DEVICES } from '@vault/shared'
 
-/** Most push subscriptions an account keeps. Adding another drops the oldest. */
-export const MAX_PUSH_SUBSCRIPTIONS = 10
+/** Most push subscriptions an account keeps, one per device as with logins. Adding another drops the oldest. */
+export const MAX_PUSH_SUBSCRIPTIONS = MAX_LOGIN_DEVICES
 
 /** Real endpoints are a few hundred characters (WNS's are the longest) */
 const MAX_ENDPOINT_LENGTH = 1024

@@ -62,6 +62,7 @@ if (typeof (globalThis as any).TextDecoder === 'undefined') {
 process.env.ACCOUNTS_TABLE ??= 'FlockAccounts'
 process.env.ITEMS_TABLE ??= 'FlockItems'
 process.env.SYNC_LOG_TABLE ??= 'FlockSyncLog'
+process.env.LOGIN_THROTTLE_TABLE ??= 'FlockLoginThrottle'
 
 import '@automerge/automerge'
 

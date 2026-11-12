@@ -6,6 +6,7 @@ export const FLOCK_TABLES = resolveVaultTableNames({}, {
   accounts: 'FlockAccounts',
   items: 'FlockItems',
   syncLog: 'FlockSyncLog',
+  loginThrottle: 'FlockLoginThrottle',
 })
 
 const FLOCK_ACCOUNT_DEFAULTS: FlockAccountFields & { dataVersion: number } = {

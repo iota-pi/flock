@@ -5,13 +5,14 @@ import { generateAccountId } from '../../util'
 import { AuthenticationError, TooManyLoginAttemptsError } from '../../errors'
 import { FAILED_LOGIN_WINDOW_MS, MAX_FAILED_LOGINS } from '../../loginThrottle'
 import { hashSessionToken, isSessionFor, SESSION_EXPIRY_MS } from '../../sessions'
-import { VersionConflictError } from '@vault/shared'
+import { MAX_LOGIN_DEVICES, VersionConflictError } from '@vault/shared'
+import { loginThrottleKey } from './loginThrottleRecords'
 
 const driver = new DynamoDriver()
 
-async function login(account: string, authTokenHash: string) {
+async function login(account: string, authTokenHash: string, deviceHash?: string) {
   const record = await driver.getAccountRecord({ account })
-  authenticateLogin(record, authTokenHash)
+  authenticateLogin(record, await driver.getLoginThrottle({ account }), { authTokenHash, deviceHash })
   if (!record) {
     throw new Error(`Could not find account ${account}`)
   }
@@ -366,8 +367,8 @@ describe('DynamoDriver conditional account writes', () => {
       for (let i = 0; i < MAX_FAILED_LOGINS; i += 1) {
         await driver.recordFailedLogin({ account })
       }
-      const raw = await driver.client.send(new GetCommand({ TableName: driver.tables.accounts, Key: { account } }))
-      expect(raw.Item?.failedLogins).toBe(MAX_FAILED_LOGINS)
+      await expect(driver.getLoginThrottle({ account }))
+        .resolves.toMatchObject({ failedLogins: MAX_FAILED_LOGINS })
       await expect(login(account, 'token'))
         .rejects.toBeInstanceOf(TooManyLoginAttemptsError)
     })
@@ -376,26 +377,98 @@ describe('DynamoDriver conditional account writes', () => {
       const account = uniqueAccountId()
       await driver.createAccount({ account, authToken: 'token', salt: 'salt', iterations: 1000 })
       await driver.client.send(new UpdateCommand({
-        TableName: driver.tables.accounts,
-        Key: { account },
+        TableName: driver.tables.loginThrottle,
+        Key: { key: loginThrottleKey(account) },
         UpdateExpression: 'SET failedLogins = :count, failedLoginsSince = :since',
         ExpressionAttributeValues: { ':count': MAX_FAILED_LOGINS, ':since': Date.now() - FAILED_LOGIN_WINDOW_MS - 1000 },
       }))
 
       await driver.recordFailedLogin({ account })
 
-      const raw = await driver.client.send(new GetCommand({ TableName: driver.tables.accounts, Key: { account } }))
-      expect(raw.Item?.failedLogins).toBe(1)
+      await expect(driver.getLoginThrottle({ account })).resolves.toMatchObject({ failedLogins: 1 })
       await expect(login(account, 'token'))
         .resolves.toMatchObject({ account })
     })
 
-    it('does not create an item for an account that does not exist', async () => {
+    it('counts and locks an ID with no account, without creating an account', async () => {
       const account = uniqueAccountId()
-      await driver.recordFailedLogin({ account })
+      for (let i = 0; i < MAX_FAILED_LOGINS; i += 1) {
+        await driver.recordFailedLogin({ account })
+      }
 
+      await expect(login(account, 'token'))
+        .rejects.toBeInstanceOf(TooManyLoginAttemptsError)
       const raw = await driver.client.send(new GetCommand({ TableName: driver.tables.accounts, Key: { account } }))
       expect(raw.Item).toBeUndefined()
+      const throttle = await driver.client.send(new GetCommand({
+        TableName: driver.tables.loginThrottle,
+        Key: { key: loginThrottleKey(account) },
+      }))
+      expect(throttle.Item).not.toHaveProperty('account')
+      expect(throttle.Item?.expiresAt).toBeGreaterThan(Date.now() / 1000)
+      expect(throttle.Item?.expiresAt).toBeLessThanOrEqual(Math.ceil((Date.now() + FAILED_LOGIN_WINDOW_MS) / 1000))
+    })
+  })
+
+  describe('Login devices', () => {
+    async function readDevices(account: string) {
+      const raw = await driver.client.send(new GetCommand({ TableName: driver.tables.accounts, Key: { account } }))
+      return raw.Item?.loginDevices as string[] | undefined
+    }
+
+    it('adds a device with a session once, at the end of the list', async () => {
+      const account = uniqueAccountId()
+      await driver.createAccount({ account, authToken: 'token', salt: 'salt', iterations: 1000 })
+
+      await driver.addSession({ account, session: 'session-A', expiry: Date.now() + 60_000, device: 'device-A' })
+      await driver.addSession({ account, session: 'session-B', expiry: Date.now() + 60_000, device: 'device-B' })
+      await driver.addSession({ account, session: 'session-C', expiry: Date.now() + 60_000, device: 'device-A' })
+      await driver.addSession({ account, session: 'session-D', expiry: Date.now() + 60_000 })
+
+      expect(await readDevices(account)).toEqual(['device-A', 'device-B'])
+      await expect(getWithSession(account, 'session-D')).resolves.toMatchObject({ account })
+    })
+
+    it('forgets the earliest device beyond the limit', async () => {
+      const account = uniqueAccountId()
+      await driver.createAccount({ account, authToken: 'token', salt: 'salt', iterations: 1000 })
+
+      for (let i = 0; i <= MAX_LOGIN_DEVICES; i += 1) {
+        await driver.addSession({ account, session: `session-${i}`, expiry: Date.now() + 60_000, device: `device-${i}` })
+      }
+
+      const devices = await readDevices(account)
+      expect(devices).toHaveLength(MAX_LOGIN_DEVICES)
+      expect(devices?.[0]).toBe('device-1')
+      expect(devices?.at(-1)).toBe(`device-${MAX_LOGIN_DEVICES}`)
+    })
+
+    it('keeps every device when logins add them concurrently', async () => {
+      const account = uniqueAccountId()
+      await driver.createAccount({ account, authToken: 'token', salt: 'salt', iterations: 1000 })
+
+      await Promise.all(['A', 'B', 'C'].map(name => (
+        driver.addSession({ account, session: `session-${name}`, expiry: Date.now() + 60_000, device: `device-${name}` })
+      )))
+
+      expect([...(await readDevices(account) ?? [])].sort()).toEqual(['device-A', 'device-B', 'device-C'])
+    })
+
+    it('lets a login device through a lock and removes one it is told to forget', async () => {
+      const account = uniqueAccountId()
+      await driver.createAccount({ account, authToken: 'token', salt: 'salt', iterations: 1000 })
+      await driver.addSession({ account, session: 'session-A', expiry: Date.now() + 60_000, device: 'device-A' })
+      for (let i = 0; i < MAX_FAILED_LOGINS; i += 1) {
+        await driver.recordFailedLogin({ account })
+      }
+
+      await expect(login(account, 'token', 'device-A')).resolves.toMatchObject({ account })
+      await expect(login(account, 'token', 'device-B')).rejects.toBeInstanceOf(TooManyLoginAttemptsError)
+
+      await driver.removeLoginDevice({ account, device: 'device-A' })
+      expect(await readDevices(account)).toEqual([])
+      await expect(login(account, 'token', 'device-A')).rejects.toBeInstanceOf(TooManyLoginAttemptsError)
+      await expect(getWithSession(account, 'session-A')).resolves.toMatchObject({ account })
     })
   })
 

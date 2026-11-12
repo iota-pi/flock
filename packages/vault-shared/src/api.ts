@@ -20,9 +20,17 @@ export const AccountCreationResponseSchema = z.object({
   account: z.string(),
 })
 
+/** A device token is 32 random bytes as base64url (43 characters) */
+export const DEVICE_TOKEN_LENGTH = 43
+
 export const LoginBodySchema = z.object({
   account: z.string().min(1),
   authToken: z.string().min(1),
+  /**
+   * A random secret this device sends with every login. A device whose token the account has seen
+   * with the right password can log in while the account is locked by failed logins.
+   */
+  deviceToken: z.string().length(DEVICE_TOKEN_LENGTH).optional(),
 })
 
 export const AccountInputSchema = z.looseObject({

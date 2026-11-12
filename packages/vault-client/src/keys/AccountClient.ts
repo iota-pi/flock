@@ -60,10 +60,11 @@ export async function raiseDataVersion(account: string): Promise<{
   }
 }
 
-export async function getSession(account: string, authToken: string): Promise<string> {
+export async function getSession(account: string, authToken: string, deviceToken?: string): Promise<string> {
   const response = await getVaultTrpcClient().accounts.login.mutate({
     account,
     authToken,
+    ...(deviceToken === undefined ? {} : { deviceToken }),
   })
   assertSuccess(response, 'getSession')
   if (!response.session) {

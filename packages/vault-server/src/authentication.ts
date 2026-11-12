@@ -1,6 +1,7 @@
 import type { StoredAccount, VaultAccountWithAuth } from './drivers/vaultDriver'
 import { AuthenticationError, ExpiredSessionError, TooManyLoginAttemptsError } from './errors'
-import { isLoginLocked } from './loginThrottle'
+import { isLoginDevice } from './loginDevices'
+import { isLoginLocked, type FailedLoginRecord } from './loginThrottle'
 import { isSessionFor, normalizeSessionRecords } from './sessions'
 import { safeEqual } from './util'
 
@@ -9,23 +10,39 @@ export function matchesAuthTokenHash(record: Pick<StoredAccount, 'authToken'>, a
   return safeEqual(authTokenHash, record.authToken)
 }
 
+export interface LoginAttempt {
+  /** The hash of the auth token the client sent */
+  authTokenHash: string
+  /** The hash of the device token the client sent, if it sent one (see loginDevices.ts) */
+  deviceHash?: string
+}
+
 /**
- * Checks a login against the stored account record. `authTokenHash` is the hash of the auth token
- * the client sent. Returns normally when the login is valid. Throws `TooManyLoginAttemptsError`
- * while the account is locked, and `AuthenticationError` when the account doesn't exist or the hash
- * doesn't match.
+ * Checks a login against the stored account record and the failed logins counted against its ID.
+ * Returns normally when the login is valid. Throws `TooManyLoginAttemptsError` while the ID is
+ * locked, and `AuthenticationError` when the account doesn't exist or the hash doesn't match.
+ *
+ * A locked ID refuses every login, whatever the password and whether or not the account exists, so
+ * that guessers learn nothing from it: neither the password nor that the account is real. The one
+ * exception is the right password from one of the account's login devices, which an attacker
+ * locking the account can't produce.
  */
 export function authenticateLogin(
   record: StoredAccount | undefined,
-  authTokenHash: string,
+  throttle: FailedLoginRecord,
+  { authTokenHash, deviceHash }: LoginAttempt,
   now = Date.now(),
 ): void {
+  if (isLoginLocked(throttle, now)) {
+    const fromLoginDevice = record !== undefined
+      && matchesAuthTokenHash(record, authTokenHash)
+      && isLoginDevice(record, deviceHash)
+    if (!fromLoginDevice) {
+      throw new TooManyLoginAttemptsError('Too many failed logins for this account ID')
+    }
+  }
   if (!record) {
     throw new AuthenticationError('Could not find account')
-  }
-  // Checked first, so that a locked account gives guessers no answer
-  if (isLoginLocked(record, now)) {
-    throw new TooManyLoginAttemptsError(`Too many failed logins for account ${record.account}`)
   }
   if (!matchesAuthTokenHash(record, authTokenHash)) {
     // Give same error as if account not found to avoid leaking account ids

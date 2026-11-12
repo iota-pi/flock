@@ -152,6 +152,11 @@ describe('AccountClient', () => {
     })
 
     await expect(getSession('acc-1', 'auth-1')).resolves.toBe('sess-1')
+    expect(getVaultTrpcClient().accounts.login.mutate).toHaveBeenLastCalledWith({ account: 'acc-1', authToken: 'auth-1' })
+
+    await getSession('acc-1', 'auth-1', 'device-token')
+    expect(getVaultTrpcClient().accounts.login.mutate)
+      .toHaveBeenLastCalledWith({ account: 'acc-1', authToken: 'auth-1', deviceToken: 'device-token' })
   })
 
   it('throws when login response is missing a session', async () => {

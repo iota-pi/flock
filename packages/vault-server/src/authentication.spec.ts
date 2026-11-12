@@ -10,20 +10,43 @@ function storedAccount(fields: Record<string, unknown> = {}) {
 }
 
 describe('authenticateLogin', () => {
+  const unlocked = {}
+  const locked = { failedLogins: MAX_FAILED_LOGINS, failedLoginsSince: now - 1000 }
+  const withDevice = storedAccount({ loginDevices: ['other-device', 'device-hash'] })
+
   it('accepts the stored auth token hash', () => {
-    expect(() => authenticateLogin(storedAccount(), 'stored-hash', now)).not.toThrow()
+    expect(() => authenticateLogin(storedAccount(), unlocked, { authTokenHash: 'stored-hash' }, now)).not.toThrow()
   })
 
   it('rejects a wrong hash, an empty one and a missing account alike', () => {
-    expect(() => authenticateLogin(storedAccount(), 'wrong-hash', now)).toThrow(AuthenticationError)
-    expect(() => authenticateLogin(storedAccount(), '', now)).toThrow(AuthenticationError)
-    expect(() => authenticateLogin(undefined, 'stored-hash', now)).toThrow(AuthenticationError)
+    expect(() => authenticateLogin(storedAccount(), unlocked, { authTokenHash: 'wrong-hash' }, now)).toThrow(AuthenticationError)
+    expect(() => authenticateLogin(storedAccount(), unlocked, { authTokenHash: '' }, now)).toThrow(AuthenticationError)
+    expect(() => authenticateLogin(undefined, unlocked, { authTokenHash: 'stored-hash' }, now)).toThrow(AuthenticationError)
   })
 
-  it('refuses a locked account before checking the hash', () => {
-    const locked = storedAccount({ failedLogins: MAX_FAILED_LOGINS, failedLoginsSince: now - 1000 })
-    expect(() => authenticateLogin(locked, 'stored-hash', now)).toThrow(TooManyLoginAttemptsError)
-    expect(() => authenticateLogin(locked, 'wrong-hash', now)).toThrow(TooManyLoginAttemptsError)
+  it('refuses a locked ID whatever the hash, and whether or not the account exists', () => {
+    expect(() => authenticateLogin(storedAccount(), locked, { authTokenHash: 'stored-hash' }, now)).toThrow(TooManyLoginAttemptsError)
+    expect(() => authenticateLogin(storedAccount(), locked, { authTokenHash: 'wrong-hash' }, now)).toThrow(TooManyLoginAttemptsError)
+    expect(() => authenticateLogin(undefined, locked, { authTokenHash: 'stored-hash' }, now)).toThrow(TooManyLoginAttemptsError)
+  })
+
+  it('lets a login device with the right hash through a lock', () => {
+    expect(() => authenticateLogin(withDevice, locked, { authTokenHash: 'stored-hash', deviceHash: 'device-hash' }, now))
+      .not.toThrow()
+  })
+
+  it('refuses a login device with the wrong hash, and an unknown device with the right one, while locked', () => {
+    expect(() => authenticateLogin(withDevice, locked, { authTokenHash: 'wrong-hash', deviceHash: 'device-hash' }, now))
+      .toThrow(TooManyLoginAttemptsError)
+    expect(() => authenticateLogin(withDevice, locked, { authTokenHash: 'stored-hash', deviceHash: 'new-device' }, now))
+      .toThrow(TooManyLoginAttemptsError)
+    expect(() => authenticateLogin(withDevice, locked, { authTokenHash: 'stored-hash' }, now))
+      .toThrow(TooManyLoginAttemptsError)
+  })
+
+  it('rejects a login device with the wrong hash when not locked', () => {
+    expect(() => authenticateLogin(withDevice, unlocked, { authTokenHash: 'wrong-hash', deviceHash: 'device-hash' }, now))
+      .toThrow(AuthenticationError)
   })
 })
 
