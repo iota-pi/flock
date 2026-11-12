@@ -69,7 +69,7 @@ export default $config({
       },
     });
     // Nothing reads or writes this since the sync log replaced it. It stays for repairs until its
-    // rows expire (docs/sync-log-plan.md), and no function links to it.
+    // rows expire (see "First start" in docs/sync-design.md), and no function links to it.
     new sst.aws.Dynamo("FlockSyncMessages", {
       fields: {
         syncId: "string",
@@ -126,7 +126,6 @@ export default $config({
         ITEMS_TABLE: itemsTable.name,
         SYNC_LOG_TABLE: syncLogTable.name,
         SENTRY_DSN: deployment?.sentryDsn ?? "",
-        UNKNOWN_ACCOUNT_SECRET: unknownAccountSecret.value,
       },
       link: [accountsTable, itemsTable, syncLogTable, unknownAccountSecret],
     });
@@ -167,9 +166,6 @@ export default $config({
       timeout: "60 seconds",
       environment: {
         ACCOUNTS_TABLE: accountsTable.name,
-        VAPID_SUBJECT: vapidSubject.value,
-        VAPID_PUBLIC_KEY: vapidPublicKey.value,
-        VAPID_PRIVATE_KEY: vapidPrivateKey.value,
       },
       link: [accountsTable, vapidSubject, vapidPublicKey, vapidPrivateKey],
     }, {

@@ -1,11 +1,11 @@
 import Fastify from 'fastify'
-import cookie from '@fastify/cookie'
 import cors from '@fastify/cors'
 import * as Sentry from '@sentry/node'
 import { TRPCError } from '@trpc/server'
 import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import { createFlockDriver } from '../flockDriver'
 import { flockDataVersionPolicy } from '../flockDataVersion'
+import { readSecret } from '../secrets'
 import { appRouter } from '../trpc/root'
 import { createVaultContext, type UnknownAccountParams } from '@vault/server'
 import { CLIENT_OUTDATED_MESSAGE, CURRENT_SALT_VERSION, getDefaultKdf, PROTOCOL_VERSION_HEADER } from '@vault/shared'
@@ -20,7 +20,7 @@ import { CLIENT_OUTDATED_MESSAGE, CURRENT_SALT_VERSION, getDefaultKdf, PROTOCOL_
  *   they stop re-creating the plaintext stores that sealed builds retire.
  * - At 4, keyring uploads must prove the master key (`currentAuthToken`). Builds that don't send it
  *   update instead of failing a key rotation.
- * - At 5, sync moves to the log (docs/sync-log-plan.md). Builds that still push sync messages update,
+ * - At 5, sync moves to the log (docs/sync-design.md). Builds that still push sync messages update,
  *   and `sync.pollSync` stays only to tell them to.
  */
 export const MIN_PROTOCOL_VERSION = 5
@@ -35,7 +35,7 @@ const DEV_UNKNOWN_ACCOUNT_SECRET = 'flock-local-unknown-account-secret'
  * would change between requests.
  */
 export function getUnknownAccountParams(devMode: boolean): UnknownAccountParams | undefined {
-  const secret = process.env.UNKNOWN_ACCOUNT_SECRET || (devMode ? DEV_UNKNOWN_ACCOUNT_SECRET : undefined)
+  const secret = readSecret('UNKNOWN_ACCOUNT_SECRET') || (devMode ? DEV_UNKNOWN_ACCOUNT_SECRET : undefined)
   if (!secret) {
     console.error('UNKNOWN_ACCOUNT_SECRET is not set, so getSecurityParams reports unknown accounts as NOT_FOUND')
     return undefined
@@ -50,10 +50,9 @@ async function createServer(devMode = false) {
     },
     bodyLimit: 10 * 1024 * 1024,
   })
-  await server.register(cookie)
   await server.register(cors, {
     origin: [
-      /^https?:\/\/flock(-[^.]+)?\.cross-code\.org$/,
+      /^https:\/\/flock(-[^.]+)?\.cross-code\.org$/,
       /^https?:\/\/localhost(:[0-9]+)?$/,
     ],
     methods: ['GET', 'PATCH', 'POST', 'PUT', 'DELETE', 'OPTIONS'],

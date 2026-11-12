@@ -123,6 +123,27 @@ export class SyncLogDatabase {
     })
   }
 
+  /**
+   * Replaces the record at each key with what `update` makes of the current one, in one transaction.
+   * `update` gets undefined for a key with no record, and returning undefined leaves the key as it is.
+   */
+  async update<T extends object>(
+    store: SyncLogStoreName,
+    keys: IDBValidKey[],
+    update: (current: T | undefined, key: IDBValidKey) => T | undefined,
+  ): Promise<void> {
+    if (keys.length === 0) return
+    await this.transact(store, 'readwrite', objectStore => {
+      for (const key of keys) {
+        const current = objectStore.get(key) as IDBRequest<T | undefined>
+        current.onsuccess = () => {
+          const next = update(current.result, key)
+          if (next !== undefined) objectStore.put(next)
+        }
+      }
+    })
+  }
+
   /** Deletes the record at `key` if `matches` accepts it, in one transaction */
   async deleteIf<T>(store: SyncLogStoreName, key: IDBValidKey, matches: (record: T) => boolean): Promise<void> {
     await this.transact(store, 'readwrite', objectStore => {

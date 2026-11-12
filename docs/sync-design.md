@@ -22,7 +22,7 @@ Each account has one strictly ordered log, the `FlockSyncLog` table, keyed by `a
 
 ### Server
 
-- **Rows are contiguous.** Every committed push uses exactly the next seqs, and a failed push uses none. One `TransactWriteItems` updates the head row (`seq: 0`, with the condition `head = :expected`) and puts each message, so a transaction for seqs `e+1…` can commit only after the one for `…e`. The head row isn't on the `FlockAccounts` record, because `extendSession` writes that on every request, and a write to an item in a running transaction fails.
+- **Rows are contiguous.** Every committed push uses exactly the next seqs, and a failed push uses none. One `TransactWriteItems` updates the head row (`seq: 0`, with the condition `head = :expected`) and puts each message, so a transaction for seqs `e+1…` can commit only after the one for `…e`. The head row isn't on the `FlockAccounts` record, because `extendSession` writes that on every request, and a write to an item in a running transaction fails. All of an account's appends serialise on the head row, which is fine for one user's devices; a shared account would need a sub-log per device.
 - **Reads are consistent `Query`s on the base table,** strictly `seq > after`, with no GSI, page token or lookback. DynamoDB documents `Query` as read-committed, which may show some rows of a multi-row transaction and not others. Contiguity makes that harmless, because the client never moves past a missing seq it might still see.
 - **A row's `encryptedMessage` is a run of Automerge change chunks** encrypted with the item's ID. There's only one kind of row, and an item's change set can span several rows, in dependency order.
 - **Rows expire after `SYNC_LOG_TTL_DAYS` (30).** Snapshots are the lasting copy (see "Snapshot coverage").
@@ -33,7 +33,7 @@ Each account has one strictly ordered log, the `FlockSyncLog` table, keyed by `a
 There's no write-ahead log and no sync protocol against a pretend peer. The doc is the only copy of a change, so nothing can be pruned, compacted or stuck in flight.
 
 - **Server heads** (`ServerHeads`, stored by `SyncedHeadsStore`) are heads whose every ancestor is on the server, in the log or in the item's current snapshot. They must be heads the doc has: `getChangesSince` returns the whole history, without throwing, for heads it lacks.
-- **A pending mark** (`ChangeOutbox`) says an item may have changes after its server heads. It's a hint, and a false one costs an empty check. Each item has its own record, `{ itemId, tick }`, in the sync log database, so tabs never race on a shared value, and followers write marks too, so an edit survives a leader that crashes before pushing. A mark clears only if its tick is still the one the push read, in one IndexedDB transaction.
+- **A pending mark** (`ChangeOutbox`) says an item may have changes after its server heads. It's a hint, and a false one costs an empty check. Each item has its own record, `{ itemId, tick, createdAt, blocked? }`, in the sync log database, so tabs never race on a shared value, and followers write marks too, so an edit survives a leader that crashes before pushing. A mark clears only if its tick is still the one the push read, in one IndexedDB transaction. A new mark keeps the old one's `createdAt` (when the item first had changes waiting), so a stuck item's age shows however often it's edited. When the leader's push skips an item for a reason only it knows (`snapshotOnly`, or `unloadable` for a doc that won't load), it records that as `blocked` on the mark, so every tab can count it.
 - **A change from a follower can reach the leader after its mark is cleared:** the leader pushes, finds nothing and clears the mark, and only then does the doc change arrive. So the leader checks every doc change (`ChangeOutbox.onDocChanged`) and marks whatever it finds unpushed.
 - **Push** (`ChangeOutbox.pushItems`, leader only) reads `getChangesSince(doc, serverHeads)` under the item lock, groups the changes in order into rows of at most `MAX_INCREMENTAL_MESSAGE_BYTES`, and encrypts each row. Once the server has acknowledged every row of an item, its server heads become the heads the changes were read at, and its mark clears if its tick hasn't moved. Those are always heads the doc had at one moment, so they stay a frontier. A lost acknowledgement or a partial failure resends the same changes, which Automerge ignores as duplicates.
 - **One exchange at a time.** Pushes come from polls, snapshot uploads and rewrites, and each `pollLog` also reads the log, so `SyncPoller.exchange` runs them one by one. An acknowledgement is recorded before the entries that came with it are applied, so that a pull sees the item as no longer pending.
@@ -107,22 +107,29 @@ The log started empty at the cut, and nothing was copied from `FlockSyncMessages
 | Manifest entry | Result |
 |---|---|
 | Heads decrypt, and the doc has them | Set server heads to them and remove the record |
-| Heads decrypt, but the doc lacks them | Stays `awaitingHeads`: the snapshot hasn't merged yet |
+| Heads decrypt, but the doc lacks them (or won't load) | Stays `awaitingHeads`: the snapshot hasn't merged yet. If the base version has already reached the manifest's, manifest sync will never fetch it, so it's queued for a targeted fetch (a retry) |
 | No snapshot | Move to `awaitingSnapshot` and mark it dirty |
 | No heads, or heads that fail in any other way | If the base version has reached the manifest's, move to `awaitingSnapshot` and mark it dirty. Otherwise stay, so an upload can't replace a snapshot the doc lacks |
-| Key missing | Stays `awaitingHeads` |
+| Key missing | Stays `awaitingHeads`, and asks the main thread for the key (a retry) |
 | Quarantined | Stays `awaitingHeads`, with recovery |
-| Deleted | Remove the record |
+| Deleted | Remove the record and the pending mark |
 
 Records don't hold back polling or any other item. An `awaitingHeads` item goes through the table again after every manifest sync and keyring update. Until then push skips it, because it would send its whole history, and S1 defers its snapshot. An `awaitingSnapshot` item is exempt from S1 and isn't pushed, and its confirmed snapshot's heads become its server heads.
 
+**Stuck items.** A record keeps the item's pending mark, so an item that never resolves would show as waiting to sync for good. Each try at resolving one is counted on its record and spaced at least `firstStartRetryGap` apart: a targeted fetch, a request for a missing key, or a request for an `awaitingSnapshot` item's own snapshot (moving to `awaitingSnapshot` is its first). The targeted fetches run in `FirstStart.runDue`, after healing in the leader's poll, through `ManifestSyncManager.fetchSnapshots`, which ignores base versions. The item is then resolved straight away, without waiting for the next manifest sync. A fetch error fails the poll (rule 4), and the try still counts. After `FIRST_START_MAX_ATTEMPTS` tries the item is quarantined (`unknown`, or `snapshotFailure` for its own snapshot) and its count reset. Recovery then shows it rather than the pending count, and gets every try again once released. Normal manifest syncs are unchanged: only items holding a record can trigger a fetch, and a redundant fetch is a harmless CRDT merge.
+
 Two devices can upload an `awaitingSnapshot` item at once. S2 can't help, because the loser's changes never reached the log, but S3 does: its next manifest sync merges the winner, finds it has other heads too, and uploads again.
+
+- **The WAL wasn't migrated.** Nothing replays it, because each device's doc nearly always holds the same changes. A change that only reached the WAL (a tab killed straight after an edit, or a doc save that failed on full storage) was dropped at the cut: the one accepted exception to never resetting local data without the user confirming.
+- **Removing first start.** Its code stays until no device can still be on a pre-log build, and goes only with a later `MIN_PROTOCOL_VERSION` bump once every device has run it: a device that skipped it would trust old server heads.
+- **`FlockSyncMessages`** (the table the log replaced) is neither read nor written. It stays for repairs until its rows expire (90 days after the cut on 2026-11-05), and can then come out of `sst.config.ts`.
 
 ## Snapshot sync
 
 - `SnapshotManager` debounces dirty items (30s default, 5 min max wait) and uploads encrypted full Automerge binaries. Failures back off at 2s → 5s → 10s → 30s → 60s. After `MAX_CONSECUTIVE_SNAPSHOT_FAILURES` (5, `SnapshotPusher`), the item is dropped from the dirty queue.
 - When offline, the orchestrator stops polling and `SnapshotManager` halts retries. On reconnect, backoff resets and a poll runs immediately.
 - **The sync indicator counts pending marks only** (`countUnpushedChanges`). A dirty item's changes are already in the log, so showing it would report edits as waiting for the whole debounce. `getUnsyncedChanges`, for removing an account or exporting a backup, counts dirty items too: a device that hydrates after the TTL has only snapshots to go on.
+- **Stuck items.** Marks older than `stuckPendingAge` (a day) are reported as `stuckItems` by reason: the item's first-start state, else the mark's `blocked`, else `unknown`. The indicator shows them as delayed, with what holds each up, rather than as syncing shortly.
 - **Poll cadence follows visibility.** The leader polls every 30s while any of the account's tabs on the device is visible, and every `hiddenPollInterval` (5 min) while none is. Failure backoff overrides both, and local edits still flush at once. When the user comes back to a tab (it becomes visible or gets focus), `SyncOrchestrator.onForeground` polls now and resets backoff, unless a poll is running or one finished in the last `foregroundPollMinGap` (10s). There's no server push: Web Push would show a notification for every nudge.
 
 ### Monotonic versions (no clock-based reconciliation)
@@ -139,7 +146,7 @@ Two devices can upload an `awaitingSnapshot` item at once. S2 can't help, becaus
 | Quarantined, V_server ≤ max(V_failed, V_base) | Skip (unless forced) |
 | Quarantined, V_server > max(V_failed, V_base) | Fetch the snapshot to retry recovery |
 
-Physical timestamps (`localModifiedAt`, `serverTime`, `SKEW_BUFFER_MS`) remain only as a legacy fallback for records that have no version.
+Timestamps (`localModifiedAt`, `modifiedAt`) only track tombstones and quarantines; no decision compares clocks.
 
 V_base advances only when this device pushes or hydrates a snapshot, not when the log delivers the same changes. So every item edited on another device looks stale, whether or not this device missed anything. **Heads in the manifest** keep that cheap:
 
@@ -242,14 +249,14 @@ Cross-tab sync is an ephemeral optimisation. IndexedDB and the server remain the
 - Sync log database (`syncLogDatabase` + account), which `SyncLogDatabase` opens directly rather than through localforage: pending marks, parked entries, first-start records, S2 rechecks and S3 records. None of it needs a seal: it holds IDs, heads and counters, and parked entries hold the server's ciphertext.
 - A WAL left by an older build, in its own databases, until first start clears it. Nothing reads it.
 - Sync metadata: one database per account, `flock-sync-metadata-${accountId}` in Flock (store `sync-metadata`), opened once via `getSyncMetadataStorage(accountId)`. Its keys are `logCursor`, `logLastPullAt`, `indexDoc` or `indexDocSealed`, `lastModified` (including `baseVersion`), `syncedHeads`, `snapshotsDocBound`, `deviceDataVersion`, `firstStartReset`, `firstStartSynced` and `walCleared`. The stores only read the current layout.
-- Sealed storage (`upgradeLocalEncryption`, docs/local-encryption.md Part 2): user content is sealed with a per-device storage key (DSK), wrapped with a data key and kept in the sealed Automerge database's `meta` store (`dsk`, plus `upgradedAt`).
+- Sealed storage (`upgradeLocalEncryption`, Part 2 of [local-encryption.md](local-encryption.md)): user content is sealed with a per-device storage key (DSK), wrapped with a data key and kept in the sealed Automerge database's `meta` store (`dsk`, plus `upgradedAt`).
   - **What's sealed:** Automerge chunks go to the sealed Automerge database (`sealedAutomergeDatabase`) as `{ key, v, iv, ct }`. The index is sealed under `indexDocSealed`.
   - **What stays readable:** storage keys, the sync log database and the other metadata keys hold no user content.
   - **Associated data:** each record is bound to its account, store and position, so a record moved anywhere else fails to open.
   - **`openLocalStorage`** picks sealed or plaintext storage under the `localDataMigrationLock`, after the `migrateLocalData` hook and before the Repo exists. It copies any plaintext data across and retires the plaintext stores once no other engine holds the account's sync locks.
   - **Decrypt failures:** a record that fails to decrypt is never treated as missing. The document is quarantined as `localDecryption`, and if the DSK itself can't be opened, sync stops and the app is asked (`onLocalDataUnavailable`). Nothing is ever reset automatically.
 - Older layouts: the worker config's `migrateLocalData(accountId)` hook runs at the start of `SyncWorkerContext.initialize()`, before any store is read, under the `localDataMigrationLock` Web Lock so tabs take turns. A failure fails initialization, because starting would create an empty index that a later migration would keep over the old one. Flock passes this hook only in its migration app (`src/migrate/legacy/localData.ts`). It imports Flock's per-store databases, the consolidated store's earlier keys and old value shapes, and deduplicates manual recovery entries (its own `manualRecoveryMigrated` key).
-- Data levels: with `minDataVersion` set, `initialize()` first checks `deviceDataVersion`. Below the minimum, a device with an index, or with data the app's `hasLegacyLocalData` hook finds, doesn't start: the worker emits `migrationRequired` instead. This check has to come first, because starting records the current level for a device with no index. Likewise, a server row without a snapshot, when the app has no `decodeLegacyItem` hook, is skipped rather than quarantined and reported as `migrationRequired` (see "Backwards compatibility" in `docs/vault-extraction.md`).
+- Data levels: with `minDataVersion` set, `initialize()` first checks `deviceDataVersion`. Below the minimum, a device with an index, or with data the app's `hasLegacyLocalData` hook finds, doesn't start: the worker emits `migrationRequired` instead. This check has to come first, because starting records the current level for a device with no index. Likewise, a server row without a snapshot, when the app has no `decodeLegacyItem` hook, is skipped rather than quarantined and reported as `migrationRequired` (see "Backwards compatibility" in [vault-extraction.md](vault-extraction.md)).
 - All storage names come from `VaultStorageNames` (`packages/vault-client/src/shared/storageNames.ts`). Renaming one orphans the data stored under the old name.
 - Logout or reset: `clearAccountLocalData` → `clearSyncMetadataStorage` drops the whole metadata database. The store-level `.clear()` only clears its own key.
 

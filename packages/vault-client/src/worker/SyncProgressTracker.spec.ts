@@ -1,15 +1,15 @@
 import { SyncProgressTracker } from './SyncProgressTracker'
 import { ClientEventHub } from './SyncEventHub'
 import type { LastSyncedStore } from './stores/LastSyncedStore'
-import type { SyncProgress, UnsyncedChanges } from '../shared/types'
+import type { SyncProgress, UnpushedChanges } from '../shared/types'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 
 describe('SyncProgressTracker', () => {
   let eventHub: ClientEventHub
   let stored: number | null
   let store: LastSyncedStore
-  let changes: UnsyncedChanges
-  let countUnpushedChanges: ReturnType<typeof vi.fn<() => Promise<UnsyncedChanges>>>
+  let changes: UnpushedChanges
+  let countUnpushedChanges: ReturnType<typeof vi.fn<() => Promise<UnpushedChanges>>>
   let now: number
   let emitted: SyncProgress[]
   let tracker: SyncProgressTracker
@@ -75,6 +75,18 @@ describe('SyncProgressTracker', () => {
 
     expect(store.save).not.toHaveBeenCalled()
     expect(emitted.at(-1)).toEqual({ pendingItems: 3, quarantinedItems: 0, lastSyncedAt: 500 })
+  })
+
+  it('emits when the stuck items change, even when the totals stay the same', async () => {
+    changes = { pendingItems: 2, quarantinedItems: 0 }
+    await tracker.start()
+    await settle()
+
+    changes = { pendingItems: 2, quarantinedItems: 0, stuckItems: { awaitingHeads: 1 } }
+    tracker.scheduleRecount()
+    await settle()
+
+    expect(emitted.at(-1)).toEqual({ pendingItems: 2, quarantinedItems: 0, stuckItems: { awaitingHeads: 1 }, lastSyncedAt: null })
   })
 
   it('recounts after events that may change the counts, debounced', async () => {

@@ -11,6 +11,7 @@ import { MigrationRequiredError } from './DataVersionTracker'
 import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
 import { AbortError } from '../utils/abort'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
+import type { FirstStartState } from './FirstStart'
 import { LocalCipher, LocalKeyUnavailableError } from './localEncryption/LocalCipher'
 import { toDocumentIdFromItemId } from './utils/automerge'
 import { DSK_KEY } from './localEncryption/openLocalStorage'
@@ -104,6 +105,7 @@ beforeEach(() => {
       get = vi.fn().mockResolvedValue(undefined)
       getAll = vi.fn().mockResolvedValue([])
       put = vi.fn().mockResolvedValue(undefined)
+      update = vi.fn().mockResolvedValue(undefined)
       delete = vi.fn().mockResolvedValue(undefined)
       deleteIf = vi.fn().mockResolvedValue(undefined)
       close = vi.fn().mockResolvedValue(undefined)
@@ -394,8 +396,21 @@ describe('SyncWorkerContext', () => {
   })
 
   describe('getUnsyncedChanges', () => {
-    function stubPending(options: { marked?: string[], dirty?: string[], quarantined?: string[] }) {
-      vi.spyOn(context.services.changeOutbox, 'listPending').mockResolvedValue((options.marked ?? []) as ItemId[])
+    function stubPending(options: {
+      marked?: string[]
+      dirty?: string[]
+      quarantined?: string[]
+      markedAt?: number
+      firstStart?: Array<[string, FirstStartState]>
+    }) {
+      const marked = (options.marked ?? []) as ItemId[]
+      vi.spyOn(context.services.changeOutbox, 'listPending').mockResolvedValue(marked)
+      vi.spyOn(context.services.changeOutbox, 'listMarks').mockResolvedValue(
+        marked.map(itemId => ({ itemId, tick: 1, createdAt: options.markedAt ?? Date.now() })),
+      )
+      vi.spyOn(context.services.firstStart, 'readStates').mockResolvedValue(
+        new Map((options.firstStart ?? []) as Array<[ItemId, FirstStartState]>),
+      )
       vi.spyOn(context.services.snapshotManager.tracker, 'getDirtyItemIds').mockReturnValue((options.dirty ?? []) as ItemId[])
       vi.spyOn(context.services.recoveryManager, 'listRecoveryItems').mockResolvedValue(
         (options.quarantined ?? []).map(itemId => ({
@@ -434,6 +449,21 @@ describe('SyncWorkerContext', () => {
       })
 
       expect(await context.countUnpushedChanges()).toEqual({ pendingItems: 1, quarantinedItems: 1 })
+    })
+
+    it('counts the unpushed items that have waited too long, by what holds them up', async () => {
+      stubPending({
+        marked: ['item-1', 'item-2', 'item-3'],
+        quarantined: ['item-3'],
+        markedAt: Date.now() - SYNC_TIMEOUTS.stuckPendingAge,
+        firstStart: [['item-1', 'awaitingHeads']],
+      })
+
+      expect(await context.countUnpushedChanges()).toEqual({
+        pendingItems: 2,
+        quarantinedItems: 1,
+        stuckItems: { awaitingHeads: 1, unknown: 1 },
+      })
     })
 
     it('still counts when the snapshot push fails', async () => {

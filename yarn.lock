@@ -2349,16 +2349,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@fastify/cookie@npm:^11.1.5":
-  version: 11.1.5
-  resolution: "@fastify/cookie@npm:11.1.5"
-  dependencies:
-    cookie: "npm:^2.0.0"
-    fastify-plugin: "npm:^6.0.0"
-  checksum: 10c0/91f177b7af04f0cf292b750d98accef873ce1eedc40d9ddc54b8f6282b17be06503d046694644a18d2f69510e36c653ad02db8c9e024ae5b8301b5762962c8c7
-  languageName: node
-  linkType: hard
-
 "@fastify/cors@npm:^11.3.1":
   version: 11.3.1
   resolution: "@fastify/cors@npm:11.3.1"
@@ -5973,13 +5963,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"cookie@npm:^2.0.0":
-  version: 2.0.1
-  resolution: "cookie@npm:2.0.1"
-  checksum: 10c0/dcf3bd6ec9d0f4f32be7575e23242866cb53be55fc3d4cf36215638596661cec1327a3b4ca286ba15eba8f2abd443e422b8c5f708af4ea9f75b4d3dedc67ee4c
-  languageName: node
-  linkType: hard
-
 "core-js-compat@npm:^3.48.0":
   version: 3.50.0
   resolution: "core-js-compat@npm:3.50.0"
@@ -7263,7 +7246,6 @@ __metadata:
     "@eslint/js": "npm:^10.0.1"
     "@fastify/auth": "npm:^5.1.2"
     "@fastify/aws-lambda": "npm:^6.4.2"
-    "@fastify/cookie": "npm:^11.1.5"
     "@fastify/cors": "npm:^11.3.1"
     "@fontsource/roboto": "npm:^5.3.0"
     "@formkit/auto-animate": "npm:^0.10.0"

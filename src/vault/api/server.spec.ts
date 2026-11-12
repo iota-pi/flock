@@ -3,6 +3,7 @@ import { CURRENT_SALT_VERSION, getDefaultKdf, PROTOCOL_VERSION_HEADER, VAULT_PRO
 import DynamoDriver from '@vault/server/dynamo'
 import createServer, { getUnknownAccountParams, MIN_PROTOCOL_VERSION } from './index'
 import { FLOCK_DATA_VERSION } from '../../shared/flockDataVersion'
+import * as secrets from '../secrets'
 import { spyOnExports } from '../../utils/testUtils'
 
 const CURRENT_PROTOCOL = { [PROTOCOL_VERSION_HEADER]: String(VAULT_PROTOCOL_VERSION) }
@@ -133,22 +134,16 @@ describe('createServer unknown accounts', () => {
 })
 
 describe('getUnknownAccountParams', () => {
-  const originalSecret = process.env.UNKNOWN_ACCOUNT_SECRET
-
   afterEach(() => {
-    if (originalSecret === undefined) {
-      delete process.env.UNKNOWN_ACCOUNT_SECRET
-    } else {
-      process.env.UNKNOWN_ACCOUNT_SECRET = originalSecret
-    }
     vi.restoreAllMocks()
   })
 
-  it('uses the configured secret, and a fixed one only for a local server', () => {
-    process.env.UNKNOWN_ACCOUNT_SECRET = 'configured'
+  it('uses the linked secret, and a fixed one only for a local server', () => {
+    const readSecret = vi.spyOn(secrets, 'readSecret').mockReturnValue('configured')
     expect(getUnknownAccountParams(false)).toMatchObject({ secret: 'configured' })
+    expect(readSecret).toHaveBeenCalledWith('UNKNOWN_ACCOUNT_SECRET')
 
-    delete process.env.UNKNOWN_ACCOUNT_SECRET
+    readSecret.mockReturnValue(undefined)
     expect(getUnknownAccountParams(true)?.secret).toBeTypeOf('string')
     vi.spyOn(console, 'error').mockImplementation(() => {})
     expect(getUnknownAccountParams(false)).toBeUndefined()

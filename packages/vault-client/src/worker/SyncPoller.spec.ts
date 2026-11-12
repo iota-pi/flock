@@ -23,7 +23,7 @@ describe('SyncPoller', () => {
     process: AnyMock
   }
   let outbox: { pushPending: AnyMock }
-  let firstStart: { ensureSynced: AnyMock }
+  let firstStart: { ensureSynced: AnyMock; runDue: AnyMock }
   let healer: { runDue: AnyMock }
   let apiClient: { pollLog: AnyMock }
   let syncManifest: AnyMock
@@ -40,7 +40,7 @@ describe('SyncPoller', () => {
       process: vi.fn().mockResolvedValue(undefined),
     }
     outbox = { pushPending: vi.fn().mockResolvedValue(undefined) }
-    firstStart = { ensureSynced: vi.fn().mockResolvedValue(undefined) }
+    firstStart = { ensureSynced: vi.fn().mockResolvedValue(undefined), runDue: vi.fn().mockResolvedValue(undefined) }
     healer = { runDue: vi.fn().mockResolvedValue(undefined) }
     apiClient = { pollLog: vi.fn().mockResolvedValue(response()) }
     syncManifest = vi.fn().mockResolvedValue(true)
@@ -63,7 +63,7 @@ describe('SyncPoller', () => {
     expect(apiClient.pollLog).not.toHaveBeenCalled()
   })
 
-  it('finishes first start, pushes, reads the log after the cursor, then heals', async () => {
+  it('finishes first start, pushes, reads the log after the cursor, heals, then fetches what first start waits for', async () => {
     const order: string[] = []
     firstStart.ensureSynced.mockImplementation(async () => { order.push('firstStart') })
     outbox.pushPending.mockImplementation(async () => { order.push('push') })
@@ -72,10 +72,11 @@ describe('SyncPoller', () => {
       return response()
     })
     healer.runDue.mockImplementation(async () => { order.push('heal') })
+    firstStart.runDue.mockImplementation(async () => { order.push('firstStartFetch') })
 
     expect(await poller.executePoll()).toBe('success')
 
-    expect(order).toEqual(['firstStart', 'push', 'pollLog', 'heal'])
+    expect(order).toEqual(['firstStart', 'push', 'pollLog', 'heal', 'firstStartFetch'])
     expect(apiClient.pollLog).toHaveBeenCalledWith(
       { account: 'account-1', push: [], after: 7 },
       { signal: expect.any(AbortSignal) },
@@ -131,6 +132,7 @@ describe('SyncPoller', () => {
       ['the request', () => apiClient.pollLog],
       ['processing the page', () => puller.process],
       ['healing', () => healer.runDue],
+      ['first start\'s fetches', () => firstStart.runDue],
     ])('%s failing', async (_name, getStep) => {
       getStep().mockRejectedValue(new Error('failed'))
 

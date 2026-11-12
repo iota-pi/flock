@@ -12,7 +12,7 @@ const LegacyCipherRowSchema = z.object({
 
 /**
  * Decodes items Flock stored before Automerge, as a single encrypted JSON blob in the row's `cipher`
- * field (stage 2.5e in docs/vault-extraction.md). The engine stores the result as a new document
+ * field (level 1 in docs/vault-extraction.md). The engine stores the result as a new document
  * and uploads it as a snapshot, after which the server drops `cipher`.
  */
 export async function decodeLegacyCipherItem(

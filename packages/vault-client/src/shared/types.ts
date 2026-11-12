@@ -23,10 +23,29 @@ export interface UnsyncedChanges {
   quarantinedItems: number
 }
 
-/** How far this device's changes have reached the server, as the worker's `syncProgress` events report it */
-export interface SyncProgress extends UnsyncedChanges {
+/**
+ * What holds up an item's changes: first start waiting for the server's copy (`awaitingHeads`) or
+ * for this device's own snapshot (`awaitingSnapshot`), a change only a snapshot can deliver
+ * (`snapshotOnly`), a doc this device can't load (`unloadable`), or nothing known (`unknown`)
+ */
+export type StuckReason = 'awaitingHeads' | 'awaitingSnapshot' | 'snapshotOnly' | 'unloadable' | 'unknown'
+
+/** Counts of stuck items by reason. A reason with none is absent. */
+export type StuckItems = Partial<Record<StuckReason, number>>
+
+/** The changes waiting to be pushed, as `SyncProgress` reports them */
+export interface UnpushedChanges extends UnsyncedChanges {
   /** Items with changes not yet pushed. Unlike `UnsyncedChanges`, a snapshot still to upload doesn't count. */
   pendingItems: number
+  /**
+   * Of `pendingItems`, those that have waited longer than `SYNC_TIMEOUTS.stuckPendingAge`, by what
+   * holds them up. Absent when there are none.
+   */
+  stuckItems?: StuckItems
+}
+
+/** How far this device's changes have reached the server, as the worker's `syncProgress` events report it */
+export interface SyncProgress extends UnpushedChanges {
   /** When any of the account's tabs on this device last completed a sync with the server, or null if none has */
   lastSyncedAt: number | null
 }

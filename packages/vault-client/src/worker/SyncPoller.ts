@@ -23,7 +23,7 @@ export interface SyncPollerDeps {
   >
   /** Read from the finished services: the outbox pushes through this poller */
   getOutbox: () => Pick<ChangeOutbox, 'pushPending'>
-  firstStart: Pick<FirstStart, 'ensureSynced'>
+  firstStart: Pick<FirstStart, 'ensureSynced' | 'runDue'>
   healer: Pick<GapHealer, 'runDue'>
   apiClient: Pick<SyncApiClient, 'pollLog'>
   /** Runs a manifest sync now, returning whether it fetched the manifest */
@@ -71,6 +71,7 @@ export class SyncPoller {
         await this.deps.syncManifest(signal)
       }
       await this.deps.healer.runDue(signal)
+      await this.deps.firstStart.runDue(signal)
       return 'success'
     } catch (error) {
       const classified = classifySyncError(error)

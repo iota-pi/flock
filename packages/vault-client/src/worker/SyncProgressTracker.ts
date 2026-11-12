@@ -1,7 +1,8 @@
 import type { ClientEvent, ClientEventHub } from './SyncEventHub'
 import type { PollOutcome } from './SyncPoller'
 import type { LastSyncedStore } from './stores/LastSyncedStore'
-import type { SyncProgress, UnsyncedChanges } from '../shared/types'
+import { areStuckItemsEqual } from './stuckItems'
+import type { SyncProgress, UnpushedChanges } from '../shared/types'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { fireAndForget } from '../utils/fireAndForget'
@@ -22,13 +23,13 @@ export interface SyncProgressTrackerDeps {
   eventHub: ClientEventHub
   store: LastSyncedStore
   /** Counts what hasn't reached the server, without pushing anything first */
-  countUnpushedChanges: () => Promise<UnsyncedChanges>
+  countUnpushedChanges: () => Promise<UnpushedChanges>
   now?: () => number
 }
 
 /**
- * Tells the app how many items have changes the server doesn't have yet and when this device last
- * synced, emitting `syncProgress` whenever either changes. It recounts shortly after anything that may
+ * Tells the app how many items have changes the server doesn't have yet, how many of those are stuck,
+ * and when this device last synced, emitting `syncProgress` whenever either changes. It recounts shortly after anything that may
  * have changed the counts, and every so often anyway: pending marks, the recovery store and the last sync
  * time are shared by the account's tabs, so this is how a tab that isn't the leader sees its pushes.
  */
@@ -100,7 +101,7 @@ export class SyncProgressTracker {
   }
 
   private async emitProgress(): Promise<void> {
-    let changes: UnsyncedChanges
+    let changes: UnpushedChanges
     let stored: number | null
     try {
       [changes, stored] = await Promise.all([this.deps.countUnpushedChanges(), this.deps.store.load()])
@@ -121,6 +122,7 @@ export class SyncProgressTracker {
       && previous.pendingItems === progress.pendingItems
       && previous.quarantinedItems === progress.quarantinedItems
       && previous.lastSyncedAt === progress.lastSyncedAt
+      && areStuckItemsEqual(previous.stuckItems, progress.stuckItems)
     ) {
       return
     }
