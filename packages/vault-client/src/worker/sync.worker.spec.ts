@@ -52,6 +52,8 @@ beforeEach(() => {
   spyOnExports(keyring, {
     Keyring: class {
       load = vi.fn().mockResolvedValue(undefined)
+      forgetVersionHistory = vi.fn()
+      setV1PasswordDerived = vi.fn()
     },
   })
   spyOnExports(docStoreModule, {

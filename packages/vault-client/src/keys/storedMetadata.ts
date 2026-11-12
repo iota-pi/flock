@@ -13,6 +13,11 @@ export type VaultStoredMetadata = {
    * active key version of '1' isn't derived from a password, so local data may be sealed with it.
    */
   randomDataKeys?: boolean,
+  /**
+   * The highest data key version this device has had active. A keyring the server serves later
+   * can't lower it (see "Keyring rollback" in docs/local-encryption.md).
+   */
+  keyVersion?: string,
 }
 
 export type KeyDerivationParams = { salt?: string, iterations?: number, saltVersion?: number, kdf?: KdfParams }
@@ -36,6 +41,9 @@ export function readStoredMetadata(): VaultStoredMetadata | null {
           saltVersion: typeof parsed.saltVersion === 'number' ? parsed.saltVersion : undefined,
           kdf: KdfParamsSchema.safeParse(parsed.kdf).data,
           randomDataKeys: parsed.randomDataKeys === true ? true : undefined,
+          keyVersion: typeof parsed.keyVersion === 'string' && /^\d+$/.test(parsed.keyVersion)
+            ? parsed.keyVersion
+            : undefined,
         }
       }
     } catch {
@@ -67,6 +75,7 @@ export function writeStoredMetadata(account: string, params?: KeyDerivationParam
       saltVersion: keyParams?.saltVersion,
       kdf: keyParams?.kdf,
       randomDataKeys,
+      keyVersion: stored?.account === account ? stored.keyVersion : undefined,
     } satisfies VaultStoredMetadata),
   )
 }
@@ -86,6 +95,24 @@ export function rememberRandomDataKeys(account: string, randomDataKeys: boolean)
 export function hasRandomDataKeys(account: string): boolean {
   const stored = readStoredMetadata()
   return stored?.account === account && stored.randomDataKeys === true
+}
+
+/** The highest data key version this device has had active for the account, if it has recorded one */
+export function readKeyVersion(account: string): string | undefined {
+  const stored = readStoredMetadata()
+  return stored?.account === account ? stored.keyVersion : undefined
+}
+
+/** Records that `kver` has been the account's active data key version, if it's above the recorded one */
+export function rememberKeyVersion(account: string, kver: string) {
+  if (!/^\d+$/.test(kver)) return
+  const stored = readStoredMetadata()
+  if (stored?.account !== account) return
+  if (stored.keyVersion !== undefined && parseInt(stored.keyVersion, 10) >= parseInt(kver, 10)) return
+  localStorage.setItem(
+    getVaultStorageNames().vaultMetadataKey,
+    JSON.stringify({ ...stored, keyVersion: kver } satisfies VaultStoredMetadata),
+  )
 }
 
 export function clearStoredMetadata() {

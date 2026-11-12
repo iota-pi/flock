@@ -151,6 +151,14 @@ describe('LocalCipher', () => {
       expect(await LocalCipher.rewrap(wrap, keyring, ACCOUNT)).toBeNull()
     })
 
+    it('never moves the DSK to an older key than the one it is wrapped with', async () => {
+      const keyring = await createKeyring(['1', '2'])
+      const { wrap } = await LocalCipher.create(keyring, ACCOUNT)
+      keyring.setActiveVersion('1')
+
+      expect(await LocalCipher.rewrap(wrap, keyring, ACCOUNT)).toBeNull()
+    })
+
     it('needs the key the DSK is wrapped with', async () => {
       const { wrap } = await LocalCipher.create(await createKeyring(['1']), ACCOUNT)
 

@@ -104,6 +104,17 @@ Blockers: `legacyKeyDerivation` when `kdf?.algorithm !== 'argon2id'`, and `passw
 
 **v1 stays in the keyring permanently.** It's wrapped under the Argon2id master key, and it's still needed for log rows until their TTL, backup files made before the migration (`importData` decrypts by `kver`) and any device-key wrap that predates Part 2's guard. Removing it would need every account's password, because the server can't edit an encrypted keyring.
 
+### Keyring rollback
+
+Step 2 uploads a keyring with v1 active, and step 3 replaces it, both under the same Argon2id master key. A server could serve that older keyring again. Without these rules, a device would make v1 active again and encrypt new data with the old password's PBKDF2 output. It would also cache that older keyring and lose v2 at its next login. The keyring is decrypted with the master key, so the server can replay a keyring but can't forge one. Devices therefore never move backwards:
+
+- **The active version only rises.** `Keyring.merge` ignores an incoming active version that is lower than the loaded one. It also reports the incoming keyring as stale when that keyring is older or lacks a key that's already loaded.
+- **A stale server keyring never replaces the cache.** `syncKeyringFromServer` logs an error and caches the merged keyring instead.
+- **The device remembers its highest version.** Stored metadata keeps `keyVersion` (only ever raised), and the next login or biometric unlock pins it before any keyring loads (`pinKnownKeyVersions`). That covers a device whose cache was dropped after a password change on another device.
+- **A stale keyring doesn't encrypt with a password-derived v1.** `Keyring` also learns of newer versions from the `kver` of ciphertexts it decrypts or waits for, and from the DSK wrap. While the active key is v1 on an account without `randomDataKeys` and a newer version is known, `encrypt`, `encryptBytes` and `wrapLocalKey` throw `StaleKeyringError`. Pushes keep their marks and retry once the keyring loads. On accounts with random keys, the device only logs a warning. Rotation refuses to run while the keyring is stale, and the DSK is never rewrapped under an older key.
+
+A device that has never logged in has no pin. It detects a rollback only once it sees a newer `kver` on a ciphertext.
+
 ## Part 2: local encryption
 
 ### Key hierarchy

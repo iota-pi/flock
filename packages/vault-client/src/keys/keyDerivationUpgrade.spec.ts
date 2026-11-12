@@ -184,7 +184,7 @@ describe('key derivation at login', () => {
     await expect(loginArgon2id(CURRENT_KDF)).rejects.toThrow('Could not load your encryption keys')
     expect(getKeyring).toHaveBeenCalledTimes(3)
     expect(getActiveKeyVersion()).toBe('1')
-    await expect(exportKeyringData()).resolves.toBe('{"activeVersion":"1"}')
+    expect(Object.keys(JSON.parse(await exportKeyringData())).filter(ver => /^\d+$/.test(ver))).toEqual([])
   })
 
   it('retries the keyring fetch when a login has no cached keys', async () => {
