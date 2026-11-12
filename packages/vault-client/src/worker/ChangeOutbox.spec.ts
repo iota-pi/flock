@@ -1,7 +1,7 @@
 import type { Mock } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 import { MAX_INCREMENTAL_MESSAGE_BYTES, type ItemId } from '@vault/shared'
-import { ChangeOutbox, type ChangeOutboxDeps, type LogExchange } from './ChangeOutbox'
+import { ChangeOutbox, type ChangeOutboxDeps, type LogExchange, type PendingMark } from './ChangeOutbox'
 import { ServerHeads } from './ServerHeads'
 import { SyncLogDatabase } from './stores/SyncLogDatabase'
 import { SyncSessionState } from './SyncSessionState'
@@ -28,6 +28,7 @@ describe('ChangeOutbox', () => {
   let onMarked: AnyMock
   let awaitingFirstStart: Set<ItemId>
   let canPush: boolean
+  let now: number
   let outbox: ChangeOutbox
 
   /** The server acknowledges every row */
@@ -54,6 +55,7 @@ describe('ChangeOutbox', () => {
     onMarked = vi.fn()
     awaitingFirstStart = new Set()
     canPush = true
+    now = 1_000
     outbox = new ChangeOutbox({
       db,
       docStore: docStore as unknown as ChangeOutboxDeps['docStore'],
@@ -65,6 +67,7 @@ describe('ChangeOutbox', () => {
       exchange,
       requestSnapshot,
       onMarked,
+      now: () => now,
     })
   })
 
@@ -80,6 +83,67 @@ describe('ChangeOutbox', () => {
     expect(await outbox.listPending()).toEqual([ITEM])
     expect(await outbox.isPending(ITEM)).toBe(true)
     expect(onMarked).toHaveBeenCalledTimes(1)
+  })
+
+  describe('mark age', () => {
+    it('keeps when an item first had changes waiting, however often it is marked again', async () => {
+      await outbox.mark(ITEM)
+      const [first] = await outbox.listMarks()
+      now = 5_000
+
+      await outbox.markAll([ITEM])
+
+      const [second] = await outbox.listMarks()
+      expect(second.createdAt).toBe(1_000)
+      expect(second.tick).not.toBe(first.tick)
+    })
+
+    it('dates a mark written before marks had an age at the leader\'s next push', async () => {
+      docStore.readChangesSince.mockResolvedValue(null)
+      await db.put(SYNC_LOG_STORES.outbox, { itemId: ITEM, tick: 1 })
+      now = 7_000
+
+      await outbox.pushPending()
+
+      expect(await outbox.listMarks()).toEqual([expect.objectContaining({ itemId: ITEM, createdAt: 7_000 })])
+    })
+  })
+
+  describe('why a push skipped an item', () => {
+    async function markOf(itemId: ItemId): Promise<PendingMark | undefined> {
+      return db.get<PendingMark>(SYNC_LOG_STORES.outbox, itemId)
+    }
+
+    it('records a change only a snapshot can deliver, once', async () => {
+      docStore.readChangesSince.mockResolvedValue({ changes: [bytes(MAX_INCREMENTAL_MESSAGE_BYTES + 1)], heads: ['h'] })
+      await outbox.mark(ITEM)
+      const update = vi.spyOn(db, 'update')
+
+      await outbox.pushPending()
+      await outbox.pushPending()
+
+      expect((await markOf(ITEM))?.blocked).toBe('snapshotOnly')
+      const blockedWrites = update.mock.calls.filter(([, keys]) => keys.includes(ITEM))
+      expect(blockedWrites).toHaveLength(1)
+    })
+
+    it('records a doc that exists but will not load', async () => {
+      docStore.readChangesSince.mockResolvedValue(null)
+      await outbox.mark(ITEM)
+
+      await outbox.pushPending()
+
+      expect((await markOf(ITEM))?.blocked).toBe('unloadable')
+    })
+
+    it('records nothing for an item first start holds, whose own records say why', async () => {
+      awaitingFirstStart.add(ITEM)
+      await outbox.mark(ITEM)
+
+      await outbox.pushPending()
+
+      expect((await markOf(ITEM))?.blocked).toBeUndefined()
+    })
   })
 
   it('pushes changes encrypted with the item ID, then records the heads and clears the mark', async () => {

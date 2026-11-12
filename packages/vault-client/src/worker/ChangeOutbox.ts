@@ -23,14 +23,29 @@ function isRefusedRequest(error: unknown): boolean {
   return status !== undefined && REFUSED_REQUEST_STATUSES.has(status)
 }
 
+/** Why the leader's last push skipped an item, which only it can tell */
+export type PendingBlockReason = 'snapshotOnly' | 'unloadable'
+
 /** An item's pending mark. A new mark gets a new tick, so a push never clears an edit it didn't send. */
-interface PendingMark {
+export interface PendingMark {
   itemId: ItemId
   tick: number
+  /**
+   * When the item first had changes waiting, kept by later marks, so an item that stays stuck shows
+   * its age however often it's edited. Marks written before this existed lack it until the leader's
+   * next push fills it in.
+   */
+  createdAt?: number
+  /** Why the leader's last push skipped the item, kept on the mark so every tab can count it */
+  blocked?: PendingBlockReason
 }
 
-export function createPendingMark(itemId: ItemId): PendingMark {
-  return { itemId, tick: Math.floor(Math.random() * Number.MAX_SAFE_INTEGER) }
+function createTick(): number {
+  return Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)
+}
+
+export function createPendingMark(itemId: ItemId, createdAt = Date.now()): PendingMark {
+  return { itemId, tick: createTick(), createdAt }
 }
 
 /** One item's outgoing rows, and what to record once the server has acknowledged every one */
@@ -72,6 +87,7 @@ export interface ChangeOutboxDeps {
   requestSnapshot: (itemId: ItemId) => void
   /** Called once a mark is written, so the leader pushes and the unsynced count updates */
   onMarked: () => void
+  now?: () => number
 }
 
 function byteLength(chunks: Uint8Array[]): number {
@@ -145,22 +161,35 @@ export class ChangeOutbox {
 
   constructor(private readonly deps: ChangeOutboxDeps) {}
 
-  /** Records that an item has changes to push. Every tab writes marks, so an edit outlives the leader. */
-  async mark(itemId: ItemId): Promise<void> {
-    if (this.deps.session.isShutdown) return
-    await this.deps.db.put(SYNC_LOG_STORES.outbox, createPendingMark(itemId))
-    this.deps.onMarked()
+  private now(): number {
+    return this.deps.now?.() ?? Date.now()
   }
 
+  /** Records that an item has changes to push. Every tab writes marks, so an edit outlives the leader. */
+  async mark(itemId: ItemId): Promise<void> {
+    await this.markAll([itemId])
+  }
+
+  /** Gives each item a new mark, keeping when an existing one first had changes waiting */
   async markAll(itemIds: ItemId[]): Promise<void> {
     if (itemIds.length === 0 || this.deps.session.isShutdown) return
-    await this.deps.db.put(SYNC_LOG_STORES.outbox, ...itemIds.map(createPendingMark))
+    const now = this.now()
+    await this.deps.db.update<PendingMark>(SYNC_LOG_STORES.outbox, itemIds, (current, key) => ({
+      ...current,
+      itemId: key as ItemId,
+      tick: createTick(),
+      createdAt: current ? current.createdAt : now,
+    }))
     this.deps.onMarked()
   }
 
   async listPending(): Promise<ItemId[]> {
-    const marks = await this.deps.db.getAll<PendingMark>(SYNC_LOG_STORES.outbox)
+    const marks = await this.listMarks()
     return marks.map(mark => mark.itemId)
+  }
+
+  async listMarks(): Promise<PendingMark[]> {
+    return this.deps.db.getAll<PendingMark>(SYNC_LOG_STORES.outbox)
   }
 
   async isPending(itemId: ItemId): Promise<boolean> {
@@ -220,14 +249,15 @@ export class ChangeOutbox {
    */
   async pushItems(itemIds: ItemId[], signal?: AbortSignal): Promise<void> {
     if (itemIds.length === 0 || !this.deps.canPush()) return
-    const marks = await this.deps.db.getAll<PendingMark>(SYNC_LOG_STORES.outbox)
-    const ticks = new Map(marks.map(mark => [mark.itemId, mark.tick]))
+    const marks = await this.listMarks()
+    await this.fillInCreatedAt(marks)
+    const marksById = new Map(marks.map(mark => [mark.itemId, mark]))
 
     for (const group of chunk(itemIds, SYNC_BATCH_SIZES.pollChunk)) {
       checkAlive(signal, () => !this.deps.session.isShutdown)
       const prepared: PreparedPush[] = []
       for (const itemId of group) {
-        const push = await this.preparePush(itemId, ticks.get(itemId))
+        const push = await this.preparePush(itemId, marksById.get(itemId))
         if (push) prepared.push(push)
       }
       await this.sendSettingAsideRefused(prepared, signal)
@@ -258,14 +288,48 @@ export class ChangeOutbox {
     }
   }
 
-  /** Reads and encrypts an item's outgoing rows. Returns null when there's nothing to send. */
-  private async preparePush(itemId: ItemId, tick: number | undefined): Promise<PreparedPush | null> {
-    if (this.deps.isAwaitingFirstStart(itemId) || this.snapshotOnlyItems.has(itemId)) return null
+  /** Dates marks written before `createdAt` existed from now, which is the first anyone has seen them */
+  private async fillInCreatedAt(marks: PendingMark[]): Promise<void> {
+    const undated = marks.filter(mark => mark.createdAt === undefined)
+    if (undated.length === 0) return
+    const now = this.now()
+    await this.deps.db.update<PendingMark>(
+      SYNC_LOG_STORES.outbox,
+      undated.map(mark => mark.itemId),
+      current => (current && current.createdAt === undefined ? { ...current, createdAt: now } : undefined),
+    )
+    for (const mark of undated) {
+      mark.createdAt = now
+    }
+  }
 
+  /** Records why a push skipped the item, writing only when the reason changes */
+  private async recordBlocked(mark: PendingMark | undefined, reason: PendingBlockReason): Promise<void> {
+    if (!mark || mark.blocked === reason) return
+    mark.blocked = reason
+    await this.deps.db.update<PendingMark>(
+      SYNC_LOG_STORES.outbox,
+      [mark.itemId],
+      current => (current ? { ...current, blocked: reason } : undefined),
+    )
+  }
+
+  /** Reads and encrypts an item's outgoing rows. Returns null when there's nothing to send. */
+  private async preparePush(itemId: ItemId, mark: PendingMark | undefined): Promise<PreparedPush | null> {
+    // First start's own records say why it holds an item, for anyone to read
+    if (this.deps.isAwaitingFirstStart(itemId)) return null
+    if (this.snapshotOnlyItems.has(itemId)) {
+      await this.recordBlocked(mark, 'snapshotOnly')
+      return null
+    }
+
+    const tick = mark?.tick
     const outgoing = await this.deps.docStore.readChangesSince(itemId, this.deps.serverHeads.get(itemId))
     if (!outgoing) {
       // A doc that exists but won't load keeps its mark, and so do its unpushed changes
-      if (!await this.deps.docStore.hasDataInStorage(itemId)) {
+      if (await this.deps.docStore.hasDataInStorage(itemId)) {
+        await this.recordBlocked(mark, 'unloadable')
+      } else {
         await this.clearMark(itemId, tick)
       }
       return null
@@ -280,6 +344,7 @@ export class ChangeOutbox {
       log.warn(`A change to item ${itemId} is over the row limit; delivering it with a snapshot`)
       this.snapshotOnlyItems.add(itemId)
       this.deps.requestSnapshot(itemId)
+      await this.recordBlocked(mark, 'snapshotOnly')
       return null
     }
 

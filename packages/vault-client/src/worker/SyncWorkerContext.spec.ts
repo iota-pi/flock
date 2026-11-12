@@ -104,6 +104,7 @@ beforeEach(() => {
       get = vi.fn().mockResolvedValue(undefined)
       getAll = vi.fn().mockResolvedValue([])
       put = vi.fn().mockResolvedValue(undefined)
+      update = vi.fn().mockResolvedValue(undefined)
       delete = vi.fn().mockResolvedValue(undefined)
       deleteIf = vi.fn().mockResolvedValue(undefined)
       close = vi.fn().mockResolvedValue(undefined)
