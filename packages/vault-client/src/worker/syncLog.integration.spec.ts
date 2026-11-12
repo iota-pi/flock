@@ -499,6 +499,27 @@ describe('sync log', () => {
       expect(server.items.get(itemId)!.version).toBe(version)
     })
 
+    it('fetches a snapshot manifest sync believes the doc has merged, so its mark clears', async () => {
+      const a = await startDevice('device-a')
+      const b = await startDevice('device-b')
+      const itemId = await a.create('item-1', { title: 'first' })
+      await a.sync()
+      await b.sync()
+      await a.edit(itemId, { title: 'only in the snapshot' })
+      await a.sync()
+      resetLog()
+      // As if b had merged this snapshot, which it never received
+      await b.services.snapshotManager.tracker.importVersions([[itemId, server.items.get(itemId)!.version!]])
+
+      await crossTheCut(b)
+      expect(await b.poll()).toBe('success')
+
+      expect(b.services.firstStart.has(itemId)).toBe(false)
+      expect((await b.read(itemId))?.title).toBe('only in the snapshot')
+      await b.poll()
+      expect(await b.pending()).toEqual([])
+    })
+
     it('needs no network for the local part, and runs the rest once online', async () => {
       const a = await startDevice('device-a')
       const itemId = await a.create('item-1', { title: 'first' })

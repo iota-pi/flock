@@ -64,6 +64,8 @@ export const SYNC_TIMEOUTS = {
    * `manifestSyncMinGap`, so each manifest sync can make one.
    */
   firstStartRetryGap: 30 * 60 * 1000,
+  /** How long an item's changes may wait to be pushed before the sync status reports it as stuck */
+  stuckPendingAge: 24 * 60 * 60 * 1000,
 } as const
 
 /** Tries first start makes at an item it's stuck on before quarantining it for manual recovery */

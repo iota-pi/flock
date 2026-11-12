@@ -159,6 +159,12 @@ export class FirstStart {
     return this.records.get(itemId)?.state
   }
 
+  /** Every record's state as stored, which a tab that doesn't lead can read too */
+  async readStates(): Promise<Map<ItemId, FirstStartState>> {
+    const records = await this.deps.db.getAll<FirstStartRecord>(SYNC_LOG_STORES.firstStart)
+    return new Map(records.map(record => [record.itemId, record.state]))
+  }
+
   has(itemId: ItemId): boolean {
     return this.records.has(itemId)
   }

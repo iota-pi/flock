@@ -1,5 +1,5 @@
 import { formatDistanceStrict } from 'date-fns'
-import type { SyncProgress, SyncStatus } from '@vault/client'
+import type { StuckItems, StuckReason, SyncProgress, SyncStatus } from '@vault/client'
 
 export type SyncTone = 'synced' | 'unknown' | 'pending' | 'offline' | 'warning' | 'error'
 
@@ -13,6 +13,32 @@ export interface SyncSummary {
 
 function pluralItems(count: number): string {
   return `${count} ${count === 1 ? 'item' : 'items'}`
+}
+
+/** What holds up stuck items, in the order the details list them. Both snapshot reasons read the same. */
+const STUCK_REASONS: Array<{ reasons: StuckReason[]; text: string }> = [
+  { reasons: ['awaitingHeads'], text: 'waiting to download the latest copy from the server' },
+  { reasons: ['awaitingSnapshot', 'snapshotOnly'], text: 'waiting to upload a full copy' },
+  { reasons: ['unloadable'], text: "can't be read on this device" },
+  { reasons: ['unknown'], text: 'not accepted by the server yet' },
+]
+
+const STUCK_RETRY_DETAIL = "Flock will keep retrying. Items it can't fix move to Settings → Corrupted data recovery."
+
+function countStuck(stuckItems: StuckItems | undefined): number {
+  return Object.values(stuckItems ?? {}).reduce((total, count) => total + (count ?? 0), 0)
+}
+
+/** One line per reason items are stuck, then the rest still waiting, and that Flock is retrying */
+function describeStuck(stuckItems: StuckItems, pending: number): string[] {
+  const lines = STUCK_REASONS.flatMap(({ reasons, text }) => {
+    const count = reasons.reduce((total, reason) => total + (stuckItems[reason] ?? 0), 0)
+    return count > 0 ? [`${pluralItems(count)} ${text}`] : []
+  })
+  const others = pending - countStuck(stuckItems)
+  if (others > 0) lines.push(`${others} other ${others === 1 ? 'item' : 'items'} waiting to sync`)
+  lines.push(STUCK_RETRY_DETAIL)
+  return lines
 }
 
 /** "Last synced 5 minutes ago", for the sync details */
@@ -29,6 +55,7 @@ export function describeLastSynced(lastSyncedAt: number | null, now: number): st
 export function summariseSync(status: SyncStatus, progress: SyncProgress | null): SyncSummary {
   const pending = progress?.pendingItems ?? 0
   const quarantined = progress?.quarantinedItems ?? 0
+  const stuck = countStuck(progress?.stuckItems)
   const quarantineDetail = quarantined > 0
     ? `${pluralItems(quarantined)} couldn't sync and need attention (Settings → Corrupted data recovery)`
     : null
@@ -78,7 +105,21 @@ export function summariseSync(status: SyncStatus, progress: SyncProgress | null)
       tone: 'warning',
       label: `${quarantined} not syncing`,
       headline: `${pluralItems(quarantined)} can't sync`,
-      details: withQuarantine(pending > 0 ? [`${pluralItems(pending)} waiting to sync`] : []),
+      details: withQuarantine(
+        stuck > 0 && progress?.stuckItems
+          ? describeStuck(progress.stuckItems, pending)
+          : pending > 0 ? [`${pluralItems(pending)} waiting to sync`] : [],
+      ),
+    }
+  }
+
+  // Waiting this long, they won't "sync shortly"
+  if (stuck > 0 && progress?.stuckItems) {
+    return {
+      tone: 'warning',
+      label: `${stuck} delayed`,
+      headline: `${pluralItems(stuck)} ${stuck === 1 ? "hasn't" : "haven't"} synced for over a day`,
+      details: describeStuck(progress.stuckItems, pending),
     }
   }
 

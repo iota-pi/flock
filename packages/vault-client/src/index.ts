@@ -45,6 +45,8 @@ export type {
   ReencryptCallOptions,
   ReencryptStage,
   SyncDiagnostics,
+  StuckItems,
+  StuckReason,
   SyncProgress,
   SyncStatus,
   UnsyncedChanges,

@@ -1,3 +1,4 @@
+import type { StuckItems } from '@vault/client'
 import { describeLastSynced, summariseSync } from './syncSummary'
 
 const progress = (pendingItems: number, quarantinedItems = 0) => ({ pendingItems, quarantinedItems, lastSyncedAt: 0 })
@@ -63,6 +64,46 @@ describe('summariseSync', () => {
       '1 item waiting to sync',
       "2 items couldn't sync and need attention (Settings → Corrupted data recovery)",
     ])
+  })
+
+  describe('items stuck for over a day', () => {
+    const stuckProgress = (pendingItems: number, stuckItems: StuckItems, quarantinedItems = 0) => (
+      { pendingItems, quarantinedItems, stuckItems, lastSyncedAt: 0 }
+    )
+
+    it('warns instead of saying they will sync shortly, with what holds each up', () => {
+      const summary = summariseSync('idle', stuckProgress(5, { awaitingHeads: 2, awaitingSnapshot: 1, snapshotOnly: 1 }))
+
+      expect(summary).toEqual({
+        tone: 'warning',
+        label: '4 delayed',
+        headline: "4 items haven't synced for over a day",
+        details: [
+          '2 items waiting to download the latest copy from the server',
+          '2 items waiting to upload a full copy',
+          '1 other item waiting to sync',
+          "Flock will keep retrying. Items it can't fix move to Settings → Corrupted data recovery.",
+        ],
+      })
+    })
+
+    it('reads well for a single item', () => {
+      expect(summariseSync('syncing', stuckProgress(1, { unloadable: 1 }))).toMatchObject({
+        headline: "1 item hasn't synced for over a day",
+        details: [
+          "1 item can't be read on this device",
+          "Flock will keep retrying. Items it can't fix move to Settings → Corrupted data recovery.",
+        ],
+      })
+    })
+
+    it('lists them alongside quarantined items', () => {
+      expect(summariseSync('idle', stuckProgress(1, { unknown: 1 }, 2)).details).toEqual([
+        '1 item not accepted by the server yet',
+        "Flock will keep retrying. Items it can't fix move to Settings → Corrupted data recovery.",
+        "2 items couldn't sync and need attention (Settings → Corrupted data recovery)",
+      ])
+    })
   })
 })
 

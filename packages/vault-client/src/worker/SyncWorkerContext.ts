@@ -24,6 +24,7 @@ import { SyncLogPuller } from './SyncLogPuller'
 import type { ClientEventHub } from './SyncEventHub'
 import { SyncStatusManager } from './SyncStatusManager'
 import { SyncProgressTracker } from './SyncProgressTracker'
+import { countStuckItems } from './stuckItems'
 import { LastSyncedStore } from './stores/LastSyncedStore'
 import { AutomergeRepoManager } from './AutomergeRepoManager'
 import { toVaultItemIdFromAutomergeId, isIndexDocument } from './utils/automerge'
@@ -49,7 +50,7 @@ import { LocalCipher, LocalDataUnreadableError, LocalKeyUnavailableError } from 
 import type { KeyProvider, LocalKeyWrapper } from '../keys/Keyring'
 import { createLogger } from '../utils/logger'
 import type { RetrySaveResult } from './syncProtocol'
-import type { SyncDiagnostics, UnsyncedChanges } from '../shared/types'
+import type { SyncDiagnostics, UnpushedChanges, UnsyncedChanges } from '../shared/types'
 
 const log = createLogger('SyncWorkerContext')
 
@@ -920,9 +921,23 @@ export class SyncWorkerContext {
   /**
    * Counts the items whose changes haven't reached the server, without pushing anything first. A
    * snapshot still to upload doesn't count: its changes are already in the log, for other devices to pull.
+   * Also counts the items that have waited too long, by what holds them up.
    */
-  async countUnpushedChanges(): Promise<UnsyncedChanges> {
-    return this.countChanges([])
+  async countUnpushedChanges(): Promise<UnpushedChanges> {
+    const { changeOutbox, recoveryManager, firstStart } = this.services
+    const [marks, recoveryEntries, firstStartStates] = await Promise.all([
+      changeOutbox.listMarks(),
+      recoveryManager.listRecoveryItems(),
+      firstStart.readStates(),
+    ])
+    const quarantined = new Set(recoveryEntries.map(entry => entry.itemId))
+    const pending = marks.filter(mark => !quarantined.has(mark.itemId))
+    const stuckItems = countStuckItems(pending, firstStartStates, Date.now())
+    return {
+      pendingItems: pending.length,
+      quarantinedItems: quarantined.size,
+      ...(stuckItems ? { stuckItems } : {}),
+    }
   }
 
   /** Counts the items with pending marks or in `otherItemIds` once each, and quarantined items apart */
