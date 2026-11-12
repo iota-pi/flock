@@ -106,6 +106,23 @@ export default $config({
         },
       },
     });
+    // Failed login counts per account ID, whether or not the account exists. Rows expire once their
+    // window has ended, so nothing here needs keeping.
+    const loginThrottleTable = new sst.aws.Dynamo("FlockLoginThrottle", {
+      fields: {
+        key: "string",
+      },
+      primaryIndex: { hashKey: "key" },
+      transform: {
+        table: (args) => {
+          args.name = `FlockLoginThrottle_${stage}`;
+          args.ttl = {
+            attributeName: "expiresAt",
+            enabled: true,
+          };
+        },
+      },
+    });
     // -----------------------------------------------------------------
     // Vault API Lambda + Function URL
     // -----------------------------------------------------------------
@@ -125,9 +142,10 @@ export default $config({
         ACCOUNTS_TABLE: accountsTable.name,
         ITEMS_TABLE: itemsTable.name,
         SYNC_LOG_TABLE: syncLogTable.name,
+        LOGIN_THROTTLE_TABLE: loginThrottleTable.name,
         SENTRY_DSN: deployment?.sentryDsn ?? "",
       },
-      link: [accountsTable, itemsTable, syncLogTable, unknownAccountSecret],
+      link: [accountsTable, itemsTable, syncLogTable, loginThrottleTable, unknownAccountSecret],
     });
     // -----------------------------------------------------------------
     // Migrations Lambda (invoked manually or via CI)

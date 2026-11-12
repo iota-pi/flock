@@ -2,7 +2,7 @@ import { GetCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
 import { backOff, VersionConflictError, type BackoffOptions } from '@vault/shared'
 import { addSessionRecord, normalizeSessionRecords, renewSessionRecord } from '../../sessions'
 import { AuthenticationError } from '../../errors'
-import { FAILED_LOGIN_WINDOW_MS } from '../../loginThrottle'
+import { normalizeLoginDevices, withLoginDevice, withoutLoginDevice } from '../../loginDevices'
 import type {
   AuthData,
   BaseData,
@@ -68,32 +68,6 @@ export async function getAccountRecord(
   return response?.Item as StoredAccount | undefined
 }
 
-export async function recordFailedLogin({ client, tables }: DynamoContext, { account }: BaseData): Promise<void> {
-  const now = Date.now()
-  const values = { ':one': 1, ':windowStart': now - FAILED_LOGIN_WINDOW_MS }
-  // Count within the current window. The conditions keep both writes from creating an item for an
-  // account that doesn't exist.
-  const counted = await sendConditional(client, new UpdateCommand({
-    TableName: tables.accounts,
-    Key: { account },
-    UpdateExpression: 'ADD failedLogins :one',
-    ConditionExpression: 'attribute_exists(account) AND failedLoginsSince > :windowStart',
-    ExpressionAttributeValues: values,
-  }))
-  if (counted) {
-    return
-  }
-  // Or start a new window. If a concurrent failure started it first, this one goes uncounted.
-  await sendConditional(client, new UpdateCommand({
-    TableName: tables.accounts,
-    Key: { account },
-    UpdateExpression: 'SET failedLogins = :one, failedLoginsSince = :now',
-    ConditionExpression:
-      'attribute_exists(account) AND (attribute_not_exists(failedLoginsSince) OR failedLoginsSince <= :windowStart)',
-    ExpressionAttributeValues: { ...values, ':now': now },
-  }))
-}
-
 export async function updateAccountData<TExtra extends object = Record<never, never>>(
   { client, tables }: DynamoContext,
   {
@@ -141,30 +115,50 @@ export async function updateAccountData<TExtra extends object = Record<never, ne
 
 export async function addSession(
   context: DynamoContext,
-  { account, session, expiry }: AuthData & { expiry: number },
+  { account, session, expiry, device }: AuthData & { expiry: number, device?: string },
 ): Promise<void> {
-  const added = await updateSessions(context, account, activeSessions => addSessionRecord(activeSessions, session, expiry))
+  const added = await updateAccess(context, account, ({ sessions, devices }) => ({
+    sessions: addSessionRecord(sessions, session, expiry),
+    devices: device === undefined ? undefined : withLoginDevice(devices, device),
+  }))
   if (!added) {
     throw new Error(`Could not add a session to account ${account}`)
   }
 }
 
 export async function extendSession(context: DynamoContext, { account, session }: AuthData): Promise<void> {
-  await updateSessions(context, account, (activeSessions, now, attempt) => (
-    renewSessionRecord(activeSessions, session, now, attempt > 0)
-  ))
+  await updateAccess(context, account, ({ sessions }, now, attempt) => {
+    const renewed = renewSessionRecord(sessions, session, now, attempt > 0)
+    return renewed && { sessions: renewed }
+  })
+}
+
+export async function removeLoginDevice(
+  context: DynamoContext,
+  { account, device }: BaseData & { device: string },
+): Promise<void> {
+  await updateAccess(context, account, ({ devices }) => {
+    const remaining = withoutLoginDevice(devices, device)
+    return remaining && { devices: remaining }
+  })
+}
+
+/** An account's active sessions and login devices */
+interface AccessState {
+  sessions: VaultSessionRecord[]
+  devices: string[]
 }
 
 /**
- * Rewrites the account's sessions on condition that they haven't changed since they were read,
- * retrying when a concurrent login, renewal or password change got there first. `update` gets the
- * active sessions and returns the new list, or undefined to leave them as they are. Returns whether
- * it wrote.
+ * Rewrites the account's sessions and login devices on condition that neither has changed since
+ * they were read, retrying when a concurrent login, renewal, device removal or password change got
+ * there first. `update` gets both and returns those to change, or undefined to leave them as they
+ * are. Returns whether it wrote.
  */
-async function updateSessions(
+async function updateAccess(
   context: DynamoContext,
   account: string,
-  update: (activeSessions: VaultSessionRecord[], now: number, attempt: number) => VaultSessionRecord[] | undefined,
+  update: (state: AccessState, now: number, attempt: number) => Partial<AccessState> | undefined,
 ): Promise<boolean> {
   for (let attempt = 0; attempt < MAX_SESSION_UPDATE_ATTEMPTS; attempt += 1) {
     const record = await getAccountRecord(context, { account })
@@ -173,29 +167,46 @@ async function updateSessions(
     }
 
     const rawSessions: unknown = record.sessions
+    const rawDevices: unknown = record.loginDevices
     const now = Date.now()
-    const nextSessions = update(normalizeSessionRecords(rawSessions, now), now, attempt)
-    if (!nextSessions) {
+    const next = update({
+      sessions: normalizeSessionRecords(rawSessions, now),
+      devices: normalizeLoginDevices(rawDevices),
+    }, now, attempt)
+    if (!next?.sessions && !next?.devices) {
       return false
     }
 
-    const values = {
-      ':sessions': normalizeSessionRecords(nextSessions, now),
-      ':now': now,
+    const assignments: string[] = []
+    const conditions: string[] = []
+    const values: Record<string, unknown> = {}
+    if (next.sessions) {
+      assignments.push('sessions = :sessions', 'lastAccess = :now')
+      values[':sessions'] = normalizeSessionRecords(next.sessions, now)
+      values[':now'] = now
+    }
+    if (next.devices) {
+      assignments.push('loginDevices = :devices')
+      values[':devices'] = next.devices
+    }
+    if (Array.isArray(rawSessions)) {
+      conditions.push('sessions = :expectedSessions')
+      values[':expectedSessions'] = rawSessions
+    } else {
+      conditions.push('attribute_not_exists(sessions)')
+    }
+    if (rawDevices === undefined) {
+      conditions.push('attribute_not_exists(loginDevices)')
+    } else {
+      conditions.push('loginDevices = :expectedDevices')
+      values[':expectedDevices'] = rawDevices
     }
     const written = await sendConditional(context.client, new UpdateCommand({
       TableName: context.tables.accounts,
       Key: { account },
-      UpdateExpression: 'SET sessions = :sessions, lastAccess = :now',
-      ...(Array.isArray(rawSessions)
-        ? {
-          ConditionExpression: 'sessions = :expectedSessions',
-          ExpressionAttributeValues: { ...values, ':expectedSessions': rawSessions },
-        }
-        : {
-          ConditionExpression: 'attribute_not_exists(sessions)',
-          ExpressionAttributeValues: values,
-        }),
+      UpdateExpression: `SET ${assignments.join(', ')}`,
+      ConditionExpression: conditions.join(' AND '),
+      ExpressionAttributeValues: values,
     }))
     if (written) {
       return true

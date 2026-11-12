@@ -1,8 +1,8 @@
 import { accountsRouter } from './accounts'
 import { fakeSalt, hashString } from '../../util'
 import { hashSessionToken, SESSION_EXPIRY_MS } from '../../sessions'
-import { MAX_FAILED_LOGINS } from '../../loginThrottle'
-import { isValidNewAccountId, VersionConflictError } from '@vault/shared'
+import { MAX_FAILED_LOGINS, type FailedLoginRecord } from '../../loginThrottle'
+import { DEVICE_TOKEN_LENGTH, isValidNewAccountId, TOO_MANY_REQUESTS_MESSAGE, VersionConflictError } from '@vault/shared'
 
 const ARGON2ID = { algorithm: 'argon2id' as const, memoryKiB: 65536, passes: 3, parallelism: 1 }
 const NEW_ACCOUNT = {
@@ -18,6 +18,8 @@ const NEW_ACCOUNT = {
 const CURRENT_AUTH_TOKEN = 'current-auth-token'
 const SESSION_TOKEN = 'session-token'
 const SESSION_EXPIRY = Date.now() + SESSION_EXPIRY_MS
+const DEVICE_TOKEN = 'd'.repeat(DEVICE_TOKEN_LENGTH)
+const LOCKED: FailedLoginRecord = { failedLogins: MAX_FAILED_LOGINS, failedLoginsSince: Date.now() }
 
 /** A stored account record with an active session for SESSION_TOKEN */
 function storedAccount(fields: Record<string, unknown> = {}) {
@@ -41,7 +43,9 @@ function createContext(overrides?: { authToken?: string, sessionValid?: boolean 
     )),
     extendSession: vi.fn(async () => undefined),
     addSession: vi.fn(async () => undefined),
+    getLoginThrottle: vi.fn(async (): Promise<FailedLoginRecord> => ({})),
     recordFailedLogin: vi.fn(async () => undefined),
+    removeLoginDevice: vi.fn(async () => undefined),
   }
 
   return {
@@ -107,11 +111,7 @@ describe('accountsRouter security contracts', () => {
 
   it('refuses logins to an account with too many failed logins as TOO_MANY_REQUESTS', async () => {
     const ctx = createContext()
-    ctx.vault.getAccountRecord.mockResolvedValueOnce(storedAccount({
-      authToken: hashString(CURRENT_AUTH_TOKEN),
-      failedLogins: MAX_FAILED_LOGINS,
-      failedLoginsSince: Date.now(),
-    }) as any)
+    ctx.vault.getLoginThrottle.mockResolvedValueOnce(LOCKED)
     const caller = accountsRouter.createCaller(ctx as any)
 
     // Even with the right password
@@ -120,6 +120,89 @@ describe('accountsRouter security contracts', () => {
     })
     expect(ctx.vault.recordFailedLogin).not.toHaveBeenCalled()
     expect(ctx.vault.addSession).not.toHaveBeenCalled()
+  })
+
+  it('locks an ID with no account just as it locks a real one', async () => {
+    const ctx = createContext({ sessionValid: false })
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.login({ account: 'acct-1', authToken: 'wrong' })).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    expect(ctx.vault.recordFailedLogin).toHaveBeenCalledWith({ account: 'acct-1' })
+
+    ctx.vault.getLoginThrottle.mockResolvedValueOnce(LOCKED)
+    await expect(caller.login({ account: 'acct-1', authToken: 'wrong' })).rejects.toMatchObject({
+      code: 'TOO_MANY_REQUESTS',
+      message: TOO_MANY_REQUESTS_MESSAGE,
+    })
+    expect(ctx.vault.getLoginThrottle).toHaveBeenCalledWith({ account: 'acct-1' })
+  })
+
+  it('registers the device a login comes from', async () => {
+    const ctx = createContext()
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    const result = await caller.login({ account: 'acct-1', authToken: CURRENT_AUTH_TOKEN, deviceToken: DEVICE_TOKEN })
+
+    expect(ctx.vault.addSession).toHaveBeenCalledWith({
+      account: 'acct-1',
+      session: result.session,
+      expiry: expect.any(Number),
+      device: hashString(DEVICE_TOKEN),
+    })
+  })
+
+  it('rejects a device token of the wrong length', async () => {
+    const ctx = createContext()
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.login({ account: 'acct-1', authToken: CURRENT_AUTH_TOKEN, deviceToken: 'short' }))
+      .rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(ctx.vault.addSession).not.toHaveBeenCalled()
+  })
+
+  it('lets a login device with the right password through a lock', async () => {
+    const ctx = createContext()
+    ctx.vault.getAccountRecord.mockResolvedValueOnce(storedAccount({
+      authToken: hashString(CURRENT_AUTH_TOKEN),
+      loginDevices: [hashString(DEVICE_TOKEN)],
+    }) as any)
+    ctx.vault.getLoginThrottle.mockResolvedValueOnce(LOCKED)
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    const result = await caller.login({ account: 'acct-1', authToken: CURRENT_AUTH_TOKEN, deviceToken: DEVICE_TOKEN })
+
+    expect(result.success).toBe(true)
+    expect(ctx.vault.recordFailedLogin).not.toHaveBeenCalled()
+  })
+
+  it('forgets a login device that comes with the wrong password', async () => {
+    const ctx = createContext()
+    ctx.vault.getAccountRecord.mockResolvedValue(storedAccount({
+      authToken: hashString(CURRENT_AUTH_TOKEN),
+      loginDevices: [hashString(DEVICE_TOKEN)],
+    }) as any)
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.login({ account: 'acct-1', authToken: 'wrong', deviceToken: DEVICE_TOKEN }))
+      .rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    expect(ctx.vault.removeLoginDevice).toHaveBeenCalledWith({ account: 'acct-1', device: hashString(DEVICE_TOKEN) })
+
+    // Also while locked, without counting the failure
+    vi.clearAllMocks()
+    ctx.vault.getLoginThrottle.mockResolvedValueOnce(LOCKED)
+    await expect(caller.login({ account: 'acct-1', authToken: 'wrong', deviceToken: DEVICE_TOKEN }))
+      .rejects.toMatchObject({ code: 'TOO_MANY_REQUESTS' })
+    expect(ctx.vault.removeLoginDevice).toHaveBeenCalledWith({ account: 'acct-1', device: hashString(DEVICE_TOKEN) })
+    expect(ctx.vault.recordFailedLogin).not.toHaveBeenCalled()
+  })
+
+  it('does not forget anything for an unknown device with the wrong password', async () => {
+    const ctx = createContext()
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.login({ account: 'acct-1', authToken: 'wrong', deviceToken: DEVICE_TOKEN }))
+      .rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    expect(ctx.vault.removeLoginDevice).not.toHaveBeenCalled()
   })
 
 
@@ -335,6 +418,7 @@ describe('accountsRouter security contracts', () => {
       kdf: ARGON2ID,
       keyring: 'new-keyring',
       sessions: [{ token: hashSessionToken(SESSION_TOKEN), expiry: SESSION_EXPIRY }],
+      loginDevices: [],
     })
   })
 

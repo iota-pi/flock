@@ -4,17 +4,20 @@ export interface VaultTableNames {
   accounts: string
   items: string
   syncLog: string
+  /** Failed login counts, keyed by a hash of the account ID whether or not the account exists */
+  loginThrottle: string
 }
 
 const TABLE_NAME_ENV_VARS: Record<keyof VaultTableNames, string> = {
   accounts: 'ACCOUNTS_TABLE',
   items: 'ITEMS_TABLE',
   syncLog: 'SYNC_LOG_TABLE',
+  loginThrottle: 'LOGIN_THROTTLE_TABLE',
 }
 
 /**
- * Resolves table names from explicit options, falling back to the ACCOUNTS_TABLE, ITEMS_TABLE and
- * SYNC_LOG_TABLE environment variables, then to `defaults`.
+ * Resolves table names from explicit options, falling back to the ACCOUNTS_TABLE, ITEMS_TABLE,
+ * SYNC_LOG_TABLE and LOGIN_THROTTLE_TABLE environment variables, then to `defaults`.
  */
 export function resolveVaultTableNames(
   tables: Partial<VaultTableNames> = {},

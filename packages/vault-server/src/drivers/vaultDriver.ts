@@ -22,7 +22,10 @@ export type FetchedVaultItem = Omit<VaultItem, 'snapshot'> & {
   snapshot?: Omit<NonNullable<VaultItem['snapshot']>, 'cipher'> & { cipher?: string }
 }
 /** An account record as stored, before its credentials are checked (see authentication.ts) */
-export type StoredAccount = VaultAccount & FailedLoginRecord
+export type StoredAccount = VaultAccount & {
+  /** Hashes of the account's login device tokens, earliest first (see loginDevices.ts) */
+  loginDevices?: string[]
+}
 
 export interface BaseData {
   account: string,
@@ -39,6 +42,8 @@ export type UpdateAccountDataParams = BaseData & {
   salt?: string,
   saltVersion?: number,
   kdf?: KdfParams,
+  /** Replaces the account's login devices (see loginDevices.ts) */
+  loginDevices?: string[],
   keyringVersion?: number,
   expectedKeyringVersion?: number,
 }
@@ -94,8 +99,17 @@ export interface VaultDriver {
    */
   getAccountRecord(data: BaseData): Promise<StoredAccount | undefined>
 
-  /** Counts a failed login towards the account's limit. Does nothing for an account that doesn't exist. */
+  /**
+   * Reads the failed logins counted against an account ID with a strongly consistent read. IDs with
+   * no account have counts too, so that they lock as real ones do.
+   */
+  getLoginThrottle(data: BaseData): Promise<FailedLoginRecord>
+
+  /** Counts a failed login against an account ID, whether or not the account exists */
   recordFailedLogin(data: BaseData): Promise<void>
+
+  /** Forgets one of the account's login devices (see loginDevices.ts). Does nothing if it isn't one. */
+  removeLoginDevice(data: BaseData & { device: string }): Promise<void>
 
   /**
    * Updates the given account fields, leaving the others as they are. Apps can store their own
@@ -107,8 +121,11 @@ export interface VaultDriver {
     data: UpdateAccountDataParams & Partial<TExtra>,
   ): Promise<void>
 
-  /** Adds a session to an account, keeping its other active sessions (called on login) */
-  addSession(data: AuthData & { expiry: number }): Promise<void>
+  /**
+   * Adds a session to an account, keeping its other active sessions (called on login). `device` is
+   * the hash of the logging-in device's token, which is added to the account's login devices.
+   */
+  addSession(data: AuthData & { expiry: number, device?: string }): Promise<void>
 
   /** Extends a session's expiry (called on authenticated requests) */
   extendSession(data: AuthData): Promise<void>

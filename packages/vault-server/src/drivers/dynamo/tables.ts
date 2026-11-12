@@ -37,5 +37,15 @@ export function getVaultTableDefinitions(tables: VaultTableNames): VaultTableDef
         { AttributeName: 'seq', AttributeType: 'N' },
       ],
     },
+    {
+      // Rows expire through a TTL on `expiresAt`, which deployments enable on the table
+      TableName: tables.loginThrottle,
+      KeySchema: [
+        { AttributeName: 'key', KeyType: 'HASH' },
+      ],
+      AttributeDefinitions: [
+        { AttributeName: 'key', AttributeType: 'S' },
+      ],
+    },
   ]
 }

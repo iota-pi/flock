@@ -15,6 +15,7 @@ import { addSessionRecord, findSession, SESSION_EXPIRY_MS } from '../../sessions
 import { raiseDataVersion } from '../../services/dataVersion'
 import { AuthenticationError, TooManyLoginAttemptsError } from '../../errors'
 import { authenticateLogin, matchesAuthTokenHash } from '../../authentication'
+import { isLoginDevice } from '../../loginDevices'
 import { toTrpcError } from '../errors'
 import type { StoredAccount, VaultAccountWithAuth } from '../../drivers/vaultDriver'
 import type { KdfParams } from '@vault/shared'
@@ -96,14 +97,27 @@ export const accountsRouter = router({
   login: publicProcedure
     .input(LoginBodySchema)
     .mutation(async ({ ctx, input }) => {
-      const record = await ctx.vault.getAccountRecord({ account: input.account })
+      // Read both whether or not the account exists, so that unknown IDs take the same path
+      const [record, throttle] = await Promise.all([
+        ctx.vault.getAccountRecord({ account: input.account }),
+        ctx.vault.getLoginThrottle({ account: input.account }),
+      ])
+      const authTokenHash = hashString(input.authToken)
+      const deviceHash = input.deviceToken === undefined ? undefined : hashString(input.deviceToken)
       try {
-        authenticateLogin(record, hashString(input.authToken))
+        authenticateLogin(record, throttle, { authTokenHash, deviceHash })
       } catch (error) {
+        // Failing to count it or forget the device mustn't turn a wrong password into a server error
         if (error instanceof AuthenticationError) {
-          // Failing to count it mustn't turn a wrong password into a server error
           await ctx.vault.recordFailedLogin({ account: input.account }).catch(countError => {
             console.warn('[accounts.login] Could not count a failed login:', countError)
+          })
+        }
+        // The app sends its device token only with a password that opened the token locally, so a
+        // login device with the wrong password means someone else has the token
+        if (deviceHash && record && isLoginDevice(record, deviceHash) && !matchesAuthTokenHash(record, authTokenHash)) {
+          await ctx.vault.removeLoginDevice({ account: input.account, device: deviceHash }).catch(removeError => {
+            console.warn('[accounts.login] Could not forget a login device:', removeError)
           })
         }
         throw toTrpcError(error, [
@@ -112,12 +126,14 @@ export const accountsRouter = router({
         ])
       }
 
-      // The driver adds it with a conditional write, so concurrent logins don't drop each other's sessions
+      // The driver adds it with a conditional write, so concurrent logins don't drop each other's
+      // sessions or devices
       const session = randomBytes(16).toString('base64')
       await ctx.vault.addSession({
         account: input.account,
         session,
         expiry: Date.now() + SESSION_EXPIRY_MS,
+        ...(deviceHash === undefined ? {} : { device: deviceHash }),
       })
 
       return {
@@ -195,7 +211,8 @@ export const accountsRouter = router({
 
       const newAuthTokenHash = hashString(input.newAuthToken)
 
-      // Changing the password ends every other session
+      // Changing the password ends every other session and forgets every login device. This device
+      // registers again at its next login.
       const currentSessionExpiry = findSession(ctx.accountData.sessions, ctx.authToken)?.expiry
         ?? Date.now() + SESSION_EXPIRY_MS
 
@@ -210,6 +227,7 @@ export const accountsRouter = router({
           keyringVersion: input.keyringVersion,
           expectedKeyringVersion: input.expectedKeyringVersion,
           sessions: addSessionRecord([], ctx.authToken, currentSessionExpiry),
+          loginDevices: [],
         })
       } catch (error) {
         throw toTrpcError(error, [

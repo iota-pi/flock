@@ -9,6 +9,8 @@ export interface VaultStorageNames {
   keyringCacheKey: string
   /** localStorage key for biometric unlock data */
   biometricDataKey: string
+  /** localStorage key for the device's login token, sealed with a key from the password */
+  loginDeviceKey: string
   /** BroadcastChannel for key rotation and password change events */
   vaultEventsChannel: string
   /** localforage database where earlier builds stored the session token. It's only deleted now. */
@@ -65,6 +67,7 @@ export function createVaultStorageNames(appName: string): VaultStorageNames {
     vaultMetadataKey: `${prefix}-meta`,
     keyringCacheKey: `${prefix}-keyring-cache`,
     biometricDataKey: `${prefix}-biometrics`,
+    loginDeviceKey: `${prefix}-login-device`,
     vaultEventsChannel: `${prefix}-events`,
     authDatabase: `${prefix}-auth`,
     webAuthnRpName: appName,

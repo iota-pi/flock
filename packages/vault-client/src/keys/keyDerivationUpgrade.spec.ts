@@ -128,7 +128,7 @@ describe('key derivation at login', () => {
     expect(Object.keys(keyring).sort()).toEqual(['1', 'activeVersion'])
 
     // The new session comes from the new credentials, and the device remembers the new parameters
-    expect(getSession).toHaveBeenLastCalledWith(ACCOUNT, request.newAuthToken)
+    expect(getSession).toHaveBeenLastCalledWith(ACCOUNT, request.newAuthToken, expect.any(String))
     expect(readStoredMetadata()).toMatchObject({ salt: request.newSalt, saltVersion: 1, kdf: CURRENT_KDF })
     expect(readStoredMetadata()?.iterations).toBeUndefined()
   })

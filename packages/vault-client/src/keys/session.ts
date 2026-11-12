@@ -4,6 +4,7 @@ import { classifySyncError } from '../utils/errorClassifier'
 import { createLogger } from '../utils/logger'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { getSession } from './AccountClient'
+import { loadDeviceToken, rememberDeviceToken, type DeviceToken } from './deviceToken'
 import { getApiAuthToken, setApiAuthToken, setApiSessionExpiredHandler } from './runtime'
 import { readStoredMetadata } from './storedMetadata'
 import { getHostHooks } from './vaultHost'
@@ -28,9 +29,20 @@ export function getVaultSession() {
   return getApiAuthToken()
 }
 
+/** This device's login token, or undefined if it can't be had (which only costs the lock bypass) */
+async function loadDeviceTokenSafely(account: string, keyHash: string): Promise<DeviceToken | undefined> {
+  try {
+    return await loadDeviceToken(account, keyHash)
+  } catch (err) {
+    log.warn('Could not load the device token; logging in without it:', err)
+    return undefined
+  }
+}
+
 export async function establishSessionFromKeyHash(account: string, nextKeyHash: string) {
   const generation = vaultKeys.currentGeneration
-  const nextSession = await getSession(account, nextKeyHash)
+  const device = await loadDeviceTokenSafely(account, nextKeyHash)
+  const nextSession = await getSession(account, nextKeyHash, device?.token)
   if (!vaultKeys.isCurrent(generation)) {
     throw new Error('The vault was locked before the session was established')
   }
@@ -40,6 +52,12 @@ export async function establishSessionFromKeyHash(account: string, nextKeyHash: 
   setApiSessionExpiredHandler(handleSessionExpired)
   // The session is kept only in memory: this removes one an earlier build stored
   deleteStoredSessionToken()
+  // The server registered a new token with this login, so keep it for the next
+  if (device && !device.stored) {
+    await rememberDeviceToken(account, nextKeyHash, device.token).catch((err: unknown) => {
+      log.warn('Could not store the device token:', err)
+    })
+  }
 }
 
 /**

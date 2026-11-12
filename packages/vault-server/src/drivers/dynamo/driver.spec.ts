@@ -13,7 +13,7 @@ const driver = new DynamoDriver()
 
 async function login(account: string, authTokenHash: string) {
   const record = await driver.getAccountRecord({ account })
-  authenticateLogin(record, authTokenHash)
+  authenticateLogin(record, await driver.getLoginThrottle({ account }), { authTokenHash })
   if (!record) {
     throw new Error(`Could not find account ${account}`)
   }
@@ -651,7 +651,7 @@ describe('DynamoDriver', function () {
     })
 
     const stored = await driverWithDefaults.getAccountRecord({ account })
-    authenticateLogin(stored, authToken)
+    authenticateLogin(stored, {}, { authTokenHash: authToken })
     expect((stored as VaultAccountWithAuth & { displayName?: string }).displayName).toBe('Default')
   })
 })

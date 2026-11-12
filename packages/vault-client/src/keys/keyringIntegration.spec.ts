@@ -312,8 +312,40 @@ describe('Vault Keyring Integration', () => {
 
     await handleSessionExpired()
 
-    expect(getSession).toHaveBeenCalledWith('test-account', expect.any(String))
+    expect(getSession).toHaveBeenCalledWith('test-account', expect.any(String), expect.any(String))
     expect(hasVaultKey('1')).toBe(true)
+  })
+
+  it('sends the same device token at each login with the same password, and a new one with another', async () => {
+    const login = (password: string) => loginVault({ account: 'test-account', password, salt: SALT, saltVersion: 1, iterations: 1000 })
+    const lastDeviceToken = () => vi.mocked(getSession).mock.calls.at(-1)?.[2]
+
+    await login('password123')
+    const first = lastDeviceToken()
+    await lockVaultKeys()
+    await login('password123')
+    expect(first).toBeTypeOf('string')
+    expect(lastDeviceToken()).toBe(first)
+
+    // A wrong password can't open the stored token, so it never goes with one
+    await lockVaultKeys()
+    vi.mocked(getSession).mockRejectedValueOnce(new Error('UNAUTHORIZED'))
+    await login('wrong-password').catch(() => undefined)
+    expect(lastDeviceToken()).not.toBe(first)
+
+    // And a failed login doesn't replace the stored token
+    await lockVaultKeys()
+    await login('password123')
+    expect(lastDeviceToken()).toBe(first)
+  })
+
+  it('forgets the device token when the device data is cleared', async () => {
+    await loginVault({ account: 'test-account', password: 'password123', salt: SALT, saltVersion: 1, iterations: 1000 })
+    expect(localStorage.getItem(getVaultStorageNames().loginDeviceKey)).toBeTruthy()
+
+    await clearVaultDeviceData('test-account')
+
+    expect(localStorage.getItem(getVaultStorageNames().loginDeviceKey)).toBeNull()
   })
 
   it('handleSessionExpired reports a lost session without locking vault when silent re-establishment fails', async () => {

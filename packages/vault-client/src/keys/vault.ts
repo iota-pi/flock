@@ -25,6 +25,7 @@ import { Keyring } from './Keyring'
 import { createLogger } from '../utils/logger'
 import { errorMessage } from '../utils/errorMessage'
 import { clearCachedKeyring, loadCachedKeyring, readCachedKeyring, writeCachedKeyring } from './keyringCache'
+import { clearDeviceToken } from './deviceToken'
 import { clearStoredMetadata, rememberRandomDataKeys, writeStoredMetadata } from './storedMetadata'
 import {
   assertKeyringLoaded,
@@ -281,8 +282,8 @@ export async function storeVault(account: string, activeVersionOverride?: string
 }
 
 /**
- * Removes every trace of the vault from this device: keys, the session, cached keyring, biometric
- * unlock data and stored metadata, plus the account's sync log stores, any WAL an older build left and manual recovery entries. Shut the sync
+ * Removes every trace of the vault from this device: keys, the session, cached keyring, device
+ * token, biometric unlock data and stored metadata, plus the account's sync log stores, any WAL an older build left and manual recovery entries. Shut the sync
  * worker down (clearing its local data) before calling this.
  */
 export async function clearVaultDeviceData(account?: string) {
@@ -294,6 +295,7 @@ export async function clearVaultDeviceData(account?: string) {
   clearKeyData()
   clearBiometricData()
   clearCachedKeyring()
+  clearDeviceToken()
   deleteStoredSessionToken()
   clearStoredMetadata()
 }
