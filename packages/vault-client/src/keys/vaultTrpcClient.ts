@@ -52,6 +52,10 @@ export function createVaultLinks(
     clientOutdatedLink(),
     httpBatchLink({
       url,
+      // Queries would otherwise be GETs with their input (account and item IDs) in the URL, where
+      // anything that records URLs, such as error reporting breadcrumbs, would keep it. The server
+      // must allow this (`allowMethodOverride`).
+      methodOverride: 'POST',
       headers: () => {
         const token = getApiAuthToken()
         return {

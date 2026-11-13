@@ -11,6 +11,10 @@ export interface TrpcErrorMapping {
  * Turns a domain error into the `TRPCError` of the first mapping it is an instance of, so list
  * subclasses before their base classes. Other errors come back unchanged. Use as
  * `throw toTrpcError(error, [...])`.
+ *
+ * The result has no cause. A mapped error is an expected outcome, and a host's error reporting may
+ * treat a cause as a sign of an unexpected one (Flock's does), so a burst of lockouts or conflicts
+ * would otherwise be reported, along with what the domain error's message says.
  */
 export function toTrpcError(error: unknown, mappings: readonly TrpcErrorMapping[]): unknown {
   const mapping = mappings.find(m => error instanceof m.error)
@@ -21,8 +25,7 @@ export function toTrpcError(error: unknown, mappings: readonly TrpcErrorMapping[
   const message = typeof mapping.message === 'function'
     ? mapping.message(error as Error)
     : mapping.message
-  // Passing the cause without a message would make tRPC send the cause's message instead
   return message === undefined
     ? new TRPCError({ code: mapping.code })
-    : new TRPCError({ code: mapping.code, message, cause: error })
+    : new TRPCError({ code: mapping.code, message })
 }

@@ -82,6 +82,29 @@ describe('createServer error reporting', () => {
     }
   })
 
+  // Anyone can lock any ID, so reporting lockouts would let them use up the Sentry quota
+  it('suppresses login lockouts from Sentry', async () => {
+    const server = await createServer(true)
+    try {
+      const account = `unknown-${crypto.randomUUID()}`
+      const attempt = () => server.inject({
+        method: 'POST',
+        url: '/trpc/accounts.login',
+        headers: { 'content-type': 'application/json', ...CURRENT_PROTOCOL },
+        payload: { account, authToken: 'wrong' },
+      })
+      let response = await attempt()
+      for (let i = 0; i < 20 && response.statusCode !== 429; i += 1) {
+        response = await attempt()
+      }
+
+      expect(response.statusCode).toBe(429)
+      expect(Sentry.captureException).not.toHaveBeenCalled()
+    } finally {
+      await server.close()
+    }
+  })
+
   it('captures unexpected internal errors in Sentry with tRPC path tag', async () => {
     const server = await createServer(true)
     vi.spyOn(DynamoDriver.prototype, 'createAccount').mockRejectedValue(new Error('DynamoDB Connection Failure'))
@@ -127,6 +150,29 @@ describe('createServer unknown accounts', () => {
       expect(params).toMatchObject({ saltVersion: CURRENT_SALT_VERSION, kdf: getDefaultKdf(), dataVersion: FLOCK_DATA_VERSION })
       expect(Buffer.from(params.salt, 'base64')).toHaveLength(16)
       expect((await request()).json().result.data).toEqual(params)
+    } finally {
+      await server.close()
+    }
+  })
+})
+
+describe('createServer queries', () => {
+  // Clients POST queries so that account and item IDs stay out of URLs, and older builds still GET
+  it('answers a query sent as a POST the same as a GET', async () => {
+    const server = await createServer(true)
+    try {
+      const account = `unknown-${crypto.randomUUID()}`
+      const input = encodeURIComponent(JSON.stringify({ account }))
+      const viaGet = await server.inject({ method: 'GET', url: `/trpc/accounts.getSecurityParams?input=${input}` })
+      const viaPost = await server.inject({
+        method: 'POST',
+        url: '/trpc/accounts.getSecurityParams',
+        headers: { 'content-type': 'application/json' },
+        payload: { account },
+      })
+
+      expect(viaPost.statusCode).toBe(200)
+      expect(viaPost.json().result.data).toEqual(viaGet.json().result.data)
     } finally {
       await server.close()
     }

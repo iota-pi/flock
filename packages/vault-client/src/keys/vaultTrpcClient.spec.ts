@@ -60,6 +60,17 @@ describe('createVaultLinks', () => {
     expect(headers.get(PROTOCOL_VERSION_HEADER)).toBe(String(VAULT_PROTOCOL_VERSION))
   })
 
+  it('sends queries as POSTs, keeping their input out of the URL', async () => {
+    const customFetch = vi.fn<typeof fetch>(async () => trpcErrorResponse('Not found', 'NOT_FOUND', 404))
+
+    await expect(createClient(customFetch).accounts.getSecurityParams.query({ account: 'secret-acct' })).rejects.toThrow()
+
+    const [url, init] = customFetch.mock.calls[0]
+    expect(init?.method).toBe('POST')
+    expect(String(url)).not.toContain('secret-acct')
+    expect(String(init?.body)).toContain('secret-acct')
+  })
+
   it('announces when the server says this build is too old', async () => {
     const customFetch = vi.fn<typeof fetch>(async () => trpcErrorResponse('CLIENT_OUTDATED', 'PRECONDITION_FAILED', 412))
 

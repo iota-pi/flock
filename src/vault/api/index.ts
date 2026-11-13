@@ -64,6 +64,9 @@ async function createServer(devMode = false) {
     prefix: '/trpc',
     trpcOptions: {
       router: appRouter,
+      // Clients send queries as POSTs, keeping account and item IDs out of URLs. GETs still work,
+      // for builds from before that.
+      allowMethodOverride: true,
       createContext: createVaultContext({
         vault: createFlockDriver(devMode),
         minProtocolVersion: MIN_PROTOCOL_VERSION,
