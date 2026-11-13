@@ -10,7 +10,7 @@ type CreateAccountBody = z.infer<typeof CreateAccountBodySchema>
 type AccountCreationResponse = z.infer<typeof AccountCreationResponseSchema>
 
 export async function createAccount(
-  { salt, authToken, saltVersion, kdf, keyring, randomDataKeys }: CreateAccountBody,
+  { salt, authToken, saltVersion, kdf, keyring, randomDataKeys, keyringVersion }: CreateAccountBody,
 ): Promise<AccountCreationResponse> {
   return getVaultTrpcClient().accounts.createAccount.mutate({
     salt,
@@ -19,6 +19,7 @@ export async function createAccount(
     kdf,
     keyring,
     randomDataKeys,
+    keyringVersion,
   })
 }
 
@@ -73,11 +74,11 @@ export async function getSession(account: string, authToken: string, deviceToken
   return response.session
 }
 
-/** The account's encrypted keyring, and whether its data keys were created random (see `randomDataKeys`) */
-export async function getKeyring(account: string): Promise<{ keyring?: string, randomDataKeys: boolean }> {
+/** The account's encrypted keyring */
+export async function getKeyring(account: string): Promise<{ keyring?: string }> {
   const response = await getVaultTrpcClient().accounts.getKeyring.query({ account })
   assertSuccess(response, 'getKeyring')
-  return { keyring: response.keyring, randomDataKeys: response.randomDataKeys === true }
+  return { keyring: response.keyring }
 }
 
 export async function updateKeyring({

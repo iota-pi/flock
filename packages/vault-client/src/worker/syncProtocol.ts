@@ -4,8 +4,6 @@ import type { BackupSyncState } from '../shared/backupSyncState'
 import type { ItemId } from '@vault/shared'
 
 export interface InitRepoOptions {
-  /** Whether the account's data keys are random, so an active key version of '1' may seal local data */
-  randomDataKeys?: boolean
   /** The main thread's session token, which the worker keeps only in memory */
   authToken?: string | null
 }

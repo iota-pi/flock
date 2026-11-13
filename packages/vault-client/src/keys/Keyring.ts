@@ -57,8 +57,8 @@ export class VaultNotInitializedError extends Error {
 }
 
 /**
- * Thrown instead of encrypting with a password-derived data key v1 when a newer key is known to
- * exist, as when the server serves a keyring from before a rotation (see "Keyring rollback" in
+ * Thrown instead of encrypting with data key v1, which may be password-derived, when a newer key is
+ * known to exist, as when the server serves a keyring from before a rotation (see "Keyring rollback" in
  * docs/local-encryption.md)
  */
 export class StaleKeyringError extends Error {
@@ -108,8 +108,6 @@ export class Keyring implements KeyProvider, LocalKeyWrapper {
   private active = '1'
   /** The highest key version this keyring has seen: loaded, pinned, or named by a ciphertext */
   private known = 0
-  /** Whether data key v1 is derived from the account's first password (see `assertActiveUsable`) */
-  private v1PasswordDerived = false
   private warnedStaleVersions = new Set<number>()
   private waiters = new Set<KeyVersionWaiter>()
 
@@ -130,14 +128,6 @@ export class Keyring implements KeyProvider, LocalKeyWrapper {
   /** Records that key version `kver` exists, whether or not it is loaded here */
   noteKeyVersion(kver: string | undefined): void {
     this.known = Math.max(this.known, keyVersionNumber(kver))
-  }
-
-  /**
-   * Sets whether data key v1 is derived from a password, as on accounts created before random
-   * data keys. Such a keyring refuses to encrypt with v1 once a newer key is known.
-   */
-  setV1PasswordDerived(derived: boolean): void {
-    this.v1PasswordDerived = derived
   }
 
   hasKey(kver?: string): boolean {
@@ -225,10 +215,9 @@ export class Keyring implements KeyProvider, LocalKeyWrapper {
     this.notifyWaiters()
   }
 
-  /** Forgets which versions are known and whether v1 is password-derived, as for another account */
+  /** Forgets which versions are known, as for another account */
   forgetVersionHistory(): void {
     this.known = 0
-    this.v1PasswordDerived = false
     this.warnedStaleVersions.clear()
   }
 
@@ -306,13 +295,14 @@ export class Keyring implements KeyProvider, LocalKeyWrapper {
   }
 
   /**
-   * Refuses to encrypt with a password-derived v1 once a newer key is known to exist, since data
-   * written with it could be attacked by guessing the password. On other accounts a stale keyring
-   * only warns: its active key is still random.
+   * Refuses to encrypt with v1 once a newer key is known to exist. v1 may be derived from the
+   * account's first password (new accounts start at v2, and older ones rotate off v1 at login), so
+   * data written with it could be attacked by guessing the password. With a newer active key, a
+   * stale keyring only warns: that key is still random.
    */
   private assertActiveUsable(): void {
     if (!this.isStale) return
-    if (this.active === '1' && this.v1PasswordDerived) {
+    if (this.active === '1') {
       throw new StaleKeyringError(this.knownVersion)
     }
     if (!this.warnedStaleVersions.has(this.known)) {

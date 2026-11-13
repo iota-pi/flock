@@ -277,7 +277,6 @@ export class SyncWorker implements SyncApi {
       // The keyring is the one the main thread exported, with the highest key version it knows of
       this.keyring.forgetVersionHistory()
       await this.keyring.load(vaultKey)
-      this.keyring.setV1PasswordDerived(options?.randomDataKeys !== true)
       await Automerge.initializeWasm(this.automergeWasmUrl)
 
       const context = new SyncWorkerContext({
@@ -292,7 +291,6 @@ export class SyncWorker implements SyncApi {
           if (this._context === context) this.subscriptions.update(itemIds)
         },
         ...this.sessionConfig,
-        randomDataKeys: options?.randomDataKeys,
         keys: this.keyring,
         localKeys: this.keyring,
       })

@@ -26,14 +26,7 @@ import { createLogger } from '../utils/logger'
 import { errorMessage } from '../utils/errorMessage'
 import { clearCachedKeyring, loadCachedKeyring, readCachedKeyring, writeCachedKeyring } from './keyringCache'
 import { clearDeviceToken } from './deviceToken'
-import {
-  clearStoredMetadata,
-  hasRandomDataKeys,
-  readKeyVersion,
-  rememberKeyVersion,
-  rememberRandomDataKeys,
-  writeStoredMetadata,
-} from './storedMetadata'
+import { clearStoredMetadata, readKeyVersion, rememberKeyVersion, writeStoredMetadata } from './storedMetadata'
 import {
   assertKeyringLoaded,
   attemptSession,
@@ -48,6 +41,9 @@ import { getApiAuthToken } from './runtime'
 const log = createLogger('vault')
 
 const { keyring } = vaultKeys
+
+/** The data key version new accounts start at. v1 is left for keys that may be password-derived. */
+const FIRST_KEY_VERSION = '2'
 
 export function hasVaultKey(kver?: string): boolean {
   return keyring.hasKey(kver)
@@ -74,13 +70,12 @@ export async function reloadKeyringFromStorage(): Promise<{
 }
 
 /**
- * Tells the keyring what this device already knows about the account's data keys: the highest
- * version it has had active, and whether v1 is password-derived. Call it after `setMasterKey`,
- * before loading a keyring, so a keyring the server rolled back can't lower the active version.
+ * Tells the keyring the highest data key version this device has had active for the account. Call
+ * it after `setMasterKey`, before loading a keyring, so a keyring the server rolled back can't lower
+ * the active version.
  */
 export function pinKnownKeyVersions(account: string) {
   keyring.noteKeyVersion(readKeyVersion(account))
-  keyring.setV1PasswordDerived(!hasRandomDataKeys(account))
 }
 
 /**
@@ -126,8 +121,6 @@ export async function syncKeyringFromServer(account: string, { retry = false } =
   try {
     const response = retry ? await getKeyringWithRetry(account) : await getKeyring(account)
     encryptedKeyringStr = response.keyring
-    rememberRandomDataKeys(account, response.randomDataKeys)
-    keyring.setV1PasswordDerived(!response.randomDataKeys)
   } catch (err) {
     log.warn('Failed to retrieve keyring from server (network error):', err)
     return false
@@ -237,6 +230,9 @@ export async function loginVault({
 
   writeStoredMetadata(account, { salt, iterations, saltVersion, kdf })
   rememberKeyVersion(account, keyring.activeVersion)
+  if (serverKeyringLoaded) {
+    await rotateOffKeyV1(account)
+  }
 
   // Upgrade outdated Argon2id parameters by changing the password to itself. The re-wrapped keyring
   // must hold every key, so this waits until the server's keyring has been loaded.
@@ -250,6 +246,24 @@ export async function loginVault({
     }
   }
   return { keyDerivationUpgraded: false, biometricsCleared: false }
+}
+
+/**
+ * Moves an account whose active data key is still v1 onto a new random key, once the server's
+ * keyring has loaded at an unlock. The client can't tell whether v1 was derived from the first
+ * password, so it never seals local data with v1 or encrypts with it once a newer key exists (see
+ * "Keyring rollback" in docs/local-encryption.md). PBKDF2 accounts are left to the migration app,
+ * which changes the password first. A failure (such as another device rotating at the same time)
+ * is logged, and the next unlock tries again.
+ */
+export async function rotateOffKeyV1(account: string): Promise<void> {
+  if (keyring.activeVersion !== '1' || vaultKeys.masterKeyIsLegacy || keyring.isStale) return
+  try {
+    await rotateVaultKey(account)
+    log.info(`Rotated the account's data key from v1 to v${keyring.activeVersion}`)
+  } catch (err) {
+    log.warn('Failed to rotate off data key v1; will retry at the next unlock:', err)
+  }
 }
 
 /**
@@ -392,8 +406,9 @@ async function rewrapMasterKey({
 export async function createVaultAccount(password: string): Promise<string> {
   const { salt, kdf, saltVersion, masterKey, authToken } = await deriveNewCredentials(password)
 
+  // Starts at v2, so that an active v1 only ever means a key that may be password-derived
   const newKeyring = new Keyring()
-  newKeyring.replace(new Map([['1', await generateVaultKey()]]), '1')
+  newKeyring.replace(new Map([[FIRST_KEY_VERSION, await generateVaultKey()]]), FIRST_KEY_VERSION)
   const encryptedKeyring = await wrapKeyring(newKeyring, masterKey)
 
   const { account } = await createAccount({
@@ -403,6 +418,7 @@ export async function createVaultAccount(password: string): Promise<string> {
     kdf,
     keyring: encryptedKeyring,
     randomDataKeys: true,
+    keyringVersion: parseInt(FIRST_KEY_VERSION, 10),
   })
   return account
 }

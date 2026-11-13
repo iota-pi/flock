@@ -34,7 +34,7 @@ beforeEach(() => {
     getSession: vi.fn().mockResolvedValue('mock-session'),
     createAccount: vi.fn(),
     getSecurityParams: vi.fn(),
-    getKeyring: vi.fn().mockResolvedValue({ randomDataKeys: false }),
+    getKeyring: vi.fn().mockResolvedValue({}),
     updateKeyring: vi.fn().mockResolvedValue(undefined),
     changePassword: vi.fn().mockResolvedValue(undefined),
   })
@@ -447,7 +447,7 @@ describe('Vault Keyring Integration', () => {
   })
 
   it('succeeds and preserves local keys when storeVault fails during loginVault for new account', async () => {
-    vi.mocked(getKeyring).mockResolvedValueOnce({ randomDataKeys: false })
+    vi.mocked(getKeyring).mockResolvedValueOnce({})
     vi.mocked(updateKeyring).mockRejectedValueOnce(new Error('Network error on seed'))
 
     await loginVault({
@@ -472,7 +472,6 @@ describe('Vault Keyring Integration', () => {
         iv: 'invalid-iv',
         cipher: 'invalid-cipher',
       }),
-      randomDataKeys: false,
     })
 
     await expect(
@@ -569,7 +568,7 @@ describe('Vault Keyring Integration', () => {
     beforeEach(async () => {
       // Drop responses queued by earlier tests that didn't use them
       vi.mocked(getSession).mockReset().mockResolvedValue('mock-session')
-      vi.mocked(getKeyring).mockReset().mockResolvedValue({ randomDataKeys: false })
+      vi.mocked(getKeyring).mockReset().mockResolvedValue({})
 
       // Log in once to seed the keyring cache, then forget the keys
       await loginVault(loginParams)
@@ -719,7 +718,7 @@ describe('Vault Keyring Integration', () => {
       const oldKeyring = vi.mocked(updateKeyring).mock.calls[0][0].keyring
       await rotateVaultKey(ACCOUNT)
       expect(keyring.activeVersion).toBe('2')
-      vi.mocked(getKeyring).mockResolvedValue({ keyring: oldKeyring, randomDataKeys: false })
+      vi.mocked(getKeyring).mockResolvedValue({ keyring: oldKeyring })
       return oldKeyring
     }
 
@@ -761,7 +760,6 @@ describe('Vault Keyring Integration', () => {
 
       const worker = new Keyring()
       await worker.load(await exportKeyringData())
-      worker.setV1PasswordDerived(true)
       await expect(worker.encryptBytes(new Uint8Array([1]), 'item-1')).rejects.toBeInstanceOf(StaleKeyringError)
     })
   })

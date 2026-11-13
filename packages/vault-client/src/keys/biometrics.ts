@@ -12,7 +12,7 @@ import {
 } from './session'
 import { readStoredMetadata, rememberKeyVersion, writeStoredMetadata } from './storedMetadata'
 import { ApiHttpError } from './trackedFetch'
-import { pinKnownKeyVersions, syncKeyringFromServer } from './vault'
+import { pinKnownKeyVersions, rotateOffKeyV1, syncKeyringFromServer } from './vault'
 import { getHostHooks } from './vaultHost'
 import { vaultKeys } from './VaultKeyState'
 import { getPrfOutput, registerPrfCredential } from './webauthn'
@@ -57,7 +57,7 @@ export async function enableBiometrics(account: string): Promise<void> {
   })
 }
 
-type BiometricSessionOutcome = { error: unknown }
+type BiometricSessionOutcome = { error: unknown, keyringLoaded?: boolean }
 
 export async function unlockWithBiometrics(account: string): Promise<void> {
   const data = readBiometricData()
@@ -94,7 +94,7 @@ export async function unlockWithBiometrics(account: string): Promise<void> {
     () => establishSessionFromKeyHash(account, vaultKeys.keyHash)
       .then(() => syncKeyringFromServer(account, { retry: !vaultKeys.keyring.hasKey() }))
       .then(
-        (): BiometricSessionOutcome => ({ error: undefined }),
+        (keyringLoaded): BiometricSessionOutcome => ({ error: undefined, keyringLoaded }),
         (error: unknown): BiometricSessionOutcome => ({ error }),
       ),
     { canWaitLess: cachedKeyringLoaded, finishLate: finishLateBiometricSession },
@@ -115,6 +115,9 @@ export async function unlockWithBiometrics(account: string): Promise<void> {
 
   writeStoredMetadata(account)
   rememberKeyVersion(account, vaultKeys.keyring.activeVersion)
+  if (outcome?.keyringLoaded) {
+    await rotateOffKeyV1(account)
+  }
 }
 
 function finishLateBiometricSession({ error }: BiometricSessionOutcome) {

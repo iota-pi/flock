@@ -9,11 +9,6 @@ export type VaultStoredMetadata = {
   /** Argon2id parameters. Without them, the account derives its key with PBKDF2 and `iterations`. */
   kdf?: KdfParams,
   /**
-   * Whether the account was created with a random data key v1, as the server last said. With it, an
-   * active key version of '1' isn't derived from a password, so local data may be sealed with it.
-   */
-  randomDataKeys?: boolean,
-  /**
    * The highest data key version this device has had active. A keyring the server serves later
    * can't lower it (see "Keyring rollback" in docs/local-encryption.md).
    */
@@ -21,12 +16,6 @@ export type VaultStoredMetadata = {
 }
 
 export type KeyDerivationParams = { salt?: string, iterations?: number, saltVersion?: number, kdf?: KdfParams }
-
-/**
- * What the server last said about the account's data keys. Login fetches the keyring before it
- * writes a new device's metadata, so the answer is kept until then.
- */
-let lastKeyringAnswer: { account: string, randomDataKeys: boolean } | null = null
 
 export function readStoredMetadata(): VaultStoredMetadata | null {
   const serialized = localStorage.getItem(getVaultStorageNames().vaultMetadataKey)
@@ -40,7 +29,6 @@ export function readStoredMetadata(): VaultStoredMetadata | null {
           iterations: typeof parsed.iterations === 'number' ? parsed.iterations : undefined,
           saltVersion: typeof parsed.saltVersion === 'number' ? parsed.saltVersion : undefined,
           kdf: KdfParamsSchema.safeParse(parsed.kdf).data,
-          randomDataKeys: parsed.randomDataKeys === true ? true : undefined,
           keyVersion: typeof parsed.keyVersion === 'string' && /^\d+$/.test(parsed.keyVersion)
             ? parsed.keyVersion
             : undefined,
@@ -62,10 +50,6 @@ export function readStoredMetadata(): VaultStoredMetadata | null {
 export function writeStoredMetadata(account: string, params?: KeyDerivationParams) {
   const stored = readStoredMetadata()
   const keyParams = params ?? (stored?.account === account ? stored : undefined)
-  // Learned from the server separately (see rememberRandomDataKeys), so a key derivation change keeps it
-  const randomDataKeys = lastKeyringAnswer?.account === account
-    ? lastKeyringAnswer.randomDataKeys || undefined
-    : stored?.account === account ? stored.randomDataKeys : undefined
   localStorage.setItem(
     getVaultStorageNames().vaultMetadataKey,
     JSON.stringify({
@@ -74,27 +58,9 @@ export function writeStoredMetadata(account: string, params?: KeyDerivationParam
       iterations: keyParams?.kdf ? undefined : keyParams?.iterations,
       saltVersion: keyParams?.saltVersion,
       kdf: keyParams?.kdf,
-      randomDataKeys,
       keyVersion: stored?.account === account ? stored.keyVersion : undefined,
     } satisfies VaultStoredMetadata),
   )
-}
-
-/** Records what the server says about the account's data keys, for the sync worker to read at start */
-export function rememberRandomDataKeys(account: string, randomDataKeys: boolean) {
-  lastKeyringAnswer = { account, randomDataKeys }
-  const stored = readStoredMetadata()
-  if (stored?.account !== account || stored.randomDataKeys === (randomDataKeys || undefined)) return
-  localStorage.setItem(
-    getVaultStorageNames().vaultMetadataKey,
-    JSON.stringify({ ...stored, randomDataKeys: randomDataKeys || undefined } satisfies VaultStoredMetadata),
-  )
-}
-
-/** Whether the account's data keys are random, as this device last heard (see `VaultStoredMetadata`) */
-export function hasRandomDataKeys(account: string): boolean {
-  const stored = readStoredMetadata()
-  return stored?.account === account && stored.randomDataKeys === true
 }
 
 /** The highest data key version this device has had active for the account, if it has recorded one */

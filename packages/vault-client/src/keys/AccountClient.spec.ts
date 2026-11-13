@@ -101,7 +101,7 @@ describe('AccountClient', () => {
   it('creates accounts with their Argon2id parameters and keyring', async () => {
     vi.mocked(getVaultTrpcClient().accounts.createAccount.mutate).mockResolvedValue({ account: 'acc-1' })
 
-    await createAccount({ salt: 'salt', authToken: 'token', saltVersion: 1, kdf: ARGON2ID, keyring: 'keyring', randomDataKeys: true })
+    await createAccount({ salt: 'salt', authToken: 'token', saltVersion: 1, kdf: ARGON2ID, keyring: 'keyring', randomDataKeys: true, keyringVersion: 2 })
 
     expect(getVaultTrpcClient().accounts.createAccount.mutate).toHaveBeenCalledWith({
       salt: 'salt',
@@ -110,6 +110,7 @@ describe('AccountClient', () => {
       kdf: ARGON2ID,
       keyring: 'keyring',
       randomDataKeys: true,
+      keyringVersion: 2,
     })
   })
 
@@ -175,7 +176,7 @@ describe('AccountClient', () => {
     })
 
     const keyring = await getKeyring('acc-1')
-    expect(keyring).toEqual({ keyring: 'encrypted-keyring-data', randomDataKeys: true })
+    expect(keyring).toEqual({ keyring: 'encrypted-keyring-data' })
     expect(getVaultTrpcClient().accounts.getKeyring.query).toHaveBeenCalledWith({
       account: 'acc-1',
     })

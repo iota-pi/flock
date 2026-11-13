@@ -525,13 +525,12 @@ describe('SyncWorkerContext', () => {
         clientEventHub,
         apiClient: new SyncApiClient(),
         upgradeLocalEncryption: true,
-        randomDataKeys: true,
       })
       vi.spyOn(ctx.lifecycle, 'start').mockResolvedValue(undefined)
       return { ctx, localKeys }
     }
 
-    it('opens local storage under the local data lock, with the keys and what the server said about them', async () => {
+    it('opens local storage under the local data lock, with the keys', async () => {
       const request = vi.fn(async (_name: string, _options: unknown, callback: () => Promise<unknown>) => callback())
       vi.stubGlobal('navigator', { ...globalThis.navigator, locks: { request } })
       try {
@@ -548,7 +547,6 @@ describe('SyncWorkerContext', () => {
           accountId: 'test-account-sealed',
           upgradeLocalEncryption: true,
           keys: localKeys,
-          randomDataKeys: true,
         }))
       } finally {
         vi.unstubAllGlobals()

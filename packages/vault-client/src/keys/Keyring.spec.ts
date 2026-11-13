@@ -177,9 +177,8 @@ describe('Keyring', () => {
       expect(keyring.knownVersion).toBe('4')
     })
 
-    it('refuses to encrypt with a password-derived v1 once a newer version is known', async () => {
+    it('refuses to encrypt with v1 once a newer version is known', async () => {
       const keyring = await keyringWith(['1'])
-      keyring.setV1PasswordDerived(true)
       await expect(keyring.encryptBytes(new Uint8Array([1]))).resolves.toBeDefined()
 
       keyring.noteKeyVersion('2')
@@ -189,12 +188,11 @@ describe('Keyring', () => {
       await expect(keyring.wrapLocalKey(new Uint8Array(32), new Uint8Array([1]))).rejects.toBeInstanceOf(StaleKeyringError)
     })
 
-    it('still encrypts with a random v1 when a newer version is known', async () => {
-      const keyring = await keyringWith(['1'])
-      keyring.setV1PasswordDerived(false)
-      keyring.noteKeyVersion('2')
+    it('still encrypts with a key newer than v1 when a newer version still is known', async () => {
+      const keyring = await keyringWith(['1', '2'])
+      keyring.noteKeyVersion('3')
 
-      expect((await keyring.encryptBytes(new Uint8Array([1]))).kver).toBe('1')
+      expect((await keyring.encryptBytes(new Uint8Array([1]))).kver).toBe('2')
     })
 
     it('carries the highest known version to another realm, without putting it in the stored format', async () => {
@@ -217,9 +215,8 @@ describe('Keyring', () => {
       expect(Array.from(keys.keys())).toEqual(['1'])
     })
 
-    it('forgets known versions and the v1 flag on clear', async () => {
+    it('forgets known versions on clear', async () => {
       const keyring = await keyringWith(['1'])
-      keyring.setV1PasswordDerived(true)
       keyring.noteKeyVersion('2')
 
       keyring.clear()
