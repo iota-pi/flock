@@ -1,4 +1,5 @@
 import { TRPCError } from '@trpc/server'
+import { fetchRequestHandler } from '@trpc/server/adapters/fetch'
 import {
   router,
   publicProcedure,
@@ -168,6 +169,48 @@ describe('protectedProcedure authentication errors', () => {
     await expect(createCaller(async () => {
       throw new Error('DynamoDB timeout')
     }).testAction({ account: 'acc-1' })).rejects.toMatchObject({ code: 'INTERNAL_SERVER_ERROR' })
+  })
+})
+
+describe('error responses', () => {
+  const errorRouter = router({
+    crash: publicProcedure.query(() => {
+      throw new Error('Could not add a session to account acc-1')
+    }),
+    reject: publicProcedure.query(() => {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'Item is too large' })
+    }),
+  })
+
+  async function request(path: string) {
+    const response = await fetchRequestHandler({
+      endpoint: '/trpc',
+      req: new Request(`http://localhost/trpc/${path}`),
+      router: errorRouter,
+      createContext: () => ({ authToken: '', vault: {} as VaultDriver, protocolVersion: 0, minProtocolVersion: 0 }),
+    })
+    const body = await response.json() as { error: { message: string, data: Record<string, unknown> } }
+    return { status: response.status, body }
+  }
+
+  // NODE_ENV isn't 'production' in tests either, so these also catch tRPC falling back to dev mode
+  it('hides the message and stack of an unexpected error', async () => {
+    const { status, body } = await request('crash')
+
+    expect(status).toBe(500)
+    expect(body.error.message).toBe('Internal server error')
+    expect(body.error.data).toMatchObject({ code: 'INTERNAL_SERVER_ERROR', httpStatus: 500 })
+    expect(body.error.data).not.toHaveProperty('stack')
+    expect(JSON.stringify(body)).not.toContain('acc-1')
+  })
+
+  it('keeps the message of an expected error, without its stack', async () => {
+    const { status, body } = await request('reject')
+
+    expect(status).toBe(400)
+    expect(body.error.message).toBe('Item is too large')
+    expect(body.error.data).toMatchObject({ code: 'BAD_REQUEST' })
+    expect(body.error.data).not.toHaveProperty('stack')
   })
 })
 
