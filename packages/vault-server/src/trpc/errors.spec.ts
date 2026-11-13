@@ -20,13 +20,26 @@ describe('toTrpcError', () => {
     expect(result).toMatchObject({ code: 'UNAUTHORIZED' })
   })
 
-  it('uses a fixed message, or one built from the error, and keeps the cause', () => {
+  it('uses a fixed message, or one built from the error', () => {
     const error = new TooManyLoginAttemptsError('Slow down')
 
     expect(toTrpcError(error, [{ error: TooManyLoginAttemptsError, code: 'TOO_MANY_REQUESTS', message: 'Nope' }]))
-      .toMatchObject({ code: 'TOO_MANY_REQUESTS', message: 'Nope', cause: error })
+      .toMatchObject({ code: 'TOO_MANY_REQUESTS', message: 'Nope' })
     expect(toTrpcError(error, [{ error: TooManyLoginAttemptsError, code: 'TOO_MANY_REQUESTS', message: e => e.message }]))
-      .toMatchObject({ code: 'TOO_MANY_REQUESTS', message: 'Slow down', cause: error })
+      .toMatchObject({ code: 'TOO_MANY_REQUESTS', message: 'Slow down' })
+  })
+
+  // Flock's error reporting sends errors with a cause to Sentry, so a lockout attack would flood it
+  it('leaves out the cause, so that hosts treat the result as an expected error', () => {
+    const withMessage = toTrpcError(new TooManyLoginAttemptsError('Slow down'), [
+      { error: TooManyLoginAttemptsError, code: 'TOO_MANY_REQUESTS', message: 'Nope' },
+    ])
+    const withoutMessage = toTrpcError(new AuthenticationError('No such account'), [
+      { error: AuthenticationError, code: 'UNAUTHORIZED' },
+    ])
+
+    expect((withMessage as TRPCError).cause).toBeUndefined()
+    expect((withoutMessage as TRPCError).cause).toBeUndefined()
   })
 
   it('uses the first mapping that matches', () => {
