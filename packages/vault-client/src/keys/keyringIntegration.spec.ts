@@ -7,12 +7,13 @@ import {
   hasVaultKey,
   reloadKeyringFromStorage,
   clearVaultDeviceData,
+  syncKeyringFromServer,
 } from './vault'
 import { getVaultSession, handleSessionExpired, lockVaultKeys, onLateSession } from './session'
-import { readCachedKeyring } from './keyringCache'
+import { clearCachedKeyring, readCachedKeyring } from './keyringCache'
 import { readStoredMetadata } from './storedMetadata'
 import { configureVaultHost } from './vaultHost'
-import { Keyring } from './Keyring'
+import { Keyring, StaleKeyringError } from './Keyring'
 import { vaultKeys } from './VaultKeyState'
 import { getSessionExpiredHandler } from './runtime'
 import { getVaultStorageNames } from '../shared/storageNames'
@@ -33,7 +34,7 @@ beforeEach(() => {
     getSession: vi.fn().mockResolvedValue('mock-session'),
     createAccount: vi.fn(),
     getSecurityParams: vi.fn(),
-    getKeyring: vi.fn().mockResolvedValue({ randomDataKeys: false }),
+    getKeyring: vi.fn().mockResolvedValue({}),
     updateKeyring: vi.fn().mockResolvedValue(undefined),
     changePassword: vi.fn().mockResolvedValue(undefined),
   })
@@ -446,7 +447,7 @@ describe('Vault Keyring Integration', () => {
   })
 
   it('succeeds and preserves local keys when storeVault fails during loginVault for new account', async () => {
-    vi.mocked(getKeyring).mockResolvedValueOnce({ randomDataKeys: false })
+    vi.mocked(getKeyring).mockResolvedValueOnce({})
     vi.mocked(updateKeyring).mockRejectedValueOnce(new Error('Network error on seed'))
 
     await loginVault({
@@ -471,7 +472,6 @@ describe('Vault Keyring Integration', () => {
         iv: 'invalid-iv',
         cipher: 'invalid-cipher',
       }),
-      randomDataKeys: false,
     })
 
     await expect(
@@ -568,7 +568,7 @@ describe('Vault Keyring Integration', () => {
     beforeEach(async () => {
       // Drop responses queued by earlier tests that didn't use them
       vi.mocked(getSession).mockReset().mockResolvedValue('mock-session')
-      vi.mocked(getKeyring).mockReset().mockResolvedValue({ randomDataKeys: false })
+      vi.mocked(getKeyring).mockReset().mockResolvedValue({})
 
       // Log in once to seed the keyring cache, then forget the keys
       await loginVault(loginParams)
@@ -705,6 +705,62 @@ describe('Vault Keyring Integration', () => {
       const result = await reloadKeyringFromStorage()
       expect(result.success).toBe(false)
       expect(result.passwordChanged).toBe(true)
+    })
+  })
+
+  describe('a server that replays an older keyring', () => {
+    const ACCOUNT = 'test-account'
+    const login = () => loginVault({ account: ACCOUNT, password: 'password123', salt: SALT, saltVersion: 1, iterations: 1000 })
+
+    /** Logs in a PBKDF2 account, rotates once, and returns the keyring the server held before the rotation */
+    async function rotateKeepingOldKeyring(): Promise<string> {
+      await login()
+      const oldKeyring = vi.mocked(updateKeyring).mock.calls[0][0].keyring
+      await rotateVaultKey(ACCOUNT)
+      expect(keyring.activeVersion).toBe('2')
+      vi.mocked(getKeyring).mockResolvedValue({ keyring: oldKeyring })
+      return oldKeyring
+    }
+
+    it('keeps the rotated key active and encrypts with it', async () => {
+      await rotateKeepingOldKeyring()
+
+      await syncKeyringFromServer(ACCOUNT)
+
+      expect(keyring.activeVersion).toBe('2')
+      expect((await keyring.encryptBytes(new Uint8Array([1]), 'item-1')).kver).toBe('2')
+      expect(JSON.parse(await exportKeyringData()).activeVersion).toBe('2')
+    })
+
+    it('keeps the rotated keyring in the cache, so the next login still has the new key', async () => {
+      const oldKeyring = await rotateKeepingOldKeyring()
+
+      await syncKeyringFromServer(ACCOUNT)
+      expect(readCachedKeyring()).not.toBe(oldKeyring)
+
+      await lockVaultKeys()
+      await login()
+
+      expect(hasVaultKey('2')).toBe(true)
+      expect(keyring.activeVersion).toBe('2')
+    })
+
+    it('refuses to encrypt with the password-derived key when the cache is gone but the device remembers v2', async () => {
+      await rotateKeepingOldKeyring()
+      expect(readStoredMetadata()?.keyVersion).toBe('2')
+
+      await lockVaultKeys()
+      clearCachedKeyring()
+      await login()
+
+      expect(keyring.activeVersion).toBe('1')
+      expect(keyring.isStale).toBe(true)
+      await expect(keyring.encryptBytes(new Uint8Array([1]), 'item-1')).rejects.toBeInstanceOf(StaleKeyringError)
+      await expect(rotateVaultKey(ACCOUNT)).rejects.toThrow(/needs key version 2/)
+
+      const worker = new Keyring()
+      await worker.load(await exportKeyringData())
+      await expect(worker.encryptBytes(new Uint8Array([1]), 'item-1')).rejects.toBeInstanceOf(StaleKeyringError)
     })
   })
 })

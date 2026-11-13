@@ -22,7 +22,8 @@ const DOC = 'doc-1'
 const SNAPSHOT = new TextEncoder().encode('Alice snapshot')
 const INCREMENTAL = new TextEncoder().encode('Alice change')
 
-async function createKeyring(versions: string[] = ['1']): Promise<Keyring> {
+/** A keyring whose last version is active. By default it's v2, a random key that may seal local data. */
+async function createKeyring(versions: string[] = ['1', '2']): Promise<Keyring> {
   const keyring = new Keyring()
   const keys = new Map<string, CryptoKey>()
   for (const version of versions) keys.set(version, await generateVaultKey())
@@ -57,7 +58,6 @@ describe('openLocalStorage', () => {
       accountId: ACCOUNT,
       upgradeLocalEncryption: true,
       keys,
-      randomDataKeys: true,
       upgradeDeps: { retireLegacyStores: retire },
       ...overrides,
     })
@@ -95,7 +95,7 @@ describe('openLocalStorage', () => {
     await local.storage.save([DOC, 'snapshot', 'heads-1'], SNAPSHOT)
 
     expect(local).toMatchObject({ mode: 'sealed', retired: true })
-    expect(await readSealedMeta(DSK_KEY)).toMatchObject({ kver: '1' })
+    expect(await readSealedMeta(DSK_KEY)).toMatchObject({ kver: '2' })
     expect(await local.storage.load([DOC, 'snapshot', 'heads-1'])).toEqual(SNAPSHOT)
     expect(retire).not.toHaveBeenCalled()
   })
@@ -117,24 +117,27 @@ describe('openLocalStorage', () => {
     expect(await second.storage.load([DOC, 'snapshot', 'heads-1'])).toEqual(SNAPSHOT)
   })
 
-  describe('while the active data key may be password-derived', () => {
+  describe('while v1, which may be password-derived, is the active data key', () => {
     it('stays on plaintext storage', async () => {
-      const local = await open({ randomDataKeys: false })
+      keys = await createKeyring(['1'])
+
+      const local = await open()
 
       expect(local.mode).toBe('plaintext')
       expect(await databaseExists(getSealedAutomergeDBName(ACCOUNT))).toBe(false)
     })
 
-    it('seals once a random key is active', async () => {
-      keys = await createKeyring(['1', '2'])
+    it('seals once a newer key is active', async () => {
+      await (await open({ keys: await createKeyring(['1']) })).storage.close()
 
-      expect((await open({ randomDataKeys: false })).mode).toBe('sealed')
+      expect((await open()).mode).toBe('sealed')
     })
 
     it('keeps using a device key it already has', async () => {
       await (await open()).storage.close()
+      keys.setActiveVersion('1')
 
-      expect((await open({ randomDataKeys: false })).mode).toBe('sealed')
+      expect((await open()).mode).toBe('sealed')
     })
   })
 

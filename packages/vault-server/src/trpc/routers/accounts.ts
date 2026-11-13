@@ -85,6 +85,7 @@ export const accountsRouter = router({
           kdf: input.kdf,
           keyring: input.keyring,
           randomDataKeys: input.randomDataKeys,
+          keyringVersion: input.keyringVersion,
         })
         if (created) {
           return { account }
@@ -179,6 +180,7 @@ export const accountsRouter = router({
       return {
         success: true,
         keyring: ctx.accountData.keyring,
+        // Only builds from before new accounts started at key version 2 read this
         randomDataKeys: ctx.accountData.randomDataKeys === true,
       }
     }),

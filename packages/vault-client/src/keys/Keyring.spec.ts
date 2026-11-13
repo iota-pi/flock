@@ -1,5 +1,5 @@
 import { generateVaultKey } from './crypto'
-import { Keyring, VaultNotInitializedError } from './Keyring'
+import { importKeyring, Keyring, StaleKeyringError, VaultNotInitializedError } from './Keyring'
 
 async function keyringWith(versions: string[], activeVersion = versions[versions.length - 1]) {
   const keyring = new Keyring()
@@ -124,6 +124,106 @@ describe('Keyring', () => {
       await expect(keyring.load(JSON.stringify({ activeVersion: '1' }))).rejects.toThrow('Keyring contains no key entries')
 
       expect(keyring.hasKey('1')).toBe(true)
+    })
+  })
+
+  describe('rollback', () => {
+    it('never lowers the active version when merging an older keyring', async () => {
+      const keyring = await keyringWith(['1', '2'])
+      const older = await keyringWith(['1'])
+      const { keys, activeVersion } = await importKeyring(await older.export())
+
+      expect(keyring.merge(keys, activeVersion)).toEqual({ stale: true })
+
+      expect(keyring.activeVersion).toBe('2')
+      expect((await keyring.encryptBytes(new Uint8Array([1]))).kver).toBe('2')
+    })
+
+    it('reports a keyring that lacks a loaded key as stale, even with the same active version', async () => {
+      const keyring = await keyringWith(['1', '2'], '1')
+      const { keys } = await importKeyring(await (await keyringWith(['1'])).export())
+
+      expect(keyring.merge(keys, '1')).toEqual({ stale: true })
+    })
+
+    it('takes a newer active version and reports it as current', async () => {
+      const keyring = await keyringWith(['1'])
+      const { keys, activeVersion } = await importKeyring(await (await keyringWith(['1', '2'])).export())
+
+      expect(keyring.merge(keys, activeVersion)).toEqual({ stale: false })
+      expect(keyring.activeVersion).toBe('2')
+    })
+
+    it('takes the active version of the first keyring merged after a clear', async () => {
+      const keyring = await keyringWith(['1', '2', '3'])
+      keyring.clear()
+      const { keys, activeVersion } = await importKeyring(await (await keyringWith(['1', '2'])).export())
+
+      expect(keyring.merge(keys, activeVersion)).toEqual({ stale: false })
+      expect(keyring.activeVersion).toBe('2')
+      expect(keyring.knownVersion).toBe('2')
+    })
+
+    it('learns of newer versions from ciphertexts and waits, without loading them', async () => {
+      const keyring = await keyringWith(['1'])
+      const newer = await keyringWith(['1', '3'])
+
+      await expect(keyring.decryptBytes(await newer.encryptBytes(new Uint8Array([1])))).rejects.toThrow()
+      expect(keyring.knownVersion).toBe('3')
+      expect(keyring.isStale).toBe(true)
+
+      keyring.clear()
+      await keyring.waitForKey('4', 1)
+      expect(keyring.knownVersion).toBe('4')
+    })
+
+    it('refuses to encrypt with v1 once a newer version is known', async () => {
+      const keyring = await keyringWith(['1'])
+      await expect(keyring.encryptBytes(new Uint8Array([1]))).resolves.toBeDefined()
+
+      keyring.noteKeyVersion('2')
+
+      await expect(keyring.encryptBytes(new Uint8Array([1]))).rejects.toBeInstanceOf(StaleKeyringError)
+      await expect(keyring.encrypt('text')).rejects.toBeInstanceOf(StaleKeyringError)
+      await expect(keyring.wrapLocalKey(new Uint8Array(32), new Uint8Array([1]))).rejects.toBeInstanceOf(StaleKeyringError)
+    })
+
+    it('still encrypts with a key newer than v1 when a newer version still is known', async () => {
+      const keyring = await keyringWith(['1', '2'])
+      keyring.noteKeyVersion('3')
+
+      expect((await keyring.encryptBytes(new Uint8Array([1]))).kver).toBe('2')
+    })
+
+    it('carries the highest known version to another realm, without putting it in the stored format', async () => {
+      const source = await keyringWith(['1'])
+      source.noteKeyVersion('2')
+      expect(Object.keys(await source.export()).sort()).toEqual(['1', 'activeVersion'])
+
+      const target = new Keyring()
+      await target.load(await source.exportForWorker())
+
+      expect(target.activeVersion).toBe('1')
+      expect(target.knownVersion).toBe('2')
+    })
+
+    it('ignores fields that are not key versions when importing', async () => {
+      const exported = { ...await (await keyringWith(['1'])).export(), knownVersion: '5', note: 'x' }
+
+      const { keys } = await importKeyring(exported)
+
+      expect(Array.from(keys.keys())).toEqual(['1'])
+    })
+
+    it('forgets known versions on clear', async () => {
+      const keyring = await keyringWith(['1'])
+      keyring.noteKeyVersion('2')
+
+      keyring.clear()
+      keyring.replace(new Map([['1', await generateVaultKey()]]), '1')
+
+      expect(keyring.isStale).toBe(false)
+      await expect(keyring.encryptBytes(new Uint8Array([1]))).resolves.toBeDefined()
     })
   })
 })

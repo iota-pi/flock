@@ -30,6 +30,7 @@ export async function createAccount(
     kdf,
     keyring,
     randomDataKeys,
+    keyringVersion,
   }: VaultAccount,
 ): Promise<boolean> {
   const now = Date.now()
@@ -48,7 +49,7 @@ export async function createAccount(
       ...(keyring ? { keyring } : {}),
       ...(randomDataKeys ? { randomDataKeys } : {}),
       sessions: [],
-      keyringVersion: 1,
+      keyringVersion: keyringVersion ?? 1,
     },
     ConditionExpression: 'attribute_not_exists(account)',
   }))

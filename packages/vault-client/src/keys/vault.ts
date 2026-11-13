@@ -26,7 +26,7 @@ import { createLogger } from '../utils/logger'
 import { errorMessage } from '../utils/errorMessage'
 import { clearCachedKeyring, loadCachedKeyring, readCachedKeyring, writeCachedKeyring } from './keyringCache'
 import { clearDeviceToken } from './deviceToken'
-import { clearStoredMetadata, rememberRandomDataKeys, writeStoredMetadata } from './storedMetadata'
+import { clearStoredMetadata, readKeyVersion, rememberKeyVersion, writeStoredMetadata } from './storedMetadata'
 import {
   assertKeyringLoaded,
   attemptSession,
@@ -41,6 +41,9 @@ import { getApiAuthToken } from './runtime'
 const log = createLogger('vault')
 
 const { keyring } = vaultKeys
+
+/** The data key version new accounts start at. v1 is left for keys that may be password-derived. */
+const FIRST_KEY_VERSION = '2'
 
 export function hasVaultKey(kver?: string): boolean {
   return keyring.hasKey(kver)
@@ -64,6 +67,15 @@ export async function reloadKeyringFromStorage(): Promise<{
     log.warn('Failed to decrypt cached keyring with current masterKey:', err)
     return { success: false, passwordChanged: true }
   }
+}
+
+/**
+ * Tells the keyring the highest data key version this device has had active for the account. Call
+ * it after `setMasterKey`, before loading a keyring, so a keyring the server rolled back can't lower
+ * the active version.
+ */
+export function pinKnownKeyVersions(account: string) {
+  keyring.noteKeyVersion(readKeyVersion(account))
 }
 
 /**
@@ -109,7 +121,6 @@ export async function syncKeyringFromServer(account: string, { retry = false } =
   try {
     const response = retry ? await getKeyringWithRetry(account) : await getKeyring(account)
     encryptedKeyringStr = response.keyring
-    rememberRandomDataKeys(account, response.randomDataKeys)
   } catch (err) {
     log.warn('Failed to retrieve keyring from server (network error):', err)
     return false
@@ -117,8 +128,16 @@ export async function syncKeyringFromServer(account: string, { retry = false } =
 
   if (encryptedKeyringStr) {
     try {
-      await vaultKeys.loadEncryptedKeyring(encryptedKeyringStr)
-      writeCachedKeyring(encryptedKeyringStr)
+      const { stale } = await vaultKeys.loadEncryptedKeyring(encryptedKeyringStr)
+      if (stale) {
+        // An older keyring than this device holds: a restored or rolled-back server. Caching it
+        // would lose the newer keys at the next login, so the cache gets the merged keyring instead.
+        log.error(`The server returned an older keyring than this device holds; keeping key version ${keyring.activeVersion}`)
+        writeCachedKeyring(await wrapKeyring(keyring, vaultKeys.requireMasterKey()))
+      } else {
+        writeCachedKeyring(encryptedKeyringStr)
+      }
+      rememberKeyVersion(account, keyring.activeVersion)
       return true
     } catch (err) {
       clearKeyData()
@@ -159,6 +178,7 @@ export async function loginVault({
   saltVersion?: number,
 }): Promise<{ keyDerivationUpgraded: boolean, biometricsCleared: boolean }> {
   await initialiseVault({ password, salt, kdf, iterations, saltVersion })
+  pinKnownKeyVersions(account)
 
   // Phase 1: Load cached keyring for offline operation
   const cachedKeyringLoaded = await loadCachedKeyring()
@@ -209,6 +229,10 @@ export async function loginVault({
   assertKeyringLoaded()
 
   writeStoredMetadata(account, { salt, iterations, saltVersion, kdf })
+  rememberKeyVersion(account, keyring.activeVersion)
+  if (serverKeyringLoaded) {
+    await rotateOffKeyV1(account)
+  }
 
   // Upgrade outdated Argon2id parameters by changing the password to itself. The re-wrapped keyring
   // must hold every key, so this waits until the server's keyring has been loaded.
@@ -222,6 +246,24 @@ export async function loginVault({
     }
   }
   return { keyDerivationUpgraded: false, biometricsCleared: false }
+}
+
+/**
+ * Moves an account whose active data key is still v1 onto a new random key, once the server's
+ * keyring has loaded at an unlock. The client can't tell whether v1 was derived from the first
+ * password, so it never seals local data with v1 or encrypts with it once a newer key exists (see
+ * "Keyring rollback" in docs/local-encryption.md). PBKDF2 accounts are left to the migration app,
+ * which changes the password first. A failure (such as another device rotating at the same time)
+ * is logged, and the next unlock tries again.
+ */
+export async function rotateOffKeyV1(account: string): Promise<void> {
+  if (keyring.activeVersion !== '1' || vaultKeys.masterKeyIsLegacy || keyring.isStale) return
+  try {
+    await rotateVaultKey(account)
+    log.info(`Rotated the account's data key from v1 to v${keyring.activeVersion}`)
+  } catch (err) {
+    log.warn('Failed to rotate off data key v1; will retry at the next unlock:', err)
+  }
 }
 
 /**
@@ -242,7 +284,7 @@ export function needsKeyDerivationUpgrade(
 
 /** Exports the keyring as JSON, for the sync worker's `Keyring.load` */
 export async function exportKeyringData(): Promise<string> {
-  return JSON.stringify(await keyring.export())
+  return keyring.exportForWorker()
 }
 
 /** Exports a keyring and encrypts it with the master key, as the JSON string the server and cache store */
@@ -364,8 +406,9 @@ async function rewrapMasterKey({
 export async function createVaultAccount(password: string): Promise<string> {
   const { salt, kdf, saltVersion, masterKey, authToken } = await deriveNewCredentials(password)
 
+  // Starts at v2, so that an active v1 only ever means a key that may be password-derived
   const newKeyring = new Keyring()
-  newKeyring.replace(new Map([['1', await generateVaultKey()]]), '1')
+  newKeyring.replace(new Map([[FIRST_KEY_VERSION, await generateVaultKey()]]), FIRST_KEY_VERSION)
   const encryptedKeyring = await wrapKeyring(newKeyring, masterKey)
 
   const { account } = await createAccount({
@@ -375,6 +418,7 @@ export async function createVaultAccount(password: string): Promise<string> {
     kdf,
     keyring: encryptedKeyring,
     randomDataKeys: true,
+    keyringVersion: parseInt(FIRST_KEY_VERSION, 10),
   })
   return account
 }
@@ -404,6 +448,11 @@ export async function rotateVaultKey(account: string): Promise<void> {
   if (!getApiAuthToken()) {
     throw new Error('Key rotation needs a connection to the server. Please try again once you are online.')
   }
+  // A stale keyring would mint a second key with a version that already exists, and upload a
+  // keyring without the real one
+  if (keyring.isStale) {
+    throw new Error(`Key rotation needs key version ${keyring.knownVersion}, which this device hasn't loaded yet.`)
+  }
   const newKey = await generateVaultKey()
   const currentActiveVer = parseInt(keyring.activeVersion, 10)
   const nextActiveVer = (currentActiveVer + 1).toString()
@@ -418,5 +467,6 @@ export async function rotateVaultKey(account: string): Promise<void> {
     )
   }
   keyring.setActiveVersion(nextActiveVer)
+  rememberKeyVersion(account, nextActiveVer)
   broadcastVaultEvent({ type: 'KEY_ROTATED', account, keyVersion: nextActiveVer })
 }

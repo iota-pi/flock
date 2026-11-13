@@ -35,6 +35,7 @@ class VaultKeyState {
     this.masterKeyIsLegacy = isLegacy
     if (isLegacy) {
       this.keyring.replace(new Map([['1', key]]), '1')
+      this.keyring.forgetVersionHistory()
     } else {
       this.keyring.clear()
     }
@@ -46,15 +47,19 @@ class VaultKeyState {
     this.masterKeyIsLegacy = false
   }
 
-  /** Merges the keys of a keyring wrapped with the master key into this one */
-  async loadEncryptedKeyring(encryptedKeyringStr: string): Promise<void> {
+  /**
+   * Merges the keys of a keyring wrapped with the master key into this one. Returns whether it was
+   * stale: older than the keys already loaded, which it never replaces (see `Keyring.merge`).
+   */
+  async loadEncryptedKeyring(encryptedKeyringStr: string): Promise<{ stale: boolean }> {
     const encryptedKeyring = JSON.parse(encryptedKeyringStr) as CryptoResult
     const plaintext = await decryptWithKey(this.requireMasterKey(), encryptedKeyring)
     const keyringData = JSON.parse(plaintext)
     if (keyringData && typeof keyringData === 'object' && keyringData.activeVersion) {
       const { keys, activeVersion } = await importKeyring(keyringData)
-      this.keyring.merge(keys, activeVersion)
+      return this.keyring.merge(keys, activeVersion)
     }
+    return { stale: false }
   }
 
   /** Forgets every key */

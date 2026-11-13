@@ -128,7 +128,6 @@ beforeEach(() => {
     onLateSession: vi.fn().mockReturnValue(() => undefined),
   })
   spyOnExports(storedMetadataModule, {
-    hasRandomDataKeys: vi.fn().mockReturnValue(false),
   })
   spyOnExports(sessionRecoveryModule, {
     attemptSessionRecovery: vi.fn().mockResolvedValue(true),

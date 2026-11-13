@@ -14,6 +14,11 @@ export const CreateAccountBodySchema = z.object({
   keyring: z.string().min(1),
   /** Every data key in `keyring` was generated randomly, rather than derived from the password */
   randomDataKeys: z.literal(true),
+  /**
+   * The keyring's active key version. New accounts start at 2, so that an active version of 1 only
+   * ever means a key that may be derived from a password. Older builds leave it out, which means 1.
+   */
+  keyringVersion: z.number().int().min(1).optional(),
 })
 
 export const AccountCreationResponseSchema = z.object({

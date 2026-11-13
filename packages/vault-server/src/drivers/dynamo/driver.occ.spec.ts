@@ -33,6 +33,27 @@ describe('DynamoDriver conditional account writes', () => {
   })
 
   describe('Concurrent Key Rotation & keyringVersion OCC', () => {
+    it('starts at the keyring version the new account gives, so its first rotation expects that one', async () => {
+      const account = uniqueAccountId()
+      await driver.createAccount({ account, authToken: 'token', salt: 'salt', keyring: 'keyring-v2', keyringVersion: 2 })
+      expect((await login(account, 'token')).keyringVersion).toBe(2)
+
+      await expect(driver.updateAccountData({
+        account,
+        keyringVersion: 3,
+        keyring: 'keyring-v3',
+        expectedKeyringVersion: 1,
+      })).rejects.toThrow(VersionConflictError)
+      await driver.updateAccountData({
+        account,
+        keyringVersion: 3,
+        keyring: 'keyring-v3',
+        expectedKeyringVersion: 2,
+      })
+
+      expect((await login(account, 'token')).keyringVersion).toBe(3)
+    })
+
     it('allows updating keyringVersion and keyring when expectedKeyringVersion matches', async () => {
       const account = uniqueAccountId()
       await driver.createAccount({

@@ -256,6 +256,15 @@ describe('accountsRouter security contracts', () => {
     })
   })
 
+  it("records the new keyring's active version, so the first rotation's version check matches it", async () => {
+    const ctx = createContext({ authToken: '' })
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await caller.createAccount({ ...NEW_ACCOUNT, keyringVersion: 2 })
+
+    expect(ctx.vault.createAccount).toHaveBeenCalledWith(expect.objectContaining({ keyringVersion: 2 }))
+  })
+
   it.each([
     ['PBKDF2 credentials', { salt: 'salt', authToken: 'auth', iterations: 600000, keyring: 'encrypted-keyring', randomDataKeys: true }],
     ['no keyring', { ...NEW_ACCOUNT, keyring: undefined }],

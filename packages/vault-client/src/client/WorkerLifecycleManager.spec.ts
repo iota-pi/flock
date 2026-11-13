@@ -69,7 +69,6 @@ beforeEach(() => {
     getVaultSession: vi.fn().mockReturnValue(null),
   })
   spyOnExports(storedMetadataModule, {
-    hasRandomDataKeys: vi.fn().mockReturnValue(false),
   })
 })
 
@@ -286,7 +285,7 @@ describe('WorkerLifecycleManager', () => {
 
       // The new account should remain active and not be clobbered
       expect(manager.getCurrentAccountId()).toBe('account-new-success')
-      expect(mockSyncApi.initRepo).toHaveBeenLastCalledWith('account-new-success', 'test-key', { randomDataKeys: false, authToken: null })
+      expect(mockSyncApi.initRepo).toHaveBeenLastCalledWith('account-new-success', 'test-key', { authToken: null })
 
       vi.useRealTimers()
     })
@@ -319,7 +318,7 @@ describe('WorkerLifecycleManager', () => {
         'test-account',
         'test-key',
         // The session goes to the worker in memory, so it can sync before updateAuthToken
-        { randomDataKeys: false, authToken: 'session-1' },
+        { authToken: 'session-1' },
       )
       expect(mockSyncApi.bootstrapItems).toHaveBeenCalled()
     })

@@ -274,7 +274,8 @@ export class SyncWorker implements SyncApi {
       if (options?.authToken !== undefined) {
         setApiAuthToken(options.authToken || '')
       }
-      // The keyring is the one the main thread exported
+      // The keyring is the one the main thread exported, with the highest key version it knows of
+      this.keyring.forgetVersionHistory()
       await this.keyring.load(vaultKey)
       await Automerge.initializeWasm(this.automergeWasmUrl)
 
@@ -290,7 +291,6 @@ export class SyncWorker implements SyncApi {
           if (this._context === context) this.subscriptions.update(itemIds)
         },
         ...this.sessionConfig,
-        randomDataKeys: options?.randomDataKeys,
         keys: this.keyring,
         localKeys: this.keyring,
       })

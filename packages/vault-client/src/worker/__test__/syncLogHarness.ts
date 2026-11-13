@@ -120,9 +120,10 @@ function createApiClient(server: FakeVaultServer): SyncApiClient {
 }
 
 /** The account's keys, which every device holds */
+/** A new account's keyring, which starts at v2 (v1 is left for keys that may be password-derived) */
 export async function createAccountKeys(): Promise<Keyring> {
   const keyring = new Keyring()
-  keyring.replace(new Map([['1', await generateVaultKey()]]), '1')
+  keyring.replace(new Map([['2', await generateVaultKey()]]), '2')
   return keyring
 }
 

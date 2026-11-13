@@ -399,7 +399,7 @@ describe('sync log', () => {
     await plaintext.stop()
 
     const sealed = await startDevice('device-b', {
-      config: { upgradeLocalEncryption: true, localKeys: keys, randomDataKeys: true },
+      config: { upgradeLocalEncryption: true, localKeys: keys },
     })
     expect(sealed.context.localStorageState?.mode).toBe('sealed')
     await a.edit(itemId, { title: 'three' })

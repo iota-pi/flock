@@ -28,8 +28,6 @@ export interface OpenLocalStorageOptions {
   /** Seal local data, upgrading plaintext data first */
   upgradeLocalEncryption?: boolean
   keys?: LocalKeyWrapper
-  /** Whether the account's data keys are random, so an active version of '1' may wrap the DSK */
-  randomDataKeys?: boolean
   /** Asks other tabs to stop before the plaintext stores are deleted */
   onRetiring?: () => void
   /** Called for each sealed chunk that fails to decrypt */
@@ -60,8 +58,9 @@ export async function openLocalStorage(options: OpenLocalStorageOptions): Promis
   const { accountId, keys } = options
   if (!options.upgradeLocalEncryption || !keys) return openPlaintext(accountId)
 
-  // Data key v1 of an account created before random data keys is derived from its first password
-  const activeKeyIsRandom = keys.activeVersion !== '1' || options.randomDataKeys === true
+  // Data key v1 may be derived from the account's first password. New accounts start at v2, and
+  // older ones rotate off v1 at their next unlock, so v1 never wraps a new device storage key.
+  const activeKeyIsRandom = keys.activeVersion !== '1'
   const databaseExists = options.databaseExists ?? defaultDatabaseExists
   const sealedName = getSealedAutomergeDBName(accountId)
   if (!activeKeyIsRandom && !(await databaseExists(sealedName))) return openPlaintext(accountId)

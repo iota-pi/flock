@@ -1,4 +1,4 @@
-import type { LocalKeyWrap, LocalKeyWrapper } from '../../keys/Keyring'
+import { keyVersionNumber, type LocalKeyWrap, type LocalKeyWrapper } from '../../keys/Keyring'
 import { decryptWithAssociatedData, encryptWithAssociatedData } from '../../keys/crypto'
 
 /** Where a sealed record lives. Each is bound into its associated data, so records can't be swapped. */
@@ -136,11 +136,12 @@ export class LocalCipher {
   }
 
   /**
-   * Wraps the same DSK with the active data key. Returns null when it already is. The DSK in memory
-   * is non-extractable, so this decrypts the stored wrap again.
+   * Wraps the same DSK with the active data key. Returns null when it already is, or when the stored
+   * wrap uses a newer key than the active one: a rolled-back keyring must never move it to an older
+   * key. The DSK in memory is non-extractable, so this decrypts the stored wrap again.
    */
   static async rewrap(wrap: unknown, keys: LocalKeyWrapper, accountId: string): Promise<LocalKeyWrap | null> {
-    if (isLocalKeyWrap(wrap) && wrap.kver === keys.activeVersion) return null
+    if (isLocalKeyWrap(wrap) && keyVersionNumber(wrap.kver) >= keyVersionNumber(keys.activeVersion)) return null
     const raw = await unwrapRaw(wrap, keys, accountId)
     try {
       return await keys.wrapLocalKey(raw, dskAssociatedData(accountId))

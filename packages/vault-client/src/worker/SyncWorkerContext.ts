@@ -123,8 +123,6 @@ export interface SyncWorkerContextConfig extends SyncSessionConfig {
   onIndexUpdated?: (itemIds: ItemId[]) => void
   /** The client every component calls the server through, so they share its token refresh */
   apiClient: SyncApiClient
-  /** Whether the account's data keys are random (see InitRepoOptions) */
-  randomDataKeys?: boolean
   /** The account's data keys */
   keys: KeyProvider
   /** Wraps the device storage key. Needed with `upgradeLocalEncryption`. */
@@ -730,7 +728,6 @@ export class SyncWorkerContext {
         accountId: this.accountId,
         upgradeLocalEncryption: this.config.upgradeLocalEncryption,
         keys: this.config.localKeys,
-        randomDataKeys: this.config.randomDataKeys,
         onRetiring: () => this.clientEventHub.emit({ type: 'retiringLegacyStores', accountId: this.accountId }),
         onOpenFailure: (key, error) => this.handleOpenFailure(key, error),
         onQuotaFallback: () => this.clientEventHub.emit({

@@ -1,5 +1,5 @@
 import type { KdfParams } from '@vault/shared'
-import { readStoredMetadata, writeStoredMetadata } from './storedMetadata'
+import { readKeyVersion, readStoredMetadata, rememberKeyVersion, writeStoredMetadata } from './storedMetadata'
 import { getVaultStorageNames } from '../shared/storageNames'
 
 const ACCOUNT = 'stored-metadata-account'
@@ -42,5 +42,43 @@ describe('writeStoredMetadata', () => {
     const stored = readStoredMetadata()
     expect(stored).toMatchObject({ account: ACCOUNT, salt: SALT, saltVersion: 2, kdf: KDF })
     expect(stored?.iterations).toBeUndefined()
+  })
+})
+
+describe('rememberKeyVersion', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('only ever raises the recorded version', () => {
+    writeStoredMetadata(ACCOUNT)
+
+    rememberKeyVersion(ACCOUNT, '2')
+    rememberKeyVersion(ACCOUNT, '1')
+    expect(readKeyVersion(ACCOUNT)).toBe('2')
+
+    rememberKeyVersion(ACCOUNT, '10')
+    expect(readKeyVersion(ACCOUNT)).toBe('10')
+  })
+
+  it('keeps the version when the metadata is rewritten for the same account', () => {
+    writeStoredMetadata(ACCOUNT)
+    rememberKeyVersion(ACCOUNT, '3')
+
+    writeStoredMetadata(ACCOUNT, { salt: SALT, saltVersion: 2, kdf: KDF })
+
+    expect(readKeyVersion(ACCOUNT)).toBe('3')
+  })
+
+  it("drops another account's version and records nothing for an account without metadata", () => {
+    writeStoredMetadata(OTHER_ACCOUNT)
+    rememberKeyVersion(OTHER_ACCOUNT, '3')
+    rememberKeyVersion(ACCOUNT, '4')
+    expect(readKeyVersion(ACCOUNT)).toBeUndefined()
+
+    writeStoredMetadata(ACCOUNT)
+
+    expect(readKeyVersion(ACCOUNT)).toBeUndefined()
+    expect(readKeyVersion(OTHER_ACCOUNT)).toBeUndefined()
   })
 })

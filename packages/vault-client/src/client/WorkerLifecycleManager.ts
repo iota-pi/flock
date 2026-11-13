@@ -5,7 +5,6 @@ import type { ClientEvent } from '../worker/SyncEventHub'
 import type { SyncStatus } from '../shared/types'
 import { exportKeyringData } from '../keys/vault'
 import { getVaultSession } from '../keys/session'
-import { hasRandomDataKeys } from '../keys/storedMetadata'
 import {
   SyncWorkerHealthMonitor,
 } from './SyncWorkerHealthMonitor'
@@ -271,7 +270,6 @@ export class WorkerLifecycleManager {
     const { api } = session
     await untilAborted(
       api.initRepo(accountId, vaultKey, {
-        randomDataKeys: hasRandomDataKeys(accountId),
         authToken: getVaultSession() || null,
       }),
       signal,
