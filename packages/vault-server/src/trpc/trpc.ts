@@ -75,7 +75,19 @@ export function createVaultContext(options: VaultServerOptions) {
   }
 }
 
-const t = initTRPC.context<TrpcContext>().create()
+/** What clients see in place of an unexpected error's own message */
+const INTERNAL_ERROR_MESSAGE = 'Internal server error'
+
+const t = initTRPC.context<TrpcContext>().create({
+  // tRPC's default is NODE_ENV !== 'production', and nothing sets NODE_ENV on Lambda, so error
+  // responses would carry the server's stack traces
+  isDev: false,
+  // An unexpected error's message can hold internal details (a DynamoDB error, an account ID), so
+  // clients only get a generic one. onError still logs the real error.
+  errorFormatter: ({ shape }) => shape.data.code === 'INTERNAL_SERVER_ERROR'
+    ? { ...shape, message: INTERNAL_ERROR_MESSAGE }
+    : shape,
+})
 
 export const router = t.router
 export const mergeRouters = t.mergeRouters
