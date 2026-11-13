@@ -98,22 +98,19 @@ export const accountsRouter = router({
   login: publicProcedure
     .input(LoginBodySchema)
     .mutation(async ({ ctx, input }) => {
-      // Read both whether or not the account exists, so that unknown IDs take the same path
-      const [record, throttle] = await Promise.all([
+      // Count the attempt before checking the password, and in the same write as the lock check, so
+      // that concurrent guesses can't all get past the lock. Do both whether or not the account
+      // exists, so that unknown IDs take the same path.
+      const [record, reservation] = await Promise.all([
         ctx.vault.getAccountRecord({ account: input.account }),
-        ctx.vault.getLoginThrottle({ account: input.account }),
+        ctx.vault.reserveLoginAttempt({ account: input.account }),
       ])
       const authTokenHash = hashString(input.authToken)
       const deviceHash = input.deviceToken === undefined ? undefined : hashString(input.deviceToken)
       try {
-        authenticateLogin(record, throttle, { authTokenHash, deviceHash })
+        authenticateLogin(record, reservation === undefined, { authTokenHash, deviceHash })
       } catch (error) {
-        // Failing to count it or forget the device mustn't turn a wrong password into a server error
-        if (error instanceof AuthenticationError) {
-          await ctx.vault.recordFailedLogin({ account: input.account }).catch(countError => {
-            console.warn('[accounts.login] Could not count a failed login:', countError)
-          })
-        }
+        // Failing to forget the device mustn't turn a wrong password into a server error.
         // The app sends its device token only with a password that opened the token locally, so a
         // login device with the wrong password means someone else has the token
         if (deviceHash && record && isLoginDevice(record, deviceHash) && !matchesAuthTokenHash(record, authTokenHash)) {
@@ -125,6 +122,14 @@ export const accountsRouter = router({
           { error: TooManyLoginAttemptsError, code: 'TOO_MANY_REQUESTS', message: TOO_MANY_REQUESTS_MESSAGE },
           { error: AuthenticationError, code: 'UNAUTHORIZED' },
         ])
+      }
+
+      // A right password doesn't count towards the lock. Failing to uncount it only costs an attempt.
+      // A login device let through a lock has nothing to uncount.
+      if (reservation) {
+        await ctx.vault.releaseLoginAttempt({ account: input.account, ...reservation }).catch(releaseError => {
+          console.warn('[accounts.login] Could not uncount a successful login:', releaseError)
+        })
       }
 
       // The driver adds it with a conditional write, so concurrent logins don't drop each other's

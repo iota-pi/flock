@@ -24,7 +24,7 @@ import { isResourceInUseError } from './dynamoErrors'
 import { getConnectionParams, resolveVaultTableNames, type VaultTableNames } from './config'
 import { getVaultTableDefinitions } from './tables'
 import type { DynamoContext } from './commands'
-import type { FailedLoginRecord } from '../../loginThrottle'
+import type { LoginAttemptReservation } from '../../loginThrottle'
 import * as accountRecords from './accountRecords'
 import * as loginThrottleRecords from './loginThrottleRecords'
 import * as itemRecords from './itemRecords'
@@ -108,12 +108,12 @@ export default class DynamoDriver implements VaultDriver {
     return accountRecords.getAccountRecord(this.context, data)
   }
 
-  async getLoginThrottle(data: BaseData): Promise<FailedLoginRecord> {
-    return loginThrottleRecords.getLoginThrottle(this.context, data)
+  async reserveLoginAttempt(data: BaseData): Promise<LoginAttemptReservation | undefined> {
+    return loginThrottleRecords.reserveLoginAttempt(this.context, data)
   }
 
-  async recordFailedLogin(data: BaseData): Promise<void> {
-    return loginThrottleRecords.recordFailedLogin(this.context, data)
+  async releaseLoginAttempt(data: BaseData & LoginAttemptReservation): Promise<void> {
+    return loginThrottleRecords.releaseLoginAttempt(this.context, data)
   }
 
   async removeLoginDevice(data: BaseData & { device: string }): Promise<void> {

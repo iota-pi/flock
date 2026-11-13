@@ -1,7 +1,6 @@
 import type { StoredAccount, VaultAccountWithAuth } from './drivers/vaultDriver'
 import { AuthenticationError, ExpiredSessionError, TooManyLoginAttemptsError } from './errors'
 import { isLoginDevice } from './loginDevices'
-import { isLoginLocked, type FailedLoginRecord } from './loginThrottle'
 import { isSessionFor, normalizeSessionRecords } from './sessions'
 import { safeEqual } from './util'
 
@@ -18,9 +17,10 @@ export interface LoginAttempt {
 }
 
 /**
- * Checks a login against the stored account record and the failed logins counted against its ID.
- * Returns normally when the login is valid. Throws `TooManyLoginAttemptsError` while the ID is
- * locked, and `AuthenticationError` when the account doesn't exist or the hash doesn't match.
+ * Checks a login against the stored account record, given whether its ID is locked (when
+ * `reserveLoginAttempt` couldn't count the attempt). Returns normally when the login is valid.
+ * Throws `TooManyLoginAttemptsError` while the ID is locked, and `AuthenticationError` when the
+ * account doesn't exist or the hash doesn't match.
  *
  * A locked ID refuses every login, whatever the password and whether or not the account exists, so
  * that guessers learn nothing from it: neither the password nor that the account is real. The one
@@ -29,11 +29,10 @@ export interface LoginAttempt {
  */
 export function authenticateLogin(
   record: StoredAccount | undefined,
-  throttle: FailedLoginRecord,
+  locked: boolean,
   { authTokenHash, deviceHash }: LoginAttempt,
-  now = Date.now(),
 ): void {
-  if (isLoginLocked(throttle, now)) {
+  if (locked) {
     const fromLoginDevice = record !== undefined
       && matchesAuthTokenHash(record, authTokenHash)
       && isLoginDevice(record, deviceHash)

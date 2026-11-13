@@ -16,6 +16,15 @@ export interface FailedLoginRecord {
   failedLoginsSince?: number
 }
 
+/**
+ * A login attempt counted against an account ID before its password was checked. Every attempt is
+ * counted up front, so that concurrent ones can't all get past the lock, and one with the right
+ * password is uncounted again. `since` identifies the window it was counted in.
+ */
+export interface LoginAttemptReservation {
+  since: number
+}
+
 export function isLoginLocked({ failedLogins, failedLoginsSince }: FailedLoginRecord, now: number): boolean {
   if (!failedLogins || failedLoginsSince === undefined) return false
   return failedLogins >= MAX_FAILED_LOGINS && failedLoginsSince > now - FAILED_LOGIN_WINDOW_MS
