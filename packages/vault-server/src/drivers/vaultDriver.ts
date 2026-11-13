@@ -11,7 +11,7 @@ import type {
   VaultAccountWithAuthSchema,
   VaultItemSchema,
 } from '@vault/shared'
-import type { FailedLoginRecord } from '../loginThrottle'
+import type { LoginAttemptReservation } from '../loginThrottle'
 
 export type VaultSessionRecord = z.infer<typeof VaultSessionRecordSchema>
 export type VaultAccount = z.infer<typeof VaultAccountSchema>
@@ -100,13 +100,14 @@ export interface VaultDriver {
   getAccountRecord(data: BaseData): Promise<StoredAccount | undefined>
 
   /**
-   * Reads the failed logins counted against an account ID with a strongly consistent read. IDs with
-   * no account have counts too, so that they lock as real ones do.
+   * Counts a login attempt against an account ID before its password is checked, unless the ID is
+   * locked, with one conditional write. Returns the reservation, or undefined when the ID is locked
+   * and nothing was counted. IDs with no account are counted too, so that they lock as real ones do.
    */
-  getLoginThrottle(data: BaseData): Promise<FailedLoginRecord>
+  reserveLoginAttempt(data: BaseData): Promise<LoginAttemptReservation | undefined>
 
-  /** Counts a failed login against an account ID, whether or not the account exists */
-  recordFailedLogin(data: BaseData): Promise<void>
+  /** Uncounts a reserved attempt whose password was right */
+  releaseLoginAttempt(data: BaseData & LoginAttemptReservation): Promise<void>
 
   /** Forgets one of the account's login devices (see loginDevices.ts). Does nothing if it isn't one. */
   removeLoginDevice(data: BaseData & { device: string }): Promise<void>

@@ -1,7 +1,7 @@
 import { accountsRouter } from './accounts'
 import { fakeSalt, hashString } from '../../util'
 import { hashSessionToken, SESSION_EXPIRY_MS } from '../../sessions'
-import { MAX_FAILED_LOGINS, type FailedLoginRecord } from '../../loginThrottle'
+import type { LoginAttemptReservation } from '../../loginThrottle'
 import { DEVICE_TOKEN_LENGTH, isValidNewAccountId, TOO_MANY_REQUESTS_MESSAGE, VersionConflictError } from '@vault/shared'
 
 const ARGON2ID = { algorithm: 'argon2id' as const, memoryKiB: 65536, passes: 3, parallelism: 1 }
@@ -19,7 +19,9 @@ const CURRENT_AUTH_TOKEN = 'current-auth-token'
 const SESSION_TOKEN = 'session-token'
 const SESSION_EXPIRY = Date.now() + SESSION_EXPIRY_MS
 const DEVICE_TOKEN = 'd'.repeat(DEVICE_TOKEN_LENGTH)
-const LOCKED: FailedLoginRecord = { failedLogins: MAX_FAILED_LOGINS, failedLoginsSince: Date.now() }
+const RESERVATION: LoginAttemptReservation = { since: Date.now() }
+/** What reserving an attempt gives for a locked ID */
+const LOCKED = undefined
 
 /** A stored account record with an active session for SESSION_TOKEN */
 function storedAccount(fields: Record<string, unknown> = {}) {
@@ -43,8 +45,8 @@ function createContext(overrides?: { authToken?: string, sessionValid?: boolean 
     )),
     extendSession: vi.fn(async () => undefined),
     addSession: vi.fn(async () => undefined),
-    getLoginThrottle: vi.fn(async (): Promise<FailedLoginRecord> => ({})),
-    recordFailedLogin: vi.fn(async () => undefined),
+    reserveLoginAttempt: vi.fn(async (): Promise<LoginAttemptReservation | undefined> => RESERVATION),
+    releaseLoginAttempt: vi.fn(async () => undefined),
     removeLoginDevice: vi.fn(async () => undefined),
   }
 
@@ -77,6 +79,28 @@ describe('accountsRouter security contracts', () => {
     expect(ctx.vault.updateAccountData).not.toHaveBeenCalled()
   })
 
+  it('counts the attempt before checking the password, and uncounts it when the password is right', async () => {
+    const ctx = createContext()
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await caller.login({ account: 'acct-1', authToken: CURRENT_AUTH_TOKEN })
+
+    expect(ctx.vault.reserveLoginAttempt).toHaveBeenCalledWith({ account: 'acct-1' })
+    expect(ctx.vault.releaseLoginAttempt).toHaveBeenCalledWith({ account: 'acct-1', ...RESERVATION })
+    expect(ctx.vault.releaseLoginAttempt.mock.invocationCallOrder[0])
+      .toBeLessThan(ctx.vault.addSession.mock.invocationCallOrder[0])
+  })
+
+  it('still logs in when uncounting the attempt fails', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const ctx = createContext()
+    ctx.vault.releaseLoginAttempt.mockRejectedValueOnce(new Error('DynamoDB timeout'))
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.login({ account: 'acct-1', authToken: CURRENT_AUTH_TOKEN }))
+      .resolves.toMatchObject({ success: true })
+  })
+
   it('rejects a login with the wrong credentials as UNAUTHORIZED', async () => {
     const ctx = createContext()
     const caller = accountsRouter.createCaller(ctx as any)
@@ -85,7 +109,8 @@ describe('accountsRouter security contracts', () => {
       code: 'UNAUTHORIZED',
     })
     expect(ctx.vault.addSession).not.toHaveBeenCalled()
-    expect(ctx.vault.recordFailedLogin).toHaveBeenCalledWith({ account: 'acct-1' })
+    expect(ctx.vault.reserveLoginAttempt).toHaveBeenCalledWith({ account: 'acct-1' })
+    expect(ctx.vault.releaseLoginAttempt).not.toHaveBeenCalled()
   })
 
   it('rejects a login to an account that does not exist as UNAUTHORIZED', async () => {
@@ -98,27 +123,16 @@ describe('accountsRouter security contracts', () => {
     expect(ctx.vault.addSession).not.toHaveBeenCalled()
   })
 
-  it('still reports a wrong password as UNAUTHORIZED when counting the failure fails', async () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const ctx = createContext()
-    ctx.vault.recordFailedLogin.mockRejectedValueOnce(new Error('DynamoDB timeout'))
-    const caller = accountsRouter.createCaller(ctx as any)
-
-    await expect(caller.login({ account: 'acct-1', authToken: 'wrong' })).rejects.toMatchObject({
-      code: 'UNAUTHORIZED',
-    })
-  })
-
   it('refuses logins to an account with too many failed logins as TOO_MANY_REQUESTS', async () => {
     const ctx = createContext()
-    ctx.vault.getLoginThrottle.mockResolvedValueOnce(LOCKED)
+    ctx.vault.reserveLoginAttempt.mockResolvedValueOnce(LOCKED)
     const caller = accountsRouter.createCaller(ctx as any)
 
     // Even with the right password
     await expect(caller.login({ account: 'acct-1', authToken: CURRENT_AUTH_TOKEN })).rejects.toMatchObject({
       code: 'TOO_MANY_REQUESTS',
     })
-    expect(ctx.vault.recordFailedLogin).not.toHaveBeenCalled()
+    expect(ctx.vault.releaseLoginAttempt).not.toHaveBeenCalled()
     expect(ctx.vault.addSession).not.toHaveBeenCalled()
   })
 
@@ -127,14 +141,13 @@ describe('accountsRouter security contracts', () => {
     const caller = accountsRouter.createCaller(ctx as any)
 
     await expect(caller.login({ account: 'acct-1', authToken: 'wrong' })).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
-    expect(ctx.vault.recordFailedLogin).toHaveBeenCalledWith({ account: 'acct-1' })
+    expect(ctx.vault.reserveLoginAttempt).toHaveBeenCalledWith({ account: 'acct-1' })
 
-    ctx.vault.getLoginThrottle.mockResolvedValueOnce(LOCKED)
+    ctx.vault.reserveLoginAttempt.mockResolvedValueOnce(LOCKED)
     await expect(caller.login({ account: 'acct-1', authToken: 'wrong' })).rejects.toMatchObject({
       code: 'TOO_MANY_REQUESTS',
       message: TOO_MANY_REQUESTS_MESSAGE,
     })
-    expect(ctx.vault.getLoginThrottle).toHaveBeenCalledWith({ account: 'acct-1' })
   })
 
   it('registers the device a login comes from', async () => {
@@ -166,13 +179,13 @@ describe('accountsRouter security contracts', () => {
       authToken: hashString(CURRENT_AUTH_TOKEN),
       loginDevices: [hashString(DEVICE_TOKEN)],
     }) as any)
-    ctx.vault.getLoginThrottle.mockResolvedValueOnce(LOCKED)
+    ctx.vault.reserveLoginAttempt.mockResolvedValueOnce(LOCKED)
     const caller = accountsRouter.createCaller(ctx as any)
 
     const result = await caller.login({ account: 'acct-1', authToken: CURRENT_AUTH_TOKEN, deviceToken: DEVICE_TOKEN })
 
     expect(result.success).toBe(true)
-    expect(ctx.vault.recordFailedLogin).not.toHaveBeenCalled()
+    expect(ctx.vault.releaseLoginAttempt).not.toHaveBeenCalled()
   })
 
   it('forgets a login device that comes with the wrong password', async () => {
@@ -187,13 +200,12 @@ describe('accountsRouter security contracts', () => {
       .rejects.toMatchObject({ code: 'UNAUTHORIZED' })
     expect(ctx.vault.removeLoginDevice).toHaveBeenCalledWith({ account: 'acct-1', device: hashString(DEVICE_TOKEN) })
 
-    // Also while locked, without counting the failure
+    // Also while locked
     vi.clearAllMocks()
-    ctx.vault.getLoginThrottle.mockResolvedValueOnce(LOCKED)
+    ctx.vault.reserveLoginAttempt.mockResolvedValueOnce(LOCKED)
     await expect(caller.login({ account: 'acct-1', authToken: 'wrong', deviceToken: DEVICE_TOKEN }))
       .rejects.toMatchObject({ code: 'TOO_MANY_REQUESTS' })
     expect(ctx.vault.removeLoginDevice).toHaveBeenCalledWith({ account: 'acct-1', device: hashString(DEVICE_TOKEN) })
-    expect(ctx.vault.recordFailedLogin).not.toHaveBeenCalled()
   })
 
   it('does not forget anything for an unknown device with the wrong password', async () => {

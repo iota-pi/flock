@@ -12,7 +12,11 @@ const driver = new DynamoDriver()
 
 async function login(account: string, authTokenHash: string, deviceHash?: string) {
   const record = await driver.getAccountRecord({ account })
-  authenticateLogin(record, await driver.getLoginThrottle({ account }), { authTokenHash, deviceHash })
+  const reservation = await driver.reserveLoginAttempt({ account })
+  authenticateLogin(record, reservation === undefined, { authTokenHash, deviceHash })
+  if (reservation) {
+    await driver.releaseLoginAttempt({ account, ...reservation })
+  }
   if (!record) {
     throw new Error(`Could not find account ${account}`)
   }
@@ -21,6 +25,22 @@ async function login(account: string, authTokenHash: string, deviceHash?: string
 
 async function getWithSession(account: string, session: string) {
   return authenticateSession(await driver.getAccountRecord({ account }), session)
+}
+
+async function readThrottle(account: string) {
+  const raw = await driver.client.send(new GetCommand({
+    TableName: driver.tables.loginThrottle,
+    Key: { key: loginThrottleKey(account) },
+    ConsistentRead: true,
+  }))
+  return raw.Item
+}
+
+/** Counts failed logins until the ID is locked */
+async function lockOut(account: string) {
+  for (let i = 0; i < MAX_FAILED_LOGINS; i += 1) {
+    await expect(driver.reserveLoginAttempt({ account })).resolves.toBeDefined()
+  }
 }
 
 function uniqueAccountId() {
@@ -385,13 +405,55 @@ describe('DynamoDriver conditional account writes', () => {
       const account = uniqueAccountId()
       await driver.createAccount({ account, authToken: 'token', salt: 'salt', iterations: 1000 })
 
-      for (let i = 0; i < MAX_FAILED_LOGINS; i += 1) {
-        await driver.recordFailedLogin({ account })
-      }
-      await expect(driver.getLoginThrottle({ account }))
-        .resolves.toMatchObject({ failedLogins: MAX_FAILED_LOGINS })
+      await lockOut(account)
+      expect(await readThrottle(account)).toMatchObject({ failedLogins: MAX_FAILED_LOGINS })
       await expect(login(account, 'token'))
         .rejects.toBeInstanceOf(TooManyLoginAttemptsError)
+      // Refused attempts aren't counted
+      expect(await readThrottle(account)).toMatchObject({ failedLogins: MAX_FAILED_LOGINS })
+    })
+
+    it('counts no more than the limit of concurrent attempts', async () => {
+      const account = uniqueAccountId()
+
+      const reservations = await Promise.all(Array.from(
+        { length: MAX_FAILED_LOGINS * 3 },
+        () => driver.reserveLoginAttempt({ account }),
+      ))
+
+      expect(reservations.filter(reservation => reservation !== undefined)).toHaveLength(MAX_FAILED_LOGINS)
+      expect(await readThrottle(account)).toMatchObject({ failedLogins: MAX_FAILED_LOGINS })
+      await expect(driver.reserveLoginAttempt({ account })).resolves.toBeUndefined()
+    })
+
+    it('uncounts the attempts of logins with the right password', async () => {
+      const account = uniqueAccountId()
+      await driver.createAccount({ account, authToken: 'token', salt: 'salt', iterations: 1000 })
+
+      for (let i = 0; i < MAX_FAILED_LOGINS * 2; i += 1) {
+        await login(account, 'token')
+      }
+      await expect(login(account, 'wrong')).rejects.toBeInstanceOf(AuthenticationError)
+
+      expect(await readThrottle(account)).toMatchObject({ failedLogins: 1 })
+    })
+
+    it('does not uncount an attempt in a window that started after it was counted', async () => {
+      const account = uniqueAccountId()
+      const reservation = await driver.reserveLoginAttempt({ account })
+      if (!reservation) {
+        throw new Error('Expected the attempt to be counted')
+      }
+      await driver.client.send(new UpdateCommand({
+        TableName: driver.tables.loginThrottle,
+        Key: { key: loginThrottleKey(account) },
+        UpdateExpression: 'SET failedLoginsSince = :since',
+        ExpressionAttributeValues: { ':since': reservation.since + 1 },
+      }))
+
+      await driver.releaseLoginAttempt({ account, ...reservation })
+
+      expect(await readThrottle(account)).toMatchObject({ failedLogins: 1 })
     })
 
     it('starts a new count once the window has passed', async () => {
@@ -404,30 +466,25 @@ describe('DynamoDriver conditional account writes', () => {
         ExpressionAttributeValues: { ':count': MAX_FAILED_LOGINS, ':since': Date.now() - FAILED_LOGIN_WINDOW_MS - 1000 },
       }))
 
-      await driver.recordFailedLogin({ account })
+      await expect(driver.reserveLoginAttempt({ account })).resolves.toBeDefined()
 
-      await expect(driver.getLoginThrottle({ account })).resolves.toMatchObject({ failedLogins: 1 })
+      expect(await readThrottle(account)).toMatchObject({ failedLogins: 1 })
       await expect(login(account, 'token'))
         .resolves.toMatchObject({ account })
     })
 
     it('counts and locks an ID with no account, without creating an account', async () => {
       const account = uniqueAccountId()
-      for (let i = 0; i < MAX_FAILED_LOGINS; i += 1) {
-        await driver.recordFailedLogin({ account })
-      }
+      await lockOut(account)
 
       await expect(login(account, 'token'))
         .rejects.toBeInstanceOf(TooManyLoginAttemptsError)
       const raw = await driver.client.send(new GetCommand({ TableName: driver.tables.accounts, Key: { account } }))
       expect(raw.Item).toBeUndefined()
-      const throttle = await driver.client.send(new GetCommand({
-        TableName: driver.tables.loginThrottle,
-        Key: { key: loginThrottleKey(account) },
-      }))
-      expect(throttle.Item).not.toHaveProperty('account')
-      expect(throttle.Item?.expiresAt).toBeGreaterThan(Date.now() / 1000)
-      expect(throttle.Item?.expiresAt).toBeLessThanOrEqual(Math.ceil((Date.now() + FAILED_LOGIN_WINDOW_MS) / 1000))
+      const throttle = await readThrottle(account)
+      expect(throttle).not.toHaveProperty('account')
+      expect(throttle?.expiresAt).toBeGreaterThan(Date.now() / 1000)
+      expect(throttle?.expiresAt).toBeLessThanOrEqual(Math.ceil((Date.now() + FAILED_LOGIN_WINDOW_MS) / 1000))
     })
   })
 
@@ -479,9 +536,7 @@ describe('DynamoDriver conditional account writes', () => {
       const account = uniqueAccountId()
       await driver.createAccount({ account, authToken: 'token', salt: 'salt', iterations: 1000 })
       await driver.addSession({ account, session: 'session-A', expiry: Date.now() + 60_000, device: 'device-A' })
-      for (let i = 0; i < MAX_FAILED_LOGINS; i += 1) {
-        await driver.recordFailedLogin({ account })
-      }
+      await lockOut(account)
 
       await expect(login(account, 'token', 'device-A')).resolves.toMatchObject({ account })
       await expect(login(account, 'token', 'device-B')).rejects.toBeInstanceOf(TooManyLoginAttemptsError)

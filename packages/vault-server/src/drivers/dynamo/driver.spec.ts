@@ -13,7 +13,11 @@ const driver = new DynamoDriver()
 
 async function login(account: string, authTokenHash: string) {
   const record = await driver.getAccountRecord({ account })
-  authenticateLogin(record, await driver.getLoginThrottle({ account }), { authTokenHash })
+  const reservation = await driver.reserveLoginAttempt({ account })
+  authenticateLogin(record, reservation === undefined, { authTokenHash })
+  if (reservation) {
+    await driver.releaseLoginAttempt({ account, ...reservation })
+  }
   if (!record) {
     throw new Error(`Could not find account ${account}`)
   }
@@ -651,7 +655,7 @@ describe('DynamoDriver', function () {
     })
 
     const stored = await driverWithDefaults.getAccountRecord({ account })
-    authenticateLogin(stored, {}, { authTokenHash: authToken })
+    authenticateLogin(stored, false, { authTokenHash: authToken })
     expect((stored as VaultAccountWithAuth & { displayName?: string }).displayName).toBe('Default')
   })
 })
