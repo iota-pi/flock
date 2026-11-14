@@ -39,7 +39,7 @@
     "@mui/icons-material": "^9.5.0",
     "@mui/material": "^9.5.0",
     "@mui/x-date-pickers": "^9.17.0",
-    "@sentry/node": "^10.46.0",
+    "@sentry/node": "^11.11.0",
     "@sentry/react": "^10.46.0",
     "@tanstack/react-virtual": "^3.14.24",
     "@trpc/client": "^11.22.1",
