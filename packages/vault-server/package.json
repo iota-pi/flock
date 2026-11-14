@@ -14,18 +14,18 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "3.1161.0",
-    "@aws-sdk/lib-dynamodb": "3.1161.0",
-    "@trpc/server": "^11.22.1",
+    "@aws-sdk/client-dynamodb": "3.1164.0",
+    "@aws-sdk/lib-dynamodb": "3.1164.0",
+    "@trpc/server": "^11.25.0",
     "@vault/shared": "workspace:*",
     "zod": "^4.6.7"
   },
   "peerDependencies": {
-    "fastify": "^5.12.7"
+    "fastify": "^5.12.8"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
-    "fastify": "^5.12.7",
+    "fastify": "^5.12.8",
     "typescript": "^6.0.3",
     "vitest": "^4.1.7"
   }
