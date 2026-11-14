@@ -4986,6 +4986,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@zxcvbn-ts/dictionary-compression@npm:^3.0.1":
+  version: 3.0.1
+  resolution: "@zxcvbn-ts/dictionary-compression@npm:3.0.1"
+  checksum: 10c0/77654331119eaeb2fb31f71974448f39b950a8a58a36e95d50e4e9324cab5304d6392efc5b2adb50dcbb7e6cf280de93e087c087252ba9473327bce6dff777de
+  languageName: node
+  linkType: hard
+
 "@zxcvbn-ts/language-common@npm:^3.0.4":
   version: 3.0.4
   resolution: "@zxcvbn-ts/language-common@npm:3.0.4"
@@ -4993,10 +5000,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@zxcvbn-ts/language-en@npm:^3.0.2":
-  version: 3.0.2
-  resolution: "@zxcvbn-ts/language-en@npm:3.0.2"
-  checksum: 10c0/b5930a41d014c99f585721c9f14baa0bf4f538de5f444e752fa9e671e6aebd5844bc85b136ba8474753e288320cde33aa5a9c5888ab5f1f7ccb6de0f0dfcf7ba
+"@zxcvbn-ts/language-en@npm:^4.1.1":
+  version: 4.1.1
+  resolution: "@zxcvbn-ts/language-en@npm:4.1.1"
+  dependencies:
+    "@zxcvbn-ts/dictionary-compression": "npm:^3.0.1"
+  checksum: 10c0/d6b561163752bd5c2d4eff7693b3de4ef049feee92e658828213dd56ddabcee19248e7dc7173770c5c0ce160b850234bfa9eb9b8bbfd65123729da678ef44df1
   languageName: node
   linkType: hard
 
@@ -7378,7 +7387,7 @@ __metadata:
     "@vitest/eslint-plugin": "npm:^1.6.28"
     "@zxcvbn-ts/core": "npm:^3.0.4"
     "@zxcvbn-ts/language-common": "npm:^3.0.4"
-    "@zxcvbn-ts/language-en": "npm:^3.0.2"
+    "@zxcvbn-ts/language-en": "npm:^4.1.1"
     axe-core: "npm:^4.14.0"
     comlink: "npm:^4.4.2"
     concurrently: "npm:^10.0.6"
