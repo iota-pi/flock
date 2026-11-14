@@ -6,7 +6,7 @@ export function resolveEnv(hostname: string | undefined) {
   return {
     ENVIRONMENT: deployment?.environment ?? import.meta.env.MODE,
     SENTRY_DSN: deployment?.sentryDsn,
-    VAPID_PUBLIC_KEY: deployment?.vapidPublicKey ?? (import.meta.env.VITE_VAPID_PUBLIC_KEY || ''),
+    VAPID_PUBLIC_KEY: deployment ? deployment.vapidPublicKey ?? '' : (import.meta.env.VITE_VAPID_PUBLIC_KEY || ''),
     VAULT_ENDPOINT: deployment?.vaultEndpoint ?? (import.meta.env.VITE_VAULT_ENDPOINT || '').replace(/\/$/, ''),
   }
 }

@@ -10,6 +10,7 @@ import {
   isWebAuthnPrfSupported,
 } from '@vault/client'
 import { createLogger } from 'src/utils/logger'
+import env from 'src/env'
 import {
   getAutoLockSummary,
   markManualLock,
@@ -149,6 +150,8 @@ export default function useSettings(items: Item[]) {
       naturalGoal,
       biometricsEnabled,
       biometricsSupported,
+      // Sites without a VAPID key (staging) send no reminders (src/deployments.ts)
+      remindersAvailable: Boolean(env.VAPID_PUBLIC_KEY),
       autoLockSummary: getAutoLockSummary(autoLockSettings),
     },
   }
