@@ -1,8 +1,7 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { DynamoDBDocumentClient, ScanCommand, type ScanCommandOutput, UpdateCommand } from '@aws-sdk/lib-dynamodb'
 
-import { createHash } from 'crypto'
-import type { VaultAccount, VaultItem } from '@vault/server'
+import type { VaultAccount } from '@vault/server'
 import { getConnectionParams } from '@vault/server/dynamo'
 import { flockDataVersionPolicy } from '../flockDataVersion'
 import { createFlockDriver, FLOCK_TABLES } from '../flockDriver'
@@ -12,113 +11,6 @@ const ddb = new DynamoDBClient(getConnectionParams())
 const client = DynamoDBDocumentClient.from(ddb)
 
 const migrations: { [name: string]: () => Promise<void> } = {
-  async backupAuthToken () {
-    const results = await client.send(new ScanCommand({
-      TableName: FLOCK_TABLES.accounts,
-      AttributesToGet: ['account', 'authToken'],
-    }))
-    const items = results.Items as { account: string, authToken: string }[] | undefined
-    if (items) {
-      for (const { account, authToken } of items) {
-        await client.send(new UpdateCommand({
-          TableName: FLOCK_TABLES.accounts,
-          Key: { account },
-          UpdateExpression: 'SET rawAuthToken = :token',
-          ExpressionAttributeValues: {
-            ':token': authToken,
-          },
-        }))
-      }
-      console.info(`Updated ${items.length} items`)
-    }
-  },
-  async hashAuthToken () {
-    const results = await client.send(new ScanCommand({
-      TableName: FLOCK_TABLES.accounts,
-      AttributesToGet: ['account', 'authToken'],
-    }))
-    const items = results.Items as { account: string, authToken: string }[] | undefined
-    if (items) {
-      for (const { account, authToken } of items) {
-        const hash = createHash('sha512')
-        hash.update(Buffer.from(authToken, 'utf8'))
-        await client.send(new UpdateCommand({
-          TableName: FLOCK_TABLES.accounts,
-          Key: { account },
-          UpdateExpression: 'SET hashAuthToken = :token',
-          ExpressionAttributeValues: {
-            ':token': hash.digest().toString('base64'),
-          },
-        }))
-      }
-      console.info(`Updated ${items.length} items`)
-    }
-  },
-  async installHashAuthToken () {
-    const results = await client.send(new ScanCommand({
-      TableName: FLOCK_TABLES.accounts,
-      AttributesToGet: ['account'],
-    }))
-    const items = results.Items as { account: string, authToken: string }[] | undefined
-    if (items) {
-      for (const { account } of items) {
-        await client.send(new UpdateCommand({
-          TableName: FLOCK_TABLES.accounts,
-          Key: { account },
-          UpdateExpression: 'SET authToken = hashAuthToken',
-        }))
-      }
-      console.info(`Updated ${items.length} items`)
-    }
-  },
-  async cleanUpAuthToken () {
-    const results = await client.send(new ScanCommand({
-      TableName: FLOCK_TABLES.accounts,
-      AttributesToGet: ['account'],
-    }))
-    const items = results.Items as { account: string }[] | undefined
-    if (items) {
-      for (const { account } of items) {
-        await client.send(new UpdateCommand({
-          TableName: FLOCK_TABLES.accounts,
-          Key: { account },
-          UpdateExpression: 'REMOVE rawAuthToken, hashAuthToken',
-        }))
-      }
-      console.info(`Updated ${items.length} items`)
-    }
-  },
-  async addModifiedTime () {
-    const maxItems = 10000
-    const items: VaultItem[] = []
-    let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined
-    while (items.length < maxItems) {
-      const response = await client.send(new ScanCommand({ TableName: FLOCK_TABLES.items }))
-      if (response?.Items) {
-        items.push(...response?.Items as VaultItem[])
-      }
-      lastEvaluatedKey = response?.LastEvaluatedKey
-      if (!lastEvaluatedKey) {
-        break
-      }
-    }
-    const now = new Date().getTime()
-    let updated = 0
-    for (const item of items) {
-      if (!item.metadata.modified) {
-        await client.send(new UpdateCommand({
-          TableName: FLOCK_TABLES.items,
-          Key: { account: item.account, item: item.item },
-          UpdateExpression: 'SET metadata.modified = :modified',
-          ExpressionAttributeValues: {
-            ':modified': now,
-          },
-        }))
-        updated += 1
-      }
-    }
-    console.info(`Updated ${updated} items`)
-  },
   async removeItemTypeMetadata () {
     // Clients no longer send the plaintext item type, so strip it from rows written before that
     let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined
@@ -250,9 +142,9 @@ const migrations: { [name: string]: () => Promise<void> } = {
 
 export const handler = async (event: { migrationName: string }) => {
   const { migrationName } = event
-  const migration = migrations[migrationName]
-  if (migration === undefined) {
+  // Own properties only, so a name such as `constructor` doesn't reach Object.prototype
+  if (!Object.hasOwn(migrations, migrationName)) {
     throw new Error(`Unknown migration ${migrationName}`)
   }
-  await migration()
+  await migrations[migrationName]()
 }
