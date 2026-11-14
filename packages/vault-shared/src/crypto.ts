@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { MAX_CIPHER_FIELD_LENGTH } from './limits'
 
 /**
  * Ciphertext format bound to the document it belongs to: the doc ID is AES-GCM associated data,
@@ -20,9 +21,13 @@ export const KdfParamsSchema = z.object({
 })
 export type KdfParams = z.infer<typeof KdfParamsSchema>
 
+/**
+ * The cipher itself has no cap here: the server checks snapshots against MAX_ITEM_SIZE, and
+ * DynamoDB's item limit bounds log rows.
+ */
 export const CryptoResultSchema = z.object({
-  iv: z.string().min(1),
+  iv: z.string().min(1).max(MAX_CIPHER_FIELD_LENGTH),
   cipher: z.string().min(1),
-  kver: z.string().optional(),
+  kver: z.string().max(MAX_CIPHER_FIELD_LENGTH).optional(),
   format: z.literal(DOC_BOUND_FORMAT).optional(),
 })

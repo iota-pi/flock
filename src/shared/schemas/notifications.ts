@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { MAX_LOGIN_DEVICES } from '@vault/shared'
+import { AccountIdInputSchema, MAX_LOGIN_DEVICES } from '@vault/shared'
 
 /** Most push subscriptions an account keeps, one per device as with logins. Adding another drops the oldest. */
 export const MAX_PUSH_SUBSCRIPTIONS = MAX_LOGIN_DEVICES
@@ -64,7 +64,7 @@ export const ReminderSettingsResponseSchema = z.object({
 })
 
 export const PushSubscriptionBodySchema = z.object({
-  account: z.string().min(1),
+  account: AccountIdInputSchema,
   endpoint: z.string().max(MAX_ENDPOINT_LENGTH).refine(isAllowedPushEndpoint, 'Not a known push service endpoint'),
   keys: z.object({
     p256dh: z.string().min(1).max(MAX_KEY_LENGTH),
@@ -73,18 +73,36 @@ export const PushSubscriptionBodySchema = z.object({
 })
 
 export const PushSubscriptionDeleteBodySchema = z.object({
-  account: z.string().min(1),
+  account: AccountIdInputSchema,
   endpoint: z.string().min(1).max(MAX_ENDPOINT_LENGTH),
 })
 
+/** IANA names are at most about 30 characters */
+const MAX_TIMEZONE_LENGTH = 64
+
+/**
+ * Whether this realm's `Intl` knows `timeZone`, which is what the notifier needs. Unlike
+ * `Intl.supportedValuesOf('timeZone')`, it accepts `UTC` (the default) and the aliases browsers
+ * may report, such as `Asia/Kolkata` where Node lists only `Asia/Calcutta`.
+ */
+export function isKnownTimeZone(timeZone: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone })
+    return true
+  } catch {
+    return false
+  }
+}
+
 export const ReminderSettingsBodySchema = z.object({
-  account: z.string().min(1),
+  account: AccountIdInputSchema,
   reminderEnabled: z.boolean(),
-  reminderTime: z.string().min(5).max(5),
-  reminderTimezone: z.string().min(1),
+  /** 24-hour HH:MM */
+  reminderTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+  reminderTimezone: z.string().min(1).max(MAX_TIMEZONE_LENGTH).refine(isKnownTimeZone, 'Unknown time zone'),
 })
 
 export const SnoozeRemindersBodySchema = z.object({
-  account: z.string().min(1),
+  account: AccountIdInputSchema,
   snoozeUntilDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
 })
