@@ -26,7 +26,9 @@ import { getVaultTableDefinitions } from './tables'
 import type { DynamoContext } from './commands'
 import type { LoginAttemptReservation } from '../../loginThrottle'
 import * as accountRecords from './accountRecords'
+import type { SignupReservation } from '../../signupThrottle'
 import * as loginThrottleRecords from './loginThrottleRecords'
+import * as signupThrottleRecords from './signupThrottleRecords'
 import * as itemRecords from './itemRecords'
 import * as syncLog from './syncLog'
 
@@ -114,6 +116,10 @@ export default class DynamoDriver implements VaultDriver {
 
   async releaseLoginAttempt(data: BaseData & LoginAttemptReservation): Promise<void> {
     return loginThrottleRecords.releaseLoginAttempt(this.context, data)
+  }
+
+  async reserveSignup(data: SignupReservation): Promise<boolean> {
+    return signupThrottleRecords.reserveSignup(this.context, data)
   }
 
   async removeLoginDevice(data: BaseData & { device: string }): Promise<void> {

@@ -1,3 +1,4 @@
+import { createHmac } from 'crypto'
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import * as Sentry from '@sentry/node'
@@ -7,7 +8,7 @@ import { createFlockDriver } from '../flockDriver'
 import { flockDataVersionPolicy } from '../flockDataVersion'
 import { readSecret } from '../secrets'
 import { appRouter } from '../trpc/root'
-import { createVaultContext, type UnknownAccountParams } from '@vault/server'
+import { createVaultContext, type SignupThrottleOptions, type UnknownAccountParams } from '@vault/server'
 import { CLIENT_OUTDATED_MESSAGE, CURRENT_SALT_VERSION, getDefaultKdf, PROTOCOL_VERSION_HEADER } from '@vault/shared'
 
 /**
@@ -43,6 +44,22 @@ export function getUnknownAccountParams(devMode: boolean): UnknownAccountParams 
   return { secret, saltVersion: CURRENT_SALT_VERSION, kdf: getDefaultKdf() }
 }
 
+/** Separates the signup throttle's key from UNKNOWN_ACCOUNT_SECRET's other uses */
+const SIGNUP_THROTTLE_KEY_LABEL = 'flock-signup-throttle'
+
+/**
+ * Limits sign-ups per network, keyed by an HMAC derived from UNKNOWN_ACCOUNT_SECRET, so it needs no
+ * secret of its own. A local server has no secret, and isn't limited, so e2e runs can create as many
+ * accounts as they like. `request.ip` is the Function URL's `sourceIp`, which AWS sets and clients
+ * can't forge. Behind a CDN or proxy it would be the proxy's address, so every sign-up would share
+ * one limit: read the client's address from the proxy's header (with `trustProxy`) before adding one.
+ */
+export function getSignupThrottle(): SignupThrottleOptions | undefined {
+  const secret = readSecret('UNKNOWN_ACCOUNT_SECRET')
+  if (!secret) return undefined
+  return { secret: createHmac('sha256', secret).update(SIGNUP_THROTTLE_KEY_LABEL).digest('base64url') }
+}
+
 async function createServer(devMode = false) {
   const server = Fastify({
     logger: {
@@ -72,6 +89,7 @@ async function createServer(devMode = false) {
         minProtocolVersion: MIN_PROTOCOL_VERSION,
         dataVersionPolicy: flockDataVersionPolicy,
         unknownAccountParams: getUnknownAccountParams(devMode),
+        signupThrottle: getSignupThrottle(),
       }),
       onError: ({ path, error }: { path: string | undefined, error: unknown }) => {
         // Turning away an old build is routine, and a stuck tab can repeat it every few seconds.

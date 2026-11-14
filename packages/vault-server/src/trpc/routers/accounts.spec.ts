@@ -2,6 +2,7 @@ import { accountsRouter } from './accounts'
 import { fakeSalt, hashString } from '../../util'
 import { hashSessionToken, SESSION_EXPIRY_MS } from '../../sessions'
 import type { LoginAttemptReservation } from '../../loginThrottle'
+import { signupReservation } from '../../signupThrottle'
 import {
   DEVICE_TOKEN_LENGTH,
   isValidNewAccountId,
@@ -30,6 +31,7 @@ const DEVICE_TOKEN = 'd'.repeat(DEVICE_TOKEN_LENGTH)
 const RESERVATION: LoginAttemptReservation = { since: Date.now() }
 /** What reserving an attempt gives for a locked ID */
 const LOCKED = undefined
+const SIGNUP_THROTTLE = { secret: 'signup-secret' }
 
 /** A stored account record with an active session for SESSION_TOKEN */
 function storedAccount(fields: Record<string, unknown> = {}) {
@@ -40,7 +42,12 @@ function storedAccount(fields: Record<string, unknown> = {}) {
   }
 }
 
-function createContext(overrides?: { authToken?: string, sessionValid?: boolean }) {
+function createContext(overrides?: {
+  authToken?: string,
+  sessionValid?: boolean,
+  signupThrottle?: { secret: string },
+  clientAddress?: string,
+}) {
   const sessionValid = overrides?.sessionValid ?? true
   const vault = {
     createAccount: vi.fn(async () => true),
@@ -56,11 +63,14 @@ function createContext(overrides?: { authToken?: string, sessionValid?: boolean 
     reserveLoginAttempt: vi.fn(async (): Promise<LoginAttemptReservation | undefined> => RESERVATION),
     releaseLoginAttempt: vi.fn(async () => undefined),
     removeLoginDevice: vi.fn(async () => undefined),
+    reserveSignup: vi.fn(async () => true),
   }
 
   return {
     authToken: overrides?.authToken ?? SESSION_TOKEN,
     vault,
+    signupThrottle: overrides?.signupThrottle,
+    clientAddress: overrides?.clientAddress,
   }
 }
 
@@ -274,6 +284,52 @@ describe('accountsRouter security contracts', () => {
       keyring: 'encrypted-keyring',
       randomDataKeys: true,
     })
+  })
+
+  it('counts a sign-up against the client network before creating the account', async () => {
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    const ctx = createContext({ authToken: '', signupThrottle: SIGNUP_THROTTLE, clientAddress: '2001:db8::1' })
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await caller.createAccount(NEW_ACCOUNT)
+
+    expect(ctx.vault.reserveSignup).toHaveBeenCalledWith(signupReservation(SIGNUP_THROTTLE, '2001:db8::1', now))
+    expect(ctx.vault.reserveSignup.mock.invocationCallOrder[0])
+      .toBeLessThan(ctx.vault.createAccount.mock.invocationCallOrder[0])
+  })
+
+  it('refuses a sign-up as TOO_MANY_REQUESTS once the network has used up its sign-ups', async () => {
+    const ctx = createContext({ authToken: '', signupThrottle: SIGNUP_THROTTLE, clientAddress: '192.0.2.1' })
+    ctx.vault.reserveSignup.mockResolvedValueOnce(false)
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.createAccount(NEW_ACCOUNT)).rejects.toMatchObject({
+      code: 'TOO_MANY_REQUESTS',
+      message: TOO_MANY_REQUESTS_MESSAGE,
+    })
+    expect(ctx.vault.createAccount).not.toHaveBeenCalled()
+  })
+
+  it('creates accounts without counting them when sign-ups are not limited', async () => {
+    const ctx = createContext({ authToken: '', clientAddress: '192.0.2.1' })
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await caller.createAccount(NEW_ACCOUNT)
+
+    expect(ctx.vault.reserveSignup).not.toHaveBeenCalled()
+    expect(ctx.vault.createAccount).toHaveBeenCalled()
+  })
+
+  it('creates an account without counting it when the client address is not an IP address', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const ctx = createContext({ authToken: '', signupThrottle: SIGNUP_THROTTLE })
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await caller.createAccount(NEW_ACCOUNT)
+
+    expect(ctx.vault.reserveSignup).not.toHaveBeenCalled()
+    expect(ctx.vault.createAccount).toHaveBeenCalled()
   })
 
   it("records the new keyring's active version, so the first rotation's version check matches it", async () => {

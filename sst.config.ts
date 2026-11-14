@@ -106,8 +106,9 @@ export default $config({
         },
       },
     });
-    // Failed login counts per account ID, whether or not the account exists. Rows expire once their
-    // window has ended, so nothing here needs keeping.
+    // Failed login counts per account ID, whether or not the account exists, and sign-up counts per
+    // network (keyed by an HMAC, never an IP address). Rows expire once their window has ended, so
+    // nothing here needs keeping: leave it out of backups, so that expired rows don't outlive it.
     const loginThrottleTable = new sst.aws.Dynamo("FlockLoginThrottle", {
       fields: {
         key: "string",

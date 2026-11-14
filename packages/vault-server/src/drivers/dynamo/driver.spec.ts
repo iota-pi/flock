@@ -1,4 +1,4 @@
-import { PutCommand } from '@aws-sdk/lib-dynamodb'
+import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb'
 import DynamoDriver from './driver'
 import { authenticateLogin, authenticateSession } from '../../authentication'
 import { AuthenticationError } from '../../errors'
@@ -6,6 +6,7 @@ import type { VaultAccountWithAuth } from '../vaultDriver'
 import { generateItemId, MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import { generateAccountId } from '../../util'
 import { hashSessionToken, isSessionFor, SESSION_EXPIRY_MS } from '../../sessions'
+import { MAX_SIGNUPS_PER_WINDOW, SIGNUP_WINDOW_MS } from '../../signupThrottle'
 
 const generateTestAccountId = () => generateAccountId(10)
 
@@ -657,5 +658,19 @@ describe('DynamoDriver', function () {
     const stored = await driverWithDefaults.getAccountRecord({ account })
     authenticateLogin(stored, false, { authTokenHash: authToken })
     expect((stored as VaultAccountWithAuth & { displayName?: string }).displayName).toBe('Default')
+  })
+
+  it('reserveSignup counts sign-ups up to the limit, then refuses without counting', async () => {
+    const key = `signup#${generateTestAccountId()}`
+    const windowEnd = Date.now() + SIGNUP_WINDOW_MS
+    for (let signup = 0; signup < MAX_SIGNUPS_PER_WINDOW; signup += 1) {
+      await expect(driver.reserveSignup({ key, windowEnd })).resolves.toBe(true)
+    }
+    await expect(driver.reserveSignup({ key, windowEnd })).resolves.toBe(false)
+
+    const row = await driver.client.send(new GetCommand({ TableName: driver.tables.loginThrottle, Key: { key } }))
+    expect(row.Item).toEqual({ key, signups: MAX_SIGNUPS_PER_WINDOW, expiresAt: Math.ceil(windowEnd / 1000) })
+    // Another window (or network) has its own row
+    await expect(driver.reserveSignup({ key: `${key}-next`, windowEnd })).resolves.toBe(true)
   })
 })
