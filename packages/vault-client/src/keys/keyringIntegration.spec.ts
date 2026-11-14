@@ -19,6 +19,7 @@ import { getSessionExpiredHandler } from './runtime'
 import { getVaultStorageNames } from '../shared/storageNames'
 import { deleteStoredSessionToken } from '../shared/workerAuthStore'
 import { deriveLegacyKey } from '../../test/deriveLegacyKey'
+import { reencryptPendingKey } from './reencryptPending'
 
 import { updateKeyring, getKeyring, getSession } from './AccountClient'
 import * as accountClientModule from './AccountClient'
@@ -347,6 +348,16 @@ describe('Vault Keyring Integration', () => {
     await clearVaultDeviceData('test-account')
 
     expect(localStorage.getItem(getVaultStorageNames().loginDeviceKey)).toBeNull()
+  })
+
+  it('forgets an interrupted re-encryption for the account when the device data is cleared', async () => {
+    localStorage.setItem(reencryptPendingKey('test-account'), 'true')
+    localStorage.setItem(reencryptPendingKey('other-account'), 'true')
+
+    await clearVaultDeviceData('test-account')
+
+    expect(localStorage.getItem(reencryptPendingKey('test-account'))).toBeNull()
+    expect(localStorage.getItem(reencryptPendingKey('other-account'))).toBe('true')
   })
 
   it('handleSessionExpired reports a lost session without locking vault when silent re-establishment fails', async () => {

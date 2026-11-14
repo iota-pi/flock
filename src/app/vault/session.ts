@@ -1,5 +1,6 @@
 import { clearVaultDeviceData, lockVaultKeys, readStoredMetadata } from '@vault/client'
 import { createLogger } from 'src/utils/logger'
+import { clearMigrationDeferral } from '../../migrate/detection'
 import { useAppStore } from '../../state/store'
 import { unsubscribe as unsubscribeFromNotifications } from '../../utils/pushNotifications'
 import { clearBackupReminder } from './backupReminderStore'
@@ -43,6 +44,9 @@ export async function removeVaultFromDevice() {
     }
   }
   await clearVaultDeviceData(account || undefined)
-  if (account) clearBackupReminder(account)
+  if (account) {
+    clearBackupReminder(account)
+    clearMigrationDeferral(account)
+  }
   updateAuth({ account: '', loggedIn: false })
 }

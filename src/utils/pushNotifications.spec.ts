@@ -4,6 +4,7 @@ import {
   clearReminderNotifications,
   refreshPushSubscription,
   subscribe,
+  unsubscribe,
 } from './pushNotifications'
 import {
   addPushSubscription,
@@ -246,6 +247,16 @@ describe('pushNotifications utility', () => {
       await expect(refreshPushSubscription('user-1', key)).resolves.toBe(false)
 
       expect(pushManager.subscribe).not.toHaveBeenCalled()
+    })
+
+    it('unsubscribing removes the browser subscription even when the server cannot be reached', async () => {
+      const current = browserSubscription('https://push.example.com/current', [1, 2, 3])
+      stubPushManager(current)
+      vi.mocked(deletePushSubscription).mockRejectedValueOnce(new Error('offline'))
+
+      await expect(unsubscribe('user-1')).rejects.toThrow('offline')
+
+      expect(current.unsubscribe).toHaveBeenCalled()
     })
 
     it('subscribing replaces a subscription made with another key', async () => {
