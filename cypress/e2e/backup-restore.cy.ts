@@ -1,31 +1,9 @@
-function toTrpcSuccessResponse(json: unknown, body?: unknown) {
-  if (body && typeof body === 'object' && !Array.isArray(body)) {
-    const keys = Object.keys(body as Record<string, unknown>).filter(key => key !== 'json')
-    if (keys.length > 0) {
-      return keys.map(() => ({
-        result: {
-          data: {
-            json,
-          },
-        },
-      }))
-    }
-  }
+type TrpcBatchResponse = Array<{ result?: { data?: { json?: unknown } | unknown } }>
 
-  return [
-    {
-      result: {
-        data: {
-          json,
-        },
-      },
-    },
-  ]
-}
-
-function generateMockEncryptedDoc(): string {
-  const randomBytes = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2)
-  return Buffer.from(randomBytes).toString('base64')
+/** Returns the procedure's result from a batched tRPC response, whether or not it's transformer-wrapped */
+function trpcResult<T>(body: TrpcBatchResponse): T {
+  const data = body[0]?.result?.data as { json?: T } | T
+  return (data && typeof data === 'object' && 'json' in data ? data.json : data) as T
 }
 
 describe('Backup and restore', () => {
@@ -39,49 +17,29 @@ describe('Backup and restore', () => {
     cy.get('[data-cy="import-cancel"]').click()
   })
 
-  it('auto-resolves conflicted branches after restore-style hydration', () => {
-    const conflictItemId = `backup-conflict-${Date.now()}`
-    const versionA = `backup-v1-${Date.now()}`
-    const versionB = `backup-v2-${Date.now()}`
-    const branchA = generateMockEncryptedDoc()
-    const branchB = generateMockEncryptedDoc()
+  it('fetches items the server lists that this device does not have', () => {
+    const missingItemId = `restored-item-${Date.now()}`
 
-    cy.intercept('GET', '**/trpc/items.fetchManifest*', (req) => {
-      req.reply({
-        statusCode: 200,
-        body: [{
-          result: {
-            data: {
-              json: {
-                success: true,
-                items: [{
-                  item: conflictItemId,
-                  branches: [
-                    { doc: branchA, versionId: versionA, parentIds: [] },
-                    { doc: branchB, versionId: versionB, parentIds: [versionA] },
-                  ],
-                  metadata: { iv: '', modified: Date.now() },
-                }],
-                serverTime: Date.now(),
-                nextCursor: null,
-              },
-            },
-          },
-        }],
+    // Pass the real manifest through, adding an item this device has never seen
+    cy.intercept('POST', '**/trpc/items.fetchManifest*', req => {
+      req.continue(res => {
+        const result = trpcResult<{ manifest: Array<Record<string, unknown>> }>(res.body as TrpcBatchResponse)
+        result.manifest.push({ itemId: missingItemId, version: 1, modifiedAt: Date.now() })
       })
-    }).as('fetchConflictAfterRestore')
+    }).as('fetchManifest')
+    cy.intercept('POST', '**/trpc/items.fetchSnapshotsByIds*').as('fetchSnapshots')
 
-    cy.intercept('POST', '**/trpc/items.resolveBranchConflict*', (req) => {
-      const body = req.body as Record<string, any>
-      const input = body?.json || body?.[0]?.json || body?.['0']?.json || {}
-      expect(input.resolutions?.[0]?.resolvedBranch?.parentIds).to.include.members([versionA, versionB])
-      req.reply({
-        statusCode: 200,
-        body: [{ result: { data: { json: { success: true, resolvedCount: 1 } } } }],
-      })
-    }).as('resolveConflictAfterRestore')
+    cy.page('settings')
+    cy.dataCy('force-sync').click()
+
+    cy.wait('@fetchManifest')
+    cy.wait('@fetchSnapshots').then(interception => {
+      const body = interception.request.body as Record<string, { json?: { itemIds?: string[] } }>
+      const input = body['0']?.json ?? body['0'] as { itemIds?: string[] }
+      expect(input?.itemIds).to.include(missingItemId)
+    })
 
     cy.page('people')
-    cy.location('pathname').should('include', 'people')
+    cy.dataCy('page-content-people').should('exist')
   })
 })

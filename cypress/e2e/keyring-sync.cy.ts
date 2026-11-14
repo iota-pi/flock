@@ -30,7 +30,7 @@ describe('Keyring Server Sync and Restoration', () => {
 
     // 1. Intercept keyring TRPC endpoints
     cy.intercept('POST', '**/trpc/accounts.createAccount*').as('createAccount')
-    cy.intercept('GET', '**/trpc/accounts.getKeyring*').as('getKeyring')
+    cy.intercept('POST', '**/trpc/accounts.getKeyring*').as('getKeyring')
 
     // 2. Start a fresh registration
     cy.visit('/welcome')
