@@ -89,7 +89,7 @@ describe('sync log', () => {
     const { Item: row } = await get(1)
     expect(row?.expiresAt).toBe(Math.floor(row?.createdAt / 1000) + SYNC_LOG_TTL_DAYS * 24 * 60 * 60)
     const { Item: head } = await get(0)
-    expect(head).toEqual({ account, seq: 0, head: 1 })
+    expect(head).toEqual({ account, seq: 0, head: 1, usageDay: expect.any(Number), usageBytes: expect.any(Number) })
   })
 
   it('reads strictly after a seq, and never returns the head row', async () => {

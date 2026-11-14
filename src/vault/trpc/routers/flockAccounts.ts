@@ -10,6 +10,7 @@ import {
 import { AccountInputSchema } from '@vault/shared'
 import { toZonedTime } from 'date-fns-tz'
 import type { FlockAccountFields } from '../../types'
+import { REMINDER_INDEX, REMINDERS_ON } from '../../flockDriver'
 
 function flockAccount(accountData: VaultAccountWithAuth): VaultAccountWithAuth & FlockAccountFields {
   return accountData as VaultAccountWithAuth & FlockAccountFields
@@ -73,6 +74,8 @@ export const flockAccountsRouter = router({
         reminderEnabled: input.reminderEnabled,
         reminderTime: input.reminderTime,
         reminderTimezone: input.reminderTimezone,
+        // Keeps the account in the notifier's index exactly while its reminders are on
+        ...(input.reminderEnabled ? { reminderIndex: REMINDERS_ON } : { remove: [REMINDER_INDEX.partitionKey] }),
       })
 
       return { success: true }

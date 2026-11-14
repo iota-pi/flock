@@ -1,14 +1,38 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
-import { DynamoDBDocumentClient, ScanCommand, type ScanCommandOutput, UpdateCommand } from '@aws-sdk/lib-dynamodb'
+import {
+  DynamoDBDocumentClient,
+  ScanCommand,
+  type ScanCommandInput,
+  type ScanCommandOutput,
+  UpdateCommand,
+} from '@aws-sdk/lib-dynamodb'
 
-import type { VaultAccount } from '@vault/server'
+import { DEFAULT_ACCOUNT_QUOTAS, type VaultAccount } from '@vault/server'
 import { getConnectionParams } from '@vault/server/dynamo'
 import { flockDataVersionPolicy } from '../flockDataVersion'
-import { createFlockDriver, FLOCK_TABLES } from '../flockDriver'
+import { createFlockDriver, FLOCK_TABLES, REMINDER_INDEX, REMINDERS_ON } from '../flockDriver'
 import { dropDeletedItemPayloads } from './deletedItemPayloads'
 
 const ddb = new DynamoDBClient(getConnectionParams())
 const client = DynamoDBDocumentClient.from(ddb)
+
+/** Scans the accounts table to the end, yielding the records of each page as it arrives */
+async function* scanAccounts(input: Omit<ScanCommandInput, 'TableName' | 'ExclusiveStartKey'>) {
+  let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined
+  do {
+    const response = await client.send(new ScanCommand({
+      ...input,
+      TableName: FLOCK_TABLES.accounts,
+      ExclusiveStartKey: lastEvaluatedKey,
+    }))
+    yield* response.Items ?? []
+    lastEvaluatedKey = response.LastEvaluatedKey
+  } while (lastEvaluatedKey)
+}
+
+function isConditionalCheckFailure(error: unknown) {
+  return (error as { name?: unknown })?.name === 'ConditionalCheckFailedException'
+}
 
 const migrations: { [name: string]: () => Promise<void> } = {
   async removeItemTypeMetadata () {
@@ -90,6 +114,65 @@ const migrations: { [name: string]: () => Promise<void> } = {
     // countDeletedItemPayloads first. Safe to run again if the Lambda times out.
     const { dropped } = await dropDeletedItemPayloads(client, FLOCK_TABLES.items)
     console.info(`Dropped the payloads of ${dropped} deleted items`)
+  },
+  async indexReminderAccounts () {
+    // Puts every account with reminders on in the notifier's index (REMINDER_INDEX), which only
+    // updateReminderSettings maintains. Run it as soon as the index exists: the notifier reads only
+    // the index, so until then accounts that turned reminders on before it get none. Safe to run again.
+    let indexed = 0
+    for await (const { account } of scanAccounts({
+      FilterExpression: 'reminderEnabled = :true AND attribute_not_exists(#index)',
+      ExpressionAttributeNames: { '#index': REMINDER_INDEX.partitionKey },
+      ExpressionAttributeValues: { ':true': true },
+      ProjectionExpression: 'account',
+    })) {
+      try {
+        await client.send(new UpdateCommand({
+          TableName: FLOCK_TABLES.accounts,
+          Key: { account },
+          UpdateExpression: 'SET #index = :on',
+          // Unless the user turned reminders off since the scan read the account
+          ConditionExpression: 'reminderEnabled = :true',
+          ExpressionAttributeNames: { '#index': REMINDER_INDEX.partitionKey },
+          ExpressionAttributeValues: { ':on': REMINDERS_ON, ':true': true },
+        }))
+        indexed += 1
+      } catch (error) {
+        if (!isConditionalCheckFailure(error)) throw error
+      }
+    }
+    console.info(`Added ${indexed} accounts to ${REMINDER_INDEX.name}`)
+  },
+  async recountStorageUsage () {
+    // Counts each account's storage from its items, for the storage quota. Accounts from before the
+    // quota have no count, and count as using nothing until this runs. It reads every item, so it may
+    // time out: run it again until it reports none left. Then run reportStorageUsage.
+    const vault = createFlockDriver()
+    let counted = 0
+    for await (const { account } of scanAccounts({
+      FilterExpression: 'attribute_not_exists(storageCountedAt)',
+      ProjectionExpression: 'account',
+    })) {
+      await vault.recountStorageUsage({ account })
+      counted += 1
+    }
+    console.info(`Counted the storage of ${counted} accounts, and none are left`)
+  },
+  async reportStorageUsage () {
+    // Read-only: how much the accounts store, against the storage quota
+    const usages: number[] = []
+    let uncounted = 0
+    for await (const record of scanAccounts({ ProjectionExpression: 'storageBytes, storageCountedAt' })) {
+      if (record.storageCountedAt === undefined) uncounted += 1
+      usages.push(typeof record.storageBytes === 'number' ? record.storageBytes : 0)
+    }
+    usages.sort((a, b) => a - b)
+    const at = (fraction: number) => usages[Math.min(usages.length - 1, Math.floor(fraction * usages.length))] ?? 0
+    const megabytes = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(2)} MiB`
+    const quota = DEFAULT_ACCOUNT_QUOTAS.storageBytes
+    console.info(`${usages.length} accounts, ${uncounted} not yet counted by recountStorageUsage`)
+    console.info(`Median ${megabytes(at(0.5))}, 99th percentile ${megabytes(at(0.99))}, largest ${megabytes(at(1))}`)
+    console.info(`${usages.filter(bytes => bytes >= quota).length} accounts at or over the quota of ${megabytes(quota)}`)
   },
   async countAccountsByDataVersion () {
     // Read-only report of how far each account's stored data has been migrated (see "Backwards

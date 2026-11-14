@@ -296,6 +296,20 @@ describe('ChangeOutbox', () => {
       expect(requestSnapshot).not.toHaveBeenCalled()
     })
 
+    // The account is over its log quota: nothing is wrong with the item, so it mustn't go snapshot-only
+    it('still fails the push when the account is over a quota, which a later poll retries', async () => {
+      exchange.mockRejectedValue(Object.assign(new Error('QUOTA_EXCEEDED'), {
+        data: { code: 'TOO_MANY_REQUESTS', httpStatus: 429 },
+      }))
+      await outbox.mark(ITEM)
+
+      await expect(outbox.pushPending()).rejects.toThrow('QUOTA_EXCEEDED')
+
+      expect(outbox.isSnapshotOnly(ITEM)).toBe(false)
+      expect(requestSnapshot).not.toHaveBeenCalled()
+      expect(await outbox.listPending()).toEqual([ITEM])
+    })
+
     it('still fails the push when the server refuses the session', async () => {
       exchange.mockRejectedValue(Object.assign(new Error('UNAUTHORIZED'), { data: { code: 'UNAUTHORIZED', httpStatus: 401 } }))
       await outbox.mark(ITEM)

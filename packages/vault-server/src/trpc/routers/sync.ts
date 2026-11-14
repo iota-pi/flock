@@ -2,6 +2,8 @@ import { TRPCError } from '@trpc/server'
 import { CLIENT_OUTDATED_MESSAGE, PollLogSchema } from '@vault/shared'
 import { protectedProcedure, publicProcedure, router } from '../trpc'
 import { pollLog } from '../../services/syncLogService'
+import { QUOTA_EXCEEDED_MAPPING } from '../../quotas'
+import { toTrpcError } from '../errors'
 
 
 export const syncRouter = router({
@@ -16,5 +18,11 @@ export const syncRouter = router({
 
   pollLog: protectedProcedure
     .input(PollLogSchema)
-    .mutation(async ({ ctx, input }) => pollLog(ctx.vault, input)),
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await pollLog(ctx.vault, input, ctx.quotas)
+      } catch (error) {
+        throw toTrpcError(error, [QUOTA_EXCEEDED_MAPPING])
+      }
+    }),
 })

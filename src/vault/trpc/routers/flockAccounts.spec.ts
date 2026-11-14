@@ -202,4 +202,34 @@ describe('flockAccountsRouter', () => {
       })
     })
   })
+
+  describe('updateReminderSettings', () => {
+    const settings = { account: 'acct-1', reminderTime: '07:30', reminderTimezone: 'Australia/Sydney' }
+
+    it('puts the account in the reminder index when reminders are turned on', async () => {
+      const ctx = createContext()
+      const caller = flockAccountsRouter.createCaller(ctx as any)
+
+      await caller.updateReminderSettings({ ...settings, reminderEnabled: true })
+
+      expect(ctx.vault.updateAccountData).toHaveBeenCalledWith({
+        ...settings,
+        reminderEnabled: true,
+        reminderIndex: 'on',
+      })
+    })
+
+    it('takes the account out of the index when reminders are turned off', async () => {
+      const ctx = createContext()
+      const caller = flockAccountsRouter.createCaller(ctx as any)
+
+      await caller.updateReminderSettings({ ...settings, reminderEnabled: false })
+
+      expect(ctx.vault.updateAccountData).toHaveBeenCalledWith({
+        ...settings,
+        reminderEnabled: false,
+        remove: ['reminderIndex'],
+      })
+    })
+  })
 })

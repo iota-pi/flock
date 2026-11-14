@@ -1,6 +1,7 @@
 import type { z } from 'zod'
 import type { VaultItem, VaultDriver } from '../drivers/vaultDriver'
 import type { PutSnapshotBatchSchema, ItemId } from '@vault/shared'
+import { QuotaExceededError } from '../errors'
 
 export type PutSnapshotInput = z.infer<typeof PutSnapshotBatchSchema>
 
@@ -13,14 +14,30 @@ export interface PersistSnapshotsResult {
   logSeq: number
 }
 
+/** The account's storage as it was when the request came in */
+export interface StorageAllowance {
+  /** The account's `storageBytes` */
+  usedBytes: number
+  quotaBytes: number
+}
+
 /**
  * Persists a batch of encrypted item snapshots, each written on its own. Logs any write that fails
  * and reports which ones were persisted, with the log's head once the writes are done.
+ *
+ * An account at its storage quota can still delete items, but a batch that carries any snapshot is
+ * turned away whole with `QuotaExceededError`. Rejecting single items instead would get them
+ * quarantined, though nothing is wrong with them.
  */
 export async function persistSnapshots(
   vault: VaultDriver,
   input: PutSnapshotInput,
+  storage: StorageAllowance,
 ): Promise<PersistSnapshotsResult> {
+  if (storage.usedBytes >= storage.quotaBytes && input.snapshots.some(snapshot => snapshot.snapshot)) {
+    throw new QuotaExceededError(`Account has used ${storage.usedBytes} of its ${storage.quotaBytes} bytes of storage`)
+  }
+
   const results = await Promise.allSettled(
     input.snapshots.map(async snapshot => {
       const item: VaultItem = {
@@ -41,6 +58,7 @@ export async function persistSnapshots(
       return {
         itemId: snapshot.itemId,
         version: setResult.version,
+        storageDelta: setResult.storageDelta,
       }
     })
   )
@@ -55,6 +73,11 @@ export async function persistSnapshots(
     )
     return []
   })
+  const storageDelta = persistedResults.reduce((sum, result) => sum + result.storageDelta, 0)
+  if (storageDelta !== 0) {
+    // Not in the same transaction as the writes: if this fails, usage drifts low until a recount
+    await vault.addStorageUsage({ account: input.account, bytes: storageDelta })
+  }
   const persisted = persistedResults.length
   const logSeq = await vault.readLogHead({ account: input.account })
 
@@ -62,7 +85,7 @@ export async function persistSnapshots(
     success: persisted === input.snapshots.length,
     persisted,
     total: input.snapshots.length,
-    results: persistedResults,
+    results: persistedResults.map(({ itemId, version }) => ({ itemId, version })),
     logSeq,
   }
 }

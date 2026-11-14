@@ -326,6 +326,24 @@ describe('SnapshotPusher', () => {
     expect(pusher.isRetryActive).toBe(false)
   })
 
+  // Over the storage quota the whole request is refused, and nothing is wrong with its items
+  it('retries later without counting an item failure when the account is over its quota', async () => {
+    mockApiClient.putSnapshots.mockRejectedValue(Object.assign(new Error('QUOTA_EXCEEDED'), {
+      data: { code: 'TOO_MANY_REQUESTS', httpStatus: 429 },
+    }))
+
+    // More attempts than it takes to quarantine an item that keeps failing
+    for (let i = 0; i < 6; i += 1) {
+      await pusher.triggerSnapshotPush()
+    }
+
+    expect(pusher['consecutiveFailures']['count']('item-1' as ItemId)).toBe(0)
+    expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
+    expect(mockTracker.removeDirtyItemIfTickMatches).not.toHaveBeenCalled()
+    expect(pusher.isRetryActive).toBe(true)
+    pusher.cancelRetry()
+  })
+
   it('runs a follow-up push requested while a push was in flight', async () => {
     let releaseFirstPut!: () => void
     mockApiClient.putSnapshots.mockImplementationOnce(() => new Promise(resolve => {

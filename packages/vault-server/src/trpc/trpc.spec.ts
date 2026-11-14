@@ -8,6 +8,7 @@ import {
 } from './trpc'
 import { hashSessionToken, SESSION_EXPIRY_MS, SESSION_RENEWAL_THRESHOLD_MS } from '../sessions'
 import type { StoredAccount, VaultDriver } from '../drivers/vaultDriver'
+import { DEFAULT_ACCOUNT_QUOTAS } from '../quotas'
 
 describe('protectedProcedure session renewal behavior', () => {
   const executionOrder: string[] = []
@@ -187,7 +188,13 @@ describe('error responses', () => {
       endpoint: '/trpc',
       req: new Request(`http://localhost/trpc/${path}`),
       router: errorRouter,
-      createContext: () => ({ authToken: '', vault: {} as VaultDriver, protocolVersion: 0, minProtocolVersion: 0 }),
+      createContext: () => ({
+        authToken: '',
+        vault: {} as VaultDriver,
+        protocolVersion: 0,
+        minProtocolVersion: 0,
+        quotas: DEFAULT_ACCOUNT_QUOTAS,
+      }),
     })
     const body = await response.json() as { error: { message: string, data: Record<string, unknown> } }
     return { status: response.status, body }
@@ -221,7 +228,13 @@ describe('protocol version gate', () => {
   })
 
   function createCaller(protocolVersion: number, minProtocolVersion: number) {
-    return gatedRouter.createCaller({ authToken: '', vault: {} as any, protocolVersion, minProtocolVersion })
+    return gatedRouter.createCaller({
+      authToken: '',
+      vault: {} as any,
+      protocolVersion,
+      minProtocolVersion,
+      quotas: DEFAULT_ACCOUNT_QUOTAS,
+    })
   }
 
   it('rejects writes from builds below the minimum protocol version', async () => {

@@ -1,7 +1,9 @@
 import {
   CreateTableCommand,
+  DescribeTableCommand,
   DynamoDBClient,
   type DynamoDBClientConfig,
+  UpdateTableCommand,
 } from '@aws-sdk/client-dynamodb'
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb'
 import type {
@@ -12,6 +14,7 @@ import type {
   ItemFormatSummary,
   LogPushResult,
   ReadLogInput,
+  SetItemResult,
   StoredAccount,
   SyncLogPage,
   UpdateAccountDataParams,
@@ -22,7 +25,7 @@ import type {
 import type { ItemId, ManifestEntry } from '@vault/shared'
 import { isResourceInUseError } from './dynamoErrors'
 import { getConnectionParams, resolveVaultTableNames, type VaultTableNames } from './config'
-import { getVaultTableDefinitions } from './tables'
+import { getVaultTableDefinitions, type AccountIndex, type VaultTableDefinition } from './tables'
 import type { DynamoContext } from './commands'
 import type { LoginAttemptReservation } from '../../loginThrottle'
 import * as accountRecords from './accountRecords'
@@ -36,6 +39,8 @@ export interface DynamoDriverOptions {
   accountDefaults?: Record<string, unknown>
   /** Most log rows one page holds. Tests lower it so paging needs only a few rows. */
   syncLogPageSize?: number
+  /** Indexes `init` adds to the accounts table */
+  accountIndexes?: AccountIndex[]
 }
 
 export default class DynamoDriver implements VaultDriver {
@@ -43,11 +48,13 @@ export default class DynamoDriver implements VaultDriver {
   readonly tables: VaultTableNames
   private readonly accountDefaults: Record<string, unknown>
   private readonly syncLogPageSize: number
+  private readonly accountIndexes: AccountIndex[]
 
   constructor(options: DynamoDriverOptions = {}) {
     this.tables = resolveVaultTableNames(options.tables)
     this.accountDefaults = options.accountDefaults ?? {}
     this.syncLogPageSize = options.syncLogPageSize ?? syncLog.SYNC_LOG_PAGE_SIZE
+    this.accountIndexes = options.accountIndexes ?? []
   }
 
   get client() {
@@ -66,9 +73,9 @@ export default class DynamoDriver implements VaultDriver {
     }
   }
 
-  /** Creates any of the vault's tables that don't exist yet */
+  /** Creates any of the vault's tables, and indexes on them, that don't exist yet */
   async init(): Promise<this> {
-    for (const table of getVaultTableDefinitions(this.tables)) {
+    for (const table of getVaultTableDefinitions(this.tables, this.accountIndexes)) {
       try {
         console.info(`Create table: ${table.TableName}`)
         await this.client.send(new CreateTableCommand({ ...table, BillingMode: 'PAY_PER_REQUEST' }))
@@ -78,10 +85,28 @@ export default class DynamoDriver implements VaultDriver {
           throw err
         }
         console.info(`Table already exists, skipping: ${table.TableName}`)
+        await this.addMissingIndexes(table)
       }
     }
 
     return this
+  }
+
+  /** Adds the indexes a table that already existed lacks, one at a time as DynamoDB requires */
+  private async addMissingIndexes(table: VaultTableDefinition): Promise<void> {
+    const wanted = table.GlobalSecondaryIndexes ?? []
+    if (wanted.length === 0) return
+    const { Table: existing } = await this.client.send(new DescribeTableCommand({ TableName: table.TableName }))
+    const existingNames = new Set((existing?.GlobalSecondaryIndexes ?? []).map(index => index.IndexName))
+    for (const index of wanted) {
+      if (existingNames.has(index.IndexName)) continue
+      console.info(`Add index ${index.IndexName} to ${table.TableName}`)
+      await this.client.send(new UpdateTableCommand({
+        TableName: table.TableName,
+        AttributeDefinitions: table.AttributeDefinitions,
+        GlobalSecondaryIndexUpdates: [{ Create: index }],
+      }))
+    }
   }
 
   connect(options?: DynamoDBClientConfig, devMode = false): this {
@@ -138,8 +163,16 @@ export default class DynamoDriver implements VaultDriver {
     return accountRecords.raiseDataVersion(this.context, data)
   }
 
-  async set(item: VaultItem): Promise<{ version: number }> {
+  async set(item: VaultItem): Promise<SetItemResult> {
     return itemRecords.setItem(this.context, item)
+  }
+
+  async addStorageUsage(data: BaseData & { bytes: number }): Promise<void> {
+    return accountRecords.addStorageUsage(this.context, data)
+  }
+
+  async recountStorageUsage(data: BaseData): Promise<number> {
+    return itemRecords.recountStorageUsage(this.context, data)
   }
 
   async fetchManifest(data: BaseData): Promise<ManifestEntry[]> {
