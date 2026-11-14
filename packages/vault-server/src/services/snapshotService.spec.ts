@@ -64,7 +64,6 @@ describe('snapshotService.persistSnapshots', () => {
       item: 'item-1',
       metadata: {
         iv: '',
-        modified: 12345,
       },
       snapshot: {
         iv: 'iv-1',
@@ -76,7 +75,6 @@ describe('snapshotService.persistSnapshots', () => {
       item: 'item-2',
       metadata: {
         iv: '',
-        modified: 12346,
         deleted: true,
       },
       snapshot: {

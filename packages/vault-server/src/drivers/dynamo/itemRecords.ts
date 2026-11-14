@@ -44,9 +44,10 @@ interface ItemUpdate {
 }
 
 function itemUpdate(item: VaultItem): ItemUpdate {
-  const modifiedAt = typeof item.metadata.modified === 'number'
-    ? item.metadata.modified
-    : Date.now()
+  // The server's own clock, never the client's. Older rows keep a client-supplied
+  // `metadata.modified`, which the manifest falls back to; new writes don't store one.
+  const { modified: _clientModified, ...metadata } = item.metadata
+  const modifiedAt = Date.now()
   // A snapshot supersedes the legacy payload, which nothing reads once a snapshot exists
   const removeLegacyCipher = !!item.snapshot && !item.cipher
   // Heads describe the snapshot written with them. Stale heads paired with a newer version would let
@@ -54,7 +55,7 @@ function itemUpdate(item: VaultItem): ItemUpdate {
   const remove = [...(removeLegacyCipher ? ['cipher'] : []), ...(item.heads ? [] : ['heads'])]
   return {
     set: {
-      metadata: item.metadata,
+      metadata,
       snapshot: item.snapshot || undefined,
       cipher: item.cipher || undefined,
       heads: item.heads || undefined,

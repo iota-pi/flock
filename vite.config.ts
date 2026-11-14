@@ -1,11 +1,11 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv, type UserConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import wasm from 'vite-plugin-wasm'
 
 import { visualizer } from 'rollup-plugin-visualizer'
 
-export default defineConfig({
+const config: UserConfig = {
   base: '/',
   plugins: [
     wasm(),
@@ -136,4 +136,17 @@ export default defineConfig({
       wasm(),
     ],
   },
+}
+
+export default defineConfig(({ command, mode }) => {
+  // A built app gets its API from src/deployments.ts by hostname. On any other hostname it would use
+  // VITE_VAULT_ENDPOINT, so a build that has one could talk to an unintended API (local values live in
+  // .env.development, which only the dev server loads).
+  const fallbackEndpoint = loadEnv(mode, process.cwd(), 'VITE_').VITE_VAULT_ENDPOINT
+  if (command === 'build' && fallbackEndpoint) {
+    throw new Error(
+      `VITE_VAULT_ENDPOINT is set (${fallbackEndpoint}) for a build. Builds must only use the APIs in src/deployments.ts.`,
+    )
+  }
+  return config
 })
