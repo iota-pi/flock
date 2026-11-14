@@ -9,6 +9,7 @@ import { initAppSentry } from './app/sentry'
 import { registerSW } from 'virtual:pwa-register'
 import { registerAppUpdates } from './app/appUpdate'
 import { lockVault } from './app/vault/session'
+import { isCypress } from './app/vault/cypress'
 import { hasApiAuthToken } from '@vault/client'
 import { createLogger } from 'src/utils/logger'
 import ThemedApp from './ThemedApp'
@@ -25,7 +26,7 @@ function initializeApp() {
 
     registerAppUpdates(registerSW, { lockBeforeReload: lockVault })
 
-    if (window.Cypress) {
+    if (isCypress) {
       window.hasApiAuthToken = hasApiAuthToken
       window.vault = import('@vault/client')
       window.mutations = import('./features/items/mutations/itemMutations')
