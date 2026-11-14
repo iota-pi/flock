@@ -1,7 +1,13 @@
 import { z } from 'zod'
 import { nanoid } from 'nanoid'
+import { MAX_ITEM_ID_LENGTH } from './limits'
 
-export const ItemIdSchema = z.string().min(1).trim().brand<'ItemId'>()
+/** Every item ID ever generated (nanoid, UUID and `settings-<account>`) uses only these characters */
+const ITEM_ID_PATTERN = /^[A-Za-z0-9_-]+$/
+
+export const ItemIdSchema = (
+  z.string().trim().min(1).max(MAX_ITEM_ID_LENGTH).regex(ITEM_ID_PATTERN).brand<'ItemId'>()
+)
 
 export type ItemId = z.infer<typeof ItemIdSchema>
 

@@ -2,7 +2,15 @@ import { accountsRouter } from './accounts'
 import { fakeSalt, hashString } from '../../util'
 import { hashSessionToken, SESSION_EXPIRY_MS } from '../../sessions'
 import type { LoginAttemptReservation } from '../../loginThrottle'
-import { DEVICE_TOKEN_LENGTH, isValidNewAccountId, TOO_MANY_REQUESTS_MESSAGE, VersionConflictError } from '@vault/shared'
+import {
+  DEVICE_TOKEN_LENGTH,
+  isValidNewAccountId,
+  MAX_AUTH_TOKEN_LENGTH,
+  MAX_KEYRING_LENGTH,
+  MAX_SALT_LENGTH,
+  TOO_MANY_REQUESTS_MESSAGE,
+  VersionConflictError,
+} from '@vault/shared'
 
 const ARGON2ID = { algorithm: 'argon2id' as const, memoryKiB: 65536, passes: 3, parallelism: 1 }
 const NEW_ACCOUNT = {
@@ -281,6 +289,9 @@ describe('accountsRouter security contracts', () => {
     ['PBKDF2 credentials', { salt: 'salt', authToken: 'auth', iterations: 600000, keyring: 'encrypted-keyring', randomDataKeys: true }],
     ['no keyring', { ...NEW_ACCOUNT, keyring: undefined }],
     ['a keyring that may hold a password-derived key', { ...NEW_ACCOUNT, randomDataKeys: undefined }],
+    ['an oversized keyring', { ...NEW_ACCOUNT, keyring: 'k'.repeat(MAX_KEYRING_LENGTH + 1) }],
+    ['an oversized salt', { ...NEW_ACCOUNT, salt: 's'.repeat(MAX_SALT_LENGTH + 1) }],
+    ['an oversized auth token', { ...NEW_ACCOUNT, authToken: 'a'.repeat(MAX_AUTH_TOKEN_LENGTH + 1) }],
   ])('rejects a new account with %s', async (_case, body) => {
     const ctx = createContext({ authToken: '' })
     const caller = accountsRouter.createCaller(ctx as any)
