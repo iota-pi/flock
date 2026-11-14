@@ -13,6 +13,7 @@ import { AuthenticationError } from '../errors'
 import { authenticateSession } from '../authentication'
 import { shouldRenewSession } from '../sessions'
 import { toTrpcError } from './errors'
+import { DEFAULT_ACCOUNT_QUOTAS, type AccountQuotas } from '../quotas'
 
 export interface VaultServerOptions {
   /** The storage every request runs on */
@@ -32,6 +33,8 @@ export interface VaultServerOptions {
    * like a real account's. Without this, unknown accounts get NOT_FOUND.
    */
   unknownAccountParams?: UnknownAccountParams
+  /** Overrides some of `DEFAULT_ACCOUNT_QUOTAS` */
+  quotas?: Partial<AccountQuotas>
 }
 
 export interface UnknownAccountParams {
@@ -47,6 +50,7 @@ type TrpcContext = Required<Pick<VaultServerOptions, 'vault' | 'minProtocolVersi
     authToken: string,
     /** The protocol version the client sent (0 for builds that predate the header) */
     protocolVersion: number,
+    quotas: AccountQuotas,
   }
 
 function getTokenFromAuthorizationHeader(authorizationHeader?: string): string {
@@ -71,6 +75,7 @@ export function createVaultContext(options: VaultServerOptions) {
       minProtocolVersion: options.minProtocolVersion ?? 0,
       dataVersionPolicy: options.dataVersionPolicy,
       unknownAccountParams: options.unknownAccountParams,
+      quotas: { ...DEFAULT_ACCOUNT_QUOTAS, ...options.quotas },
     }
   }
 }

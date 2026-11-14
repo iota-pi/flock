@@ -3,6 +3,7 @@ import { backOff, SYNC_LOG_TTL_DAYS, type BackoffOptions, type SyncLogEntry, typ
 import type { AppendLogInput, BaseData, LogPushResult, ReadLogInput, SyncLogPage } from '../vaultDriver'
 import type { DynamoContext } from './commands'
 import { isRetryableTransactionCancel } from './dynamoErrors'
+import { QuotaExceededError } from '../../errors'
 
 export const SYNC_LOG_PAGE_SIZE = 200
 
@@ -17,16 +18,24 @@ const MAX_BYTES_PER_TRANSACTION = 3.5 * 1024 * 1024
 export const MAX_APPEND_ATTEMPTS = 8
 const APPEND_BACKOFF: BackoffOptions = { baseMs: 25, maxMs: 1000, jitterMs: 50 }
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/** Messages that go in one transaction, and their size in bytes */
+interface MessageGroup {
+  messages: SyncLogMessage[]
+  bytes: number
+}
+
 /** Splits messages, in order, into groups that each fit in one transaction */
-function groupForTransactions(messages: SyncLogMessage[]): SyncLogMessage[][] {
-  const groups: SyncLogMessage[][] = []
+function groupForTransactions(messages: SyncLogMessage[]): MessageGroup[] {
+  const groups: MessageGroup[] = []
   let group: SyncLogMessage[] = []
   let groupBytes = 0
   for (const message of messages) {
     const bytes = Buffer.byteLength(JSON.stringify(message))
     const isFull = group.length === MAX_ROWS_PER_TRANSACTION || groupBytes + bytes > MAX_BYTES_PER_TRANSACTION
     if (group.length > 0 && isFull) {
-      groups.push(group)
+      groups.push({ messages: group, bytes: groupBytes })
       group = []
       groupBytes = 0
     }
@@ -34,9 +43,31 @@ function groupForTransactions(messages: SyncLogMessage[]): SyncLogMessage[][] {
     groupBytes += bytes
   }
   if (group.length > 0) {
-    groups.push(group)
+    groups.push({ messages: group, bytes: groupBytes })
   }
   return groups
+}
+
+/**
+ * The head row: the last seq used, and how many bytes of messages were appended on `usageDay` (days
+ * since the epoch, UTC). Every append rewrites both under its condition on the head, so the count
+ * can't miss a concurrent append.
+ */
+interface LogHead {
+  head: number
+  usageDay?: number
+  usageBytes?: number
+}
+
+/** The day's usage once `bytes` more are appended, throwing if that passes `maxBytesPerDay` */
+function nextUsage(head: LogHead, bytes: number, now: number, maxBytesPerDay: number | undefined) {
+  const day = Math.floor(now / DAY_MS)
+  const usedToday = head.usageDay === day ? (head.usageBytes ?? 0) : 0
+  const usageBytes = usedToday + bytes
+  if (maxBytesPerDay !== undefined && usageBytes > maxBytesPerDay) {
+    throw new QuotaExceededError(`Appending ${bytes} bytes would pass the log quota of ${maxBytesPerDay} a day`)
+  }
+  return { usageDay: day, usageBytes }
 }
 
 /**
@@ -48,8 +79,9 @@ function buildAppendCommand(
   account: string,
   messages: SyncLogMessage[],
   expectedHead: number,
+  usage: { usageDay: number, usageBytes: number },
+  createdAt: number,
 ): TransactWriteCommand {
-  const createdAt = Date.now()
   const expiresAt = Math.floor(createdAt / 1000) + SYNC_LOG_TTL_SECONDS
   return new TransactWriteCommand({
     TransactItems: [
@@ -57,11 +89,13 @@ function buildAppendCommand(
         Update: {
           TableName: tables.syncLog,
           Key: { account, seq: HEAD_SEQ },
-          UpdateExpression: 'SET #head = :next',
+          UpdateExpression: 'SET #head = :next, #usageDay = :usageDay, #usageBytes = :usageBytes',
           ConditionExpression: expectedHead === 0 ? 'attribute_not_exists(#head)' : '#head = :expected',
-          ExpressionAttributeNames: { '#head': 'head' },
+          ExpressionAttributeNames: { '#head': 'head', '#usageDay': 'usageDay', '#usageBytes': 'usageBytes' },
           ExpressionAttributeValues: {
             ':next': expectedHead + messages.length,
+            ':usageDay': usage.usageDay,
+            ':usageBytes': usage.usageBytes,
             ...(expectedHead === 0 ? {} : { ':expected': expectedHead }),
           },
         },
@@ -82,12 +116,16 @@ function buildAppendCommand(
 async function appendTransaction(
   context: DynamoContext,
   account: string,
-  messages: SyncLogMessage[],
+  { messages, bytes }: MessageGroup,
+  maxBytesPerDay: number | undefined,
 ): Promise<number> {
   for (let attempt = 0; ; attempt += 1) {
-    const expectedHead = await readLogHead(context, { account })
+    const head = await readHeadRow(context, { account })
+    const expectedHead = head.head
+    const createdAt = Date.now()
+    const usage = nextUsage(head, bytes, createdAt, maxBytesPerDay)
     try {
-      await context.client.send(buildAppendCommand(context, account, messages, expectedHead))
+      await context.client.send(buildAppendCommand(context, account, messages, expectedHead, usage, createdAt))
       return expectedHead
     } catch (error) {
       if (!isRetryableTransactionCancel(error) || attempt + 1 >= MAX_APPEND_ATTEMPTS) {
@@ -102,8 +140,8 @@ export async function appendLog(context: DynamoContext, input: AppendLogInput): 
   const results: LogPushResult[] = []
   // One at a time, so that the groups' rows stay in order
   for (const group of groupForTransactions(input.messages)) {
-    const startHead = await appendTransaction(context, input.account, group)
-    results.push(...group.map(({ itemId }, index) => ({ itemId, seq: startHead + index + 1 })))
+    const startHead = await appendTransaction(context, input.account, group, input.maxBytesPerDay)
+    results.push(...group.messages.map(({ itemId }, index) => ({ itemId, seq: startHead + index + 1 })))
   }
   return results
 }
@@ -127,11 +165,20 @@ export async function readLog(
   }
 }
 
-export async function readLogHead({ client, tables }: DynamoContext, { account }: BaseData): Promise<number> {
+export async function readLogHead(context: DynamoContext, data: BaseData): Promise<number> {
+  return (await readHeadRow(context, data)).head
+}
+
+async function readHeadRow({ client, tables }: DynamoContext, { account }: BaseData): Promise<LogHead> {
   const response = await client.send(new GetCommand({
     TableName: tables.syncLog,
     Key: { account, seq: HEAD_SEQ },
     ConsistentRead: true,
   }))
-  return (response.Item?.head as number | undefined) ?? 0
+  const item = response.Item
+  return {
+    head: (item?.head as number | undefined) ?? 0,
+    usageDay: item?.usageDay as number | undefined,
+    usageBytes: item?.usageBytes as number | undefined,
+  }
 }

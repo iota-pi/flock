@@ -35,6 +35,13 @@ export const VaultAccountSchema = z.object({
   dataVersion: z.number().optional(),
   /** When the account last logged in or renewed a session */
   lastAccess: z.number().optional(),
+  /**
+   * About how many bytes the account's items take up as stored, kept up to date by each write. Missing
+   * on accounts it hasn't been counted for yet, which count as 0 (see `recountStorageUsage`).
+   */
+  storageBytes: z.number().optional(),
+  /** When `storageBytes` was last counted from the items themselves, rather than kept up by writes */
+  storageCountedAt: z.number().optional(),
 })
 
 export const VaultAccountWithAuthSchema = VaultAccountSchema.extend({

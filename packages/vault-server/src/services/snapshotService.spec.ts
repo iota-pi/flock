@@ -1,14 +1,19 @@
-import { persistSnapshots } from './snapshotService'
+import { persistSnapshots, type StorageAllowance } from './snapshotService'
 import type { VaultDriver } from '../drivers/vaultDriver'
 import type { ItemId } from '@vault/shared'
+import { QuotaExceededError } from '../errors'
 
 function createMockVault(): VaultDriver {
   return {
-    set: vi.fn(async () => ({ version: 1 })),
+    set: vi.fn(async () => ({ version: 1, storageDelta: 0 })),
     updateAccountData: vi.fn(async () => undefined),
+    addStorageUsage: vi.fn(async () => undefined),
     readLogHead: vi.fn(async () => 7),
   } as unknown as VaultDriver
 }
+
+/** An account well under its quota */
+const ROOM: StorageAllowance = { usedBytes: 0, quotaBytes: 1000 }
 
 describe('snapshotService.persistSnapshots', () => {
   it('transforms input snapshots to VaultItems, calls vault.set for each', async () => {
@@ -40,7 +45,7 @@ describe('snapshotService.persistSnapshots', () => {
       ],
     }
 
-    const result = await persistSnapshots(vault, input)
+    const result = await persistSnapshots(vault, input, ROOM)
 
     expect(result).toEqual({
       success: true,
@@ -84,7 +89,7 @@ describe('snapshotService.persistSnapshots', () => {
 
   it('persists a payload-less tombstone without a snapshot key', async () => {
     const vault = createMockVault()
-    ;(vault.set as any).mockResolvedValueOnce({ version: 7 })
+    ;(vault.set as any).mockResolvedValueOnce({ version: 7, storageDelta: 0 })
 
     const result = await persistSnapshots(vault, {
       account: 'acct-1',
@@ -96,7 +101,7 @@ describe('snapshotService.persistSnapshots', () => {
           snapshotCursor: 10,
         },
       ],
-    })
+    }, ROOM)
 
     expect(result.results).toEqual([{ itemId: 'item-1', version: 7 }])
     const item = (vault.set as any).mock.calls[0][0]
@@ -130,7 +135,7 @@ describe('snapshotService.persistSnapshots', () => {
       ],
     }
 
-    const result = await persistSnapshots(vault, input)
+    const result = await persistSnapshots(vault, input, ROOM)
 
     expect(result).toEqual({
       success: false,
@@ -168,7 +173,7 @@ describe('snapshotService.persistSnapshots', () => {
       ],
     }
 
-    const result = await persistSnapshots(vault, input)
+    const result = await persistSnapshots(vault, input, ROOM)
 
     expect(result).toEqual({
       success: false,
@@ -189,7 +194,7 @@ describe('snapshotService.persistSnapshots', () => {
       writesInProgress += 1
       await new Promise(resolve => setTimeout(resolve, 5))
       writesInProgress -= 1
-      return { version: 2 }
+      return { version: 2, storageDelta: 0 }
     })
     vi.mocked(vault.readLogHead).mockImplementation(async () => {
       expect(writesInProgress).toBe(0)
@@ -203,7 +208,7 @@ describe('snapshotService.persistSnapshots', () => {
         { itemId: 'item-1' as ItemId, modified: 1, snapshot, snapshotCursor: 0 },
         { itemId: 'item-2' as ItemId, modified: 2, snapshot, snapshotCursor: 0 },
       ],
-    })
+    }, ROOM)
 
     expect(vault.readLogHead).toHaveBeenCalledWith({ account: 'acct-1' })
     expect(result.logSeq).toBe(12)
@@ -217,7 +222,7 @@ describe('snapshotService.persistSnapshots', () => {
       snapshots: [],
     }
 
-    const result = await persistSnapshots(vault, input)
+    const result = await persistSnapshots(vault, input, ROOM)
 
     expect(result).toEqual({
       success: true,
@@ -229,5 +234,83 @@ describe('snapshotService.persistSnapshots', () => {
 
     expect(vault.set).not.toHaveBeenCalled()
     expect(vault.updateAccountData).not.toHaveBeenCalled()
+  })
+})
+
+describe('snapshotService.persistSnapshots storage quota', () => {
+  const snapshot = { iv: 'iv', cipher: 'cipher' }
+  const full: StorageAllowance = { usedBytes: 1000, quotaBytes: 1000 }
+
+  it('adds what the writes grew the items by to the account, in one write', async () => {
+    const vault = createMockVault()
+    vi.mocked(vault.set)
+      .mockResolvedValueOnce({ version: 1, storageDelta: 300 })
+      .mockResolvedValueOnce({ version: 4, storageDelta: -100 })
+
+    await persistSnapshots(vault, {
+      account: 'acct-1',
+      snapshots: [
+        { itemId: 'item-1' as ItemId, modified: 1, snapshot, snapshotCursor: 0 },
+        { itemId: 'item-2' as ItemId, modified: 2, snapshot, snapshotCursor: 0 },
+      ],
+    }, ROOM)
+
+    expect(vault.addStorageUsage).toHaveBeenCalledTimes(1)
+    expect(vault.addStorageUsage).toHaveBeenCalledWith({ account: 'acct-1', bytes: 200 })
+  })
+
+  it('leaves usage alone when nothing changed size', async () => {
+    const vault = createMockVault()
+
+    await persistSnapshots(vault, {
+      account: 'acct-1',
+      snapshots: [{ itemId: 'item-1' as ItemId, modified: 1, snapshot, snapshotCursor: 0 }],
+    }, ROOM)
+
+    expect(vault.addStorageUsage).not.toHaveBeenCalled()
+  })
+
+  it('counts only the writes that succeeded', async () => {
+    const vault = createMockVault()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.mocked(vault.set)
+      .mockResolvedValueOnce({ version: 1, storageDelta: 300 })
+      .mockRejectedValueOnce(new Error('write failed'))
+
+    await persistSnapshots(vault, {
+      account: 'acct-1',
+      snapshots: [
+        { itemId: 'item-1' as ItemId, modified: 1, snapshot, snapshotCursor: 0 },
+        { itemId: 'item-2' as ItemId, modified: 2, snapshot, snapshotCursor: 0 },
+      ],
+    }, ROOM)
+
+    expect(vault.addStorageUsage).toHaveBeenCalledWith({ account: 'acct-1', bytes: 300 })
+  })
+
+  // Rejecting single items would make the client quarantine them, though nothing is wrong with them
+  it('turns away a whole batch with a snapshot once the account is at its quota', async () => {
+    const vault = createMockVault()
+
+    await expect(persistSnapshots(vault, {
+      account: 'acct-1',
+      snapshots: [
+        { itemId: 'item-1' as ItemId, modified: 1, deleted: true, snapshotCursor: 0 },
+        { itemId: 'item-2' as ItemId, modified: 2, snapshot, snapshotCursor: 0 },
+      ],
+    }, full)).rejects.toBeInstanceOf(QuotaExceededError)
+
+    expect(vault.set).not.toHaveBeenCalled()
+  })
+
+  it('still accepts deletions once the account is at its quota', async () => {
+    const vault = createMockVault()
+
+    const result = await persistSnapshots(vault, {
+      account: 'acct-1',
+      snapshots: [{ itemId: 'item-1' as ItemId, modified: 1, deleted: true, snapshotCursor: 0 }],
+    }, full)
+
+    expect(result.success).toBe(true)
   })
 })

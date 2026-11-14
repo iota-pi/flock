@@ -25,7 +25,14 @@ export function isClientOutdatedError(error: unknown): boolean {
 /** Message of the error the server returns for a login to an account with too many recent failed logins */
 export const TOO_MANY_REQUESTS_MESSAGE = 'TOO_MANY_REQUESTS'
 
-/** Whether the server turned a request down for being over a rate limit (HTTP 429) */
+/**
+ * Message of the error (TOO_MANY_REQUESTS) the server returns for a write that would take an account
+ * past its storage quota or its daily log quota. Clients treat it as any other 429: they back off and
+ * try again later, and never quarantine an item for it, because the item isn't at fault.
+ */
+export const QUOTA_EXCEEDED_MESSAGE = 'QUOTA_EXCEEDED'
+
+/** Whether the server turned a request down for being over a rate limit or a quota (HTTP 429) */
 export function isRateLimitedError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
   const { data } = error as { data?: { code?: unknown, httpStatus?: unknown } }
