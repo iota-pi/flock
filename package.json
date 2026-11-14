@@ -105,7 +105,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "happy-dom": "^21.0.4",
     "knip": "^6.44.1",
-    "rollup-plugin-visualizer": "^6.0.5",
+    "rollup-plugin-visualizer": "^7.1.2",
     "source-map-explorer": "^2.5.2",
     "sst": "^4.17.2",
     "tsx": "^4.23.15",
