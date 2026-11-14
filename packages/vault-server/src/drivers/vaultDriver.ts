@@ -12,6 +12,7 @@ import type {
   VaultItemSchema,
 } from '@vault/shared'
 import type { LoginAttemptReservation } from '../loginThrottle'
+import type { SignupReservation } from '../signupThrottle'
 
 export type VaultSessionRecord = z.infer<typeof VaultSessionRecordSchema>
 export type VaultAccount = z.infer<typeof VaultAccountSchema>
@@ -123,6 +124,13 @@ export interface VaultDriver {
 
   /** Uncounts a reserved attempt whose password was right */
   releaseLoginAttempt(data: BaseData & LoginAttemptReservation): Promise<void>
+
+  /**
+   * Counts a sign-up against a network's row for the window (see signupThrottle.ts), unless the
+   * window has used up its sign-ups, with one conditional write. Returns false when it has, and
+   * nothing was counted.
+   */
+  reserveSignup(data: SignupReservation): Promise<boolean>
 
   /** Forgets one of the account's login devices (see loginDevices.ts). Does nothing if it isn't one. */
   removeLoginDevice(data: BaseData & { device: string }): Promise<void>

@@ -9,6 +9,7 @@ import {
 } from '@vault/shared'
 import type { KdfParams } from '@vault/shared'
 import type { DataVersionPolicy } from '../services/dataVersion'
+import type { SignupThrottleOptions } from '../signupThrottle'
 import { AuthenticationError } from '../errors'
 import { authenticateSession } from '../authentication'
 import { shouldRenewSession } from '../sessions'
@@ -33,6 +34,12 @@ export interface VaultServerOptions {
    * like a real account's. Without this, unknown accounts get NOT_FOUND.
    */
   unknownAccountParams?: UnknownAccountParams
+  /**
+   * Limits how many accounts one network (an IPv4 address or IPv6 /64) can create per window, by
+   * the client address Fastify reports as `request.ip`. Only trust a forwarded address there (with
+   * Fastify's `trustProxy`) behind a proxy that sets it. Without this, sign-ups aren't limited.
+   */
+  signupThrottle?: SignupThrottleOptions
   /** Overrides some of `DEFAULT_ACCOUNT_QUOTAS` */
   quotas?: Partial<AccountQuotas>
 }
@@ -45,8 +52,10 @@ export interface UnknownAccountParams {
 }
 
 type TrpcContext = Required<Pick<VaultServerOptions, 'vault' | 'minProtocolVersion'>>
-  & Pick<VaultServerOptions, 'dataVersionPolicy' | 'unknownAccountParams'>
+  & Pick<VaultServerOptions, 'dataVersionPolicy' | 'unknownAccountParams' | 'signupThrottle'>
   & {
+    /** The client's address, as Fastify reports it */
+    clientAddress?: string,
     authToken: string,
     /** The protocol version the client sent (0 for builds that predate the header) */
     protocolVersion: number,
@@ -75,6 +84,8 @@ export function createVaultContext(options: VaultServerOptions) {
       minProtocolVersion: options.minProtocolVersion ?? 0,
       dataVersionPolicy: options.dataVersionPolicy,
       unknownAccountParams: options.unknownAccountParams,
+      signupThrottle: options.signupThrottle,
+      clientAddress: req.ip,
       quotas: { ...DEFAULT_ACCOUNT_QUOTAS, ...options.quotas },
     }
   }

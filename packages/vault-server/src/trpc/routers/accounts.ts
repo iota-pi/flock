@@ -17,9 +17,10 @@ import { AuthenticationError, TooManyLoginAttemptsError } from '../../errors'
 import { authenticateLogin, matchesAuthTokenHash } from '../../authentication'
 import { isLoginDevice } from '../../loginDevices'
 import { toTrpcError } from '../errors'
-import type { StoredAccount, VaultAccountWithAuth } from '../../drivers/vaultDriver'
+import type { StoredAccount, VaultAccountWithAuth, VaultDriver } from '../../drivers/vaultDriver'
 import type { KdfParams } from '@vault/shared'
 import type { UnknownAccountParams } from '../trpc'
+import { signupReservation, type SignupThrottleOptions } from '../../signupThrottle'
 import type { DataVersionPolicy } from '../../services/dataVersion'
 
 // Each attempt is a single conditional write, and a collision between random IDs is very unlikely
@@ -70,10 +71,34 @@ function unknownAccountSecurityParams(
   }
 }
 
+/**
+ * Counts a sign-up against the client's network, refusing it as TOO_MANY_REQUESTS once the network
+ * has used up the window's sign-ups. Every attempt counts, since creating an account rarely fails.
+ * Does nothing without `signupThrottle`, or for a client address that isn't an IP address.
+ */
+async function reserveSignup(
+  { vault, signupThrottle, clientAddress }: {
+    vault: VaultDriver,
+    signupThrottle?: SignupThrottleOptions,
+    clientAddress?: string,
+  },
+): Promise<void> {
+  if (!signupThrottle) return
+  const reservation = signupReservation(signupThrottle, clientAddress, Date.now())
+  if (!reservation) {
+    console.warn('Not limiting a sign-up with no client IP address')
+    return
+  }
+  if (!await vault.reserveSignup(reservation)) {
+    throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: TOO_MANY_REQUESTS_MESSAGE })
+  }
+}
+
 export const accountsRouter = router({
   createAccount: publicProcedure
     .input(CreateAccountBodySchema)
     .mutation(async ({ ctx, input }) => {
+      await reserveSignup(ctx)
       for (let attempt = 0; attempt < MAX_CREATE_ACCOUNT_ATTEMPTS; attempt += 1) {
         const account = generateAccountId()
         // Returns false if the ID is already taken, in which case we try another one

@@ -22,6 +22,7 @@ import {
   VisibilityOffIcon,
 } from '../Icons'
 import { createVaultAccount } from '@vault/client'
+import { isRateLimitedError } from '@vault/shared'
 import { createLogger } from 'src/utils/logger'
 import { usePasswordStrength } from 'src/hooks/usePasswordStrength'
 import PasswordMeter from '../PasswordMeter'
@@ -29,6 +30,9 @@ import AccountCreatedDialog from '../dialogs/AccountCreatedDialog'
 import { useAppStore } from 'src/state/store'
 
 const log = createLogger('CreateAccount')
+
+/** Shown when the server has had too many sign-ups from this network lately */
+const TOO_MANY_SIGNUPS = 'Too many accounts have been created from this network recently. Please try again later.'
 
 
 const Root = styled('div')({
@@ -114,8 +118,12 @@ function CreateAccountPage() {
           setError('An error occured while creating your account.')
         }
       } catch (e) {
-        log.error(e)
-        setError('An error occured while creating your account.')
+        if (isRateLimitedError(e)) {
+          setError(TOO_MANY_SIGNUPS)
+        } else {
+          log.error(e)
+          setError('An error occured while creating your account.')
+        }
       }
       setWaiting(false)
     },

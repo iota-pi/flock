@@ -1,7 +1,7 @@
 import * as Sentry from '@sentry/node'
 import { CURRENT_SALT_VERSION, getDefaultKdf, PROTOCOL_VERSION_HEADER, VAULT_PROTOCOL_VERSION } from '@vault/shared'
 import DynamoDriver from '@vault/server/dynamo'
-import createServer, { getUnknownAccountParams, MIN_PROTOCOL_VERSION } from './index'
+import createServer, { getSignupThrottle, getUnknownAccountParams, MIN_PROTOCOL_VERSION } from './index'
 import { FLOCK_DATA_VERSION } from '../../shared/flockDataVersion'
 import * as secrets from '../secrets'
 import { spyOnExports } from '../../utils/testUtils'
@@ -193,5 +193,74 @@ describe('getUnknownAccountParams', () => {
     expect(getUnknownAccountParams(true)?.secret).toBeTypeOf('string')
     vi.spyOn(console, 'error').mockImplementation(() => {})
     expect(getUnknownAccountParams(false)).toBeUndefined()
+  })
+})
+
+describe('getSignupThrottle', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('derives a key from the linked secret, without using the secret itself', () => {
+    const readSecret = vi.spyOn(secrets, 'readSecret').mockReturnValue('configured')
+    const throttle = getSignupThrottle()
+    expect(readSecret).toHaveBeenCalledWith('UNKNOWN_ACCOUNT_SECRET')
+    expect(throttle?.secret).toBeTypeOf('string')
+    expect(throttle?.secret).not.toContain('configured')
+    expect(getSignupThrottle()).toEqual(throttle)
+
+    readSecret.mockReturnValue('other')
+    expect(getSignupThrottle()?.secret).not.toBe(throttle?.secret)
+  })
+
+  it("doesn't limit sign-ups without a linked secret, as on a local server", () => {
+    vi.spyOn(secrets, 'readSecret').mockReturnValue(undefined)
+    expect(getSignupThrottle()).toBeUndefined()
+  })
+})
+
+describe('createServer sign-up limit', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it("counts sign-ups by the client's network and refuses them once it has used up its limit", async () => {
+    vi.spyOn(secrets, 'readSecret').mockReturnValue('configured')
+    const reserveSignup = vi.spyOn(DynamoDriver.prototype, 'reserveSignup').mockResolvedValue(false)
+    const createAccount = vi.spyOn(DynamoDriver.prototype, 'createAccount')
+    const server = await createServer(true)
+    try {
+      const signUp = (remoteAddress: string, forwardedFor?: string) => server.inject({
+        method: 'POST',
+        url: '/trpc/accounts.createAccount',
+        remoteAddress,
+        headers: {
+          'content-type': 'application/json',
+          [PROTOCOL_VERSION_HEADER]: String(VAULT_PROTOCOL_VERSION),
+          ...(forwardedFor ? { 'x-forwarded-for': forwardedFor } : {}),
+        },
+        payload: {
+          salt: 'salt',
+          authToken: 'auth',
+          saltVersion: CURRENT_SALT_VERSION,
+          kdf: getDefaultKdf(),
+          keyring: 'encrypted-keyring',
+          randomDataKeys: true,
+        },
+      })
+
+      // A forwarded address is ignored: only the connection's address counts
+      const response = await signUp('2001:db8:1:2::1', '198.51.100.1')
+      expect(response.statusCode).toBe(429)
+      expect(createAccount).not.toHaveBeenCalled()
+
+      await signUp('2001:db8:1:2:ffff::2', '198.51.100.2')
+      await signUp('198.51.100.1')
+      const [first, sameNetwork, forwardedAddress] = reserveSignup.mock.calls.map(([reservation]) => reservation.key)
+      expect(sameNetwork).toBe(first)
+      expect(forwardedAddress).not.toBe(first)
+    } finally {
+      await server.close()
+    }
   })
 })
