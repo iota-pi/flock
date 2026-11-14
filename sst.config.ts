@@ -134,6 +134,22 @@ export default $config({
       },
     });
     // -----------------------------------------------------------------
+    // DynamoDB permissions
+    // -----------------------------------------------------------------
+    // Functions get the table names from their environment, not from links, because linking a table
+    // grants dynamodb:* on it. Each function instead gets only the actions it makes, so no role can
+    // delete an item (sync rule 3 in AGENTS.md) and only the migrations can scan. Transactions need
+    // no actions of their own: DynamoDB checks each write in them. Add an action here when the code
+    // starts making it, or it fails with AccessDenied once deployed (DynamoDB Local doesn't check).
+    const dynamoAccess = (
+      table: sst.aws.Dynamo,
+      actions: string[],
+      { indexes = false }: { indexes?: boolean } = {},
+    ) => ({
+      actions: actions.map(action => `dynamodb:${action}`),
+      resources: indexes ? [table.arn, $interpolate`${table.arn}/index/*`] : [table.arn],
+    });
+    // -----------------------------------------------------------------
     // Vault API Lambda + Function URL
     // -----------------------------------------------------------------
     // Derives the salts getSecurityParams makes up for unknown accounts. Never change it.
@@ -155,7 +171,14 @@ export default $config({
         LOGIN_THROTTLE_TABLE: loginThrottleTable.name,
         SENTRY_DSN: deployment?.sentryDsn ?? "",
       },
-      link: [accountsTable, itemsTable, syncLogTable, loginThrottleTable, unknownAccountSecret],
+      link: [unknownAccountSecret],
+      permissions: [
+        dynamoAccess(accountsTable, ["GetItem", "PutItem", "UpdateItem"]),
+        dynamoAccess(itemsTable, ["Query", "BatchGetItem", "UpdateItem"]),
+        // The head row's update and the message puts in each append's transaction
+        dynamoAccess(syncLogTable, ["GetItem", "Query", "PutItem", "UpdateItem"]),
+        dynamoAccess(loginThrottleTable, ["GetItem", "UpdateItem"]),
+      ],
     });
     // -----------------------------------------------------------------
     // Migrations Lambda (invoked manually or via CI)
@@ -170,7 +193,10 @@ export default $config({
         ITEMS_TABLE: itemsTable.name,
         SYNC_LOG_TABLE: syncLogTable.name,
       },
-      link: [accountsTable, itemsTable, syncLogTable],
+      permissions: [
+        dynamoAccess(accountsTable, ["Scan", "UpdateItem"]),
+        dynamoAccess(itemsTable, ["Scan", "Query", "UpdateItem"]),
+      ],
     });
     // -----------------------------------------------------------------
     // Push Notifications (Queue + Worker)
@@ -202,7 +228,8 @@ export default $config({
         environment: {
           ACCOUNTS_TABLE: accountsTable.name,
         },
-        link: [accountsTable, vapidSubject, vapidPublicKey, vapidPrivateKey],
+        link: [vapidSubject, vapidPublicKey, vapidPrivateKey],
+        permissions: [dynamoAccess(accountsTable, ["GetItem", "UpdateItem"])],
       }, {
         // The worker reports which records failed, so only those are retried
         batch: { partialResponses: true },
@@ -220,7 +247,9 @@ export default $config({
             PUSH_NOTIFICATIONS_QUEUE_URL: pushNotificationsQueue.url,
             NOTIFIER_CRON_INTERVAL_MINUTES: cronMinutes,
           },
-          link: [accountsTable, pushNotificationsQueue],
+          link: [pushNotificationsQueue],
+          // Reads only ReminderIndex
+          permissions: [dynamoAccess(accountsTable, ["Query"], { indexes: true })],
         },
       });
     }
