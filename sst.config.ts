@@ -165,47 +165,55 @@ export default $config({
     // -----------------------------------------------------------------
     // Push Notifications (Queue + Worker)
     // -----------------------------------------------------------------
-    const vapidSubject = new sst.Secret("VAPID_SUBJECT");
-    const vapidPublicKey = new sst.Secret("VAPID_PUBLIC_KEY");
-    const vapidPrivateKey = new sst.Secret("VAPID_PRIVATE_KEY");
-    const pushNotificationsDLQ = new sst.aws.Queue("PushNotificationsDLQ");
-    const pushNotificationsQueue = new sst.aws.Queue("PushNotificationsQueue", {
-      dlq: {
-        queue: pushNotificationsDLQ.arn,
-        retry: 3,
-      },
-      // AWS recommends at least 6x the subscriber's timeout
-      visibilityTimeout: "360 seconds",
-    });
-    pushNotificationsQueue.subscribe({
-      handler: "src/vault/notifier/worker.handler",
-      runtime: "nodejs24.x",
-      memory: "512 MB",
-      timeout: "60 seconds",
-      environment: {
-        ACCOUNTS_TABLE: accountsTable.name,
-      },
-      link: [accountsTable, vapidSubject, vapidPublicKey, vapidPrivateKey],
-    }, {
-      // The worker reports which records failed, so only those are retried
-      batch: { partialResponses: true },
-    });
-    const cronMinutes = "15";
-    new sst.aws.Cron("NotifierSchedule", {
-      schedule: `cron(0/${cronMinutes} * ? * * *)`,
-      function: {
-        handler: "src/vault/notifier/enqueuer.handler",
+    // Only stages whose site has a VAPID key in src/deployments.ts send reminders. The others
+    // (staging) have no notifier and no VAPID secrets, so production's private key stays out of them.
+    if (isProd && !deployment?.vapidPublicKey) {
+      throw new Error("Production must send reminders: give it a VAPID public key in src/deployments.ts");
+    }
+    const pushEnabled = isDev || Boolean(deployment?.vapidPublicKey);
+    const vapidPublicKey = pushEnabled ? new sst.Secret("VAPID_PUBLIC_KEY") : undefined;
+    if (vapidPublicKey) {
+      const vapidSubject = new sst.Secret("VAPID_SUBJECT");
+      const vapidPrivateKey = new sst.Secret("VAPID_PRIVATE_KEY");
+      const pushNotificationsDLQ = new sst.aws.Queue("PushNotificationsDLQ");
+      const pushNotificationsQueue = new sst.aws.Queue("PushNotificationsQueue", {
+        dlq: {
+          queue: pushNotificationsDLQ.arn,
+          retry: 3,
+        },
+        // AWS recommends at least 6x the subscriber's timeout
+        visibilityTimeout: "360 seconds",
+      });
+      pushNotificationsQueue.subscribe({
+        handler: "src/vault/notifier/worker.handler",
         runtime: "nodejs24.x",
         memory: "512 MB",
         timeout: "60 seconds",
         environment: {
           ACCOUNTS_TABLE: accountsTable.name,
-          PUSH_NOTIFICATIONS_QUEUE_URL: pushNotificationsQueue.url,
-          NOTIFIER_CRON_INTERVAL_MINUTES: cronMinutes,
         },
-        link: [accountsTable, pushNotificationsQueue],
-      },
-    });
+        link: [accountsTable, vapidSubject, vapidPublicKey, vapidPrivateKey],
+      }, {
+        // The worker reports which records failed, so only those are retried
+        batch: { partialResponses: true },
+      });
+      const cronMinutes = "15";
+      new sst.aws.Cron("NotifierSchedule", {
+        schedule: `cron(0/${cronMinutes} * ? * * *)`,
+        function: {
+          handler: "src/vault/notifier/enqueuer.handler",
+          runtime: "nodejs24.x",
+          memory: "512 MB",
+          timeout: "60 seconds",
+          environment: {
+            ACCOUNTS_TABLE: accountsTable.name,
+            PUSH_NOTIFICATIONS_QUEUE_URL: pushNotificationsQueue.url,
+            NOTIFIER_CRON_INTERVAL_MINUTES: cronMinutes,
+          },
+          link: [accountsTable, pushNotificationsQueue],
+        },
+      });
+    }
     // -----------------------------------------------------------------
     // AWS Backup for DynamoDB tables (prod only)
     // -----------------------------------------------------------------
@@ -281,13 +289,13 @@ export default $config({
             // a failed check stops the upload, and the API deploys before the site, which clients
             // rely on. The site is built beforehand, without deploy credentials
             // (.github/workflows/deploy.yml), so it only knows these values from src/deployments.ts.
-            DEPLOY_CHECK: $resolve([vaultApi.url, vapidPublicKey.value]).apply(
+            DEPLOY_CHECK: $resolve([vaultApi.url, vapidPublicKey?.value ?? ""]).apply(
               ([url, vapidKey]) => {
                 const endpoint = url.replace(/\/$/, "");
                 if (endpoint !== deployment?.vaultEndpoint) {
                   throw new Error(`src/deployments.ts has the wrong API for ${domain}: it should be ${endpoint}`);
                 }
-                if (vapidKey !== deployment.vapidPublicKey) {
+                if (vapidKey !== (deployment.vapidPublicKey ?? "")) {
                   throw new Error(`src/deployments.ts has the wrong VAPID public key for ${domain}`);
                 }
                 return "passed";

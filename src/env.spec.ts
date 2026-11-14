@@ -15,11 +15,13 @@ describe('resolveEnv', () => {
     })
   })
 
-  it('keeps staging away from the production API and Sentry project', () => {
+  it('keeps staging away from the production API, Sentry project and VAPID key', () => {
     const staging = resolveEnv('flock-staging.cross-code.org')
     expect(staging.ENVIRONMENT).toBe('staging')
     expect(staging.SENTRY_DSN).toBeUndefined()
     expect(staging.VAULT_ENDPOINT).not.toBe(DEPLOYMENTS['flock.cross-code.org']?.vaultEndpoint)
+    // Not the build's key either: staging sends no reminders, so the app mustn't offer them
+    expect(staging.VAPID_PUBLIC_KEY).toBe('')
   })
 
   it.each(['localhost', 'flock-other.cross-code.org', undefined])('falls back to the build settings on %s', hostname => {

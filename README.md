@@ -147,6 +147,6 @@ yarn build
 yarn deploy --stage <stage>
 ```
 
-CI builds the site once, in a job with no secrets, and deploys that same build to staging and then production. The app picks each site's public settings by hostname from `src/deployments.ts`, and a deploy fails if they don't match the stage's real API URL and VAPID key.
+CI builds the site once, in a job with no secrets, and deploys that same build to staging and then production. The app picks each site's public settings by hostname from `src/deployments.ts`, and a deploy fails if they don't match the stage's real API URL and VAPID key. A site without a VAPID key (staging) gets no notifier or VAPID secrets, and its app doesn't offer reminders.
 
 `sst.config.ts` provisions DynamoDB, Lambda (Vault API), Cloudflare Pages, and backup resources.

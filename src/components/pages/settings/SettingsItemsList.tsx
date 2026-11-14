@@ -18,6 +18,7 @@ type SettingsValues = {
   recoveryItemsExist: boolean
   biometricsEnabled: boolean
   biometricsSupported: boolean
+  remindersAvailable: boolean
   autoLockSummary: string
 }
 
@@ -111,8 +112,9 @@ export default function SettingsItemsList({ actionHandlers, values }: SettingsIt
 
         const isBiometricsUnsupported = item.disabledWhen === 'biometricsUnsupported' && !values.biometricsSupported
         const isNoRecoveryItems = item.disabledWhen === 'noRecoveryItems' && !values.recoveryItemsExist
-        
-        const disabled = isBiometricsUnsupported || isNoRecoveryItems
+        const isRemindersUnavailable = item.disabledWhen === 'remindersUnavailable' && !values.remindersAvailable
+
+        const disabled = isBiometricsUnsupported || isNoRecoveryItems || isRemindersUnavailable
 
         const itemProps = {
           id: item.id,
@@ -136,6 +138,16 @@ export default function SettingsItemsList({ actionHandlers, values }: SettingsIt
         if (isNoRecoveryItems) {
           return (
             <Tooltip key={item.id} title="No items require recovery" placement="left">
+              <span style={{ display: 'block' }}>
+                <SettingsItem {...itemProps} />
+              </span>
+            </Tooltip>
+          )
+        }
+
+        if (isRemindersUnavailable) {
+          return (
+            <Tooltip key={item.id} title="Reminders aren't available on this site" placement="left">
               <span style={{ display: 'block' }}>
                 <SettingsItem {...itemProps} />
               </span>

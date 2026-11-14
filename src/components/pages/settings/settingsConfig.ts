@@ -39,7 +39,7 @@ type SettingsItemConfig = {
   icon?: MuiIconType
   action: SettingsActionId
   valueRenderer?: SettingsValueRenderer
-  disabledWhen?: 'noRecoveryItems' | 'biometricsUnsupported'
+  disabledWhen?: 'noRecoveryItems' | 'biometricsUnsupported' | 'remindersUnavailable'
 }
 
 type SettingsDividerConfig = {
@@ -120,6 +120,7 @@ export const settingsConfig: SettingsConfigEntry[] = [
     title: 'Prayer reminder notifications',
     icon: NotificationIcon,
     action: 'openSubscriptionDialog',
+    disabledWhen: 'remindersUnavailable',
   },
   { type: 'divider', key: 'd4' },
   {
