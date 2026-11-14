@@ -52,6 +52,8 @@ export const FlockAccountFieldsSchema = z.object({
   reminderTime: z.string().optional(),
   reminderTimezone: z.string().optional(),
   snoozeRemindersUntil: z.string().nullable().optional(),
+  /** Puts the account in the notifier's index while its reminders are on (see REMINDER_INDEX) */
+  reminderIndex: z.literal('on').optional(),
   /** Plaintext settings from before the encrypted settings document. Cleared once a client migrates them. */
   metadata: z.record(z.string(), z.unknown()).optional(),
 })

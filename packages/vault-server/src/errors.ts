@@ -11,6 +11,14 @@ export class ExpiredSessionError extends AuthenticationError {
   override name = 'ExpiredSessionError'
 }
 
+/**
+ * A write would take the account past one of its quotas (see quotas.ts). Routers report it as
+ * TOO_MANY_REQUESTS with `QUOTA_EXCEEDED_MESSAGE`.
+ */
+export class QuotaExceededError extends Error {
+  override name = 'QuotaExceededError'
+}
+
 /** The account has had too many failed logins recently. Routers report it as TOO_MANY_REQUESTS. */
 export class TooManyLoginAttemptsError extends Error {
   override name = 'TooManyLoginAttemptsError'

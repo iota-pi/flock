@@ -5,7 +5,7 @@ import {
 } from '@aws-sdk/client-sqs'
 import {
   DynamoDBDocumentClient,
-  ScanCommand,
+  QueryCommand,
 } from '@aws-sdk/lib-dynamodb'
 import {
   toZonedTime,
@@ -13,13 +13,12 @@ import {
 import type { WebPushSubscription } from '../types'
 import { isAllowedPushEndpoint, MAX_PUSH_SUBSCRIPTIONS } from 'src/shared/schemas/notifications'
 import { getConnectionParams } from '@vault/server/dynamo'
-import { FLOCK_TABLES } from '../flockDriver'
+import { FLOCK_TABLES, REMINDER_INDEX, REMINDERS_ON } from '../flockDriver'
 import { getReminderTopic, type ReminderMessage } from './messages'
 
 type ReminderAccount = {
   account: string,
   pushSubscriptions?: WebPushSubscription[],
-  reminderEnabled?: boolean,
   reminderTime?: string,
   reminderTimezone?: string,
   snoozeRemindersUntil?: string,
@@ -88,19 +87,22 @@ function toQueueEntries(payloads: ReminderMessage[], startIndex: number) {
   }))
 }
 
+/**
+ * Reads the accounts with reminders on from their index, which holds only those accounts and only
+ * the fields used here, so the cost doesn't grow with every account or with how much each stores
+ */
 async function getEnabledReminderAccounts() {
   const accounts: ReminderAccount[] = []
   let lastEvaluatedKey: Record<string, unknown> | undefined
 
   do {
-    const response = await docClient.send(new ScanCommand({
+    const response = await docClient.send(new QueryCommand({
       TableName: FLOCK_TABLES.accounts,
+      IndexName: REMINDER_INDEX.name,
       ExclusiveStartKey: lastEvaluatedKey,
-      FilterExpression: 'reminderEnabled = :enabled',
-      ExpressionAttributeValues: {
-        ':enabled': true,
-      },
-      ProjectionExpression: 'account, pushSubscriptions, reminderEnabled, reminderTime, reminderTimezone, snoozeRemindersUntil',
+      KeyConditionExpression: '#index = :on',
+      ExpressionAttributeNames: { '#index': REMINDER_INDEX.partitionKey },
+      ExpressionAttributeValues: { ':on': REMINDERS_ON },
     }))
 
     if (response.Items) {

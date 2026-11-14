@@ -1,13 +1,13 @@
 import { getLocalDateString, handler, isReminderSnoozed, isReminderTimeMatch } from './enqueuer'
-import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb'
+import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb'
 import { SQSClient } from '@aws-sdk/client-sqs'
 
-const scanMock = vi.fn()
+const queryMock = vi.fn()
 const sqsSendMock = vi.fn()
 
 // The enqueuer creates its clients on import, so intercept what they send
 beforeEach(() => {
-  vi.spyOn(DynamoDBDocumentClient.prototype, 'send').mockImplementation(scanMock)
+  vi.spyOn(DynamoDBDocumentClient.prototype, 'send').mockImplementation(queryMock)
   vi.spyOn(SQSClient.prototype, 'send').mockImplementation(sqsSendMock)
 })
 
@@ -144,19 +144,17 @@ describe('handler', () => {
   })
 
   it('enqueues one message per subscription with a daily topic', async () => {
-    scanMock.mockResolvedValue({
+    queryMock.mockResolvedValue({
       Items: [
         {
           account: 'user-1',
           pushSubscriptions: [subscription('phone'), subscription('laptop')],
-          reminderEnabled: true,
           reminderTime: '08:00',
           reminderTimezone: 'Australia/Sydney',
         },
         {
           account: 'user-2',
           pushSubscriptions: [subscription('other')],
-          reminderEnabled: true,
           reminderTime: '12:00',
           reminderTimezone: 'Australia/Sydney',
         },
@@ -177,13 +175,12 @@ describe('handler', () => {
   const reminderAccount = (account: string, pushSubscriptions: Array<{ endpoint: string }>) => ({
     account,
     pushSubscriptions,
-    reminderEnabled: true,
     reminderTime: '08:00',
     reminderTimezone: 'Australia/Sydney',
   })
 
   it('splits more than 10 subscriptions across batches', async () => {
-    scanMock.mockResolvedValue({
+    queryMock.mockResolvedValue({
       Items: [
         reminderAccount('user-1', Array.from({ length: 6 }, (_, i) => subscription(`a-${i}`))),
         reminderAccount('user-2', Array.from({ length: 6 }, (_, i) => subscription(`b-${i}`))),
@@ -198,7 +195,7 @@ describe('handler', () => {
   })
 
   it('skips endpoints that are not known push services', async () => {
-    scanMock.mockResolvedValue({
+    queryMock.mockResolvedValue({
       Items: [reminderAccount('user-1', [
         { endpoint: 'http://169.254.169.254/latest/meta-data', keys: { auth: 'a', p256dh: 'p' } },
         subscription('phone'),
@@ -211,8 +208,28 @@ describe('handler', () => {
     expect(entries.map(entry => JSON.parse(entry.MessageBody).subscription)).toEqual([subscription('phone')])
   })
 
+  it('reads the accounts from the reminder index, page by page, rather than scanning', async () => {
+    queryMock
+      .mockResolvedValueOnce({ Items: [reminderAccount('user-1', [subscription('a')])], LastEvaluatedKey: { account: 'user-1' } })
+      .mockResolvedValueOnce({ Items: [reminderAccount('user-2', [subscription('b')])] })
+
+    await handler()
+
+    const inputs = queryMock.mock.calls.map(call => call[0])
+    expect(inputs.every(command => command instanceof QueryCommand)).toBe(true)
+    expect(inputs[0].input).toMatchObject({
+      IndexName: 'ReminderIndex',
+      KeyConditionExpression: '#index = :on',
+      ExpressionAttributeNames: { '#index': 'reminderIndex' },
+      ExpressionAttributeValues: { ':on': 'on' },
+    })
+    expect(inputs[1].input.ExclusiveStartKey).toEqual({ account: 'user-1' })
+    const entries = sqsSendMock.mock.calls[0][0].input.Entries as Array<{ MessageBody: string }>
+    expect(entries.map(entry => JSON.parse(entry.MessageBody).accountId)).toEqual(['user-1', 'user-2'])
+  })
+
   it('sends to at most the newest 10 subscriptions of an account', async () => {
-    scanMock.mockResolvedValue({
+    queryMock.mockResolvedValue({
       Items: [reminderAccount('user-1', Array.from({ length: 12 }, (_, i) => subscription(`sub-${i}`)))],
     })
 

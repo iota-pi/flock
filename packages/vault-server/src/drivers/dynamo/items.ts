@@ -9,22 +9,7 @@ import type { FetchedVaultItem, VaultItem } from '../vaultDriver'
  * - Tombstone: none needed
  */
 export function validateItem(item: VaultItem) {
-  // Calculate item length without expanding binary Buffers into huge JSON arrays
-  let itemLength: number
-  const cipher = item.snapshot?.cipher
-  if (cipher instanceof Uint8Array) {
-    const cipherLength = cipher.byteLength
-    const itemWithoutCipher = {
-      ...item,
-      snapshot: {
-        ...item.snapshot,
-        cipher: undefined,
-      },
-    }
-    itemLength = JSON.stringify(itemWithoutCipher).length + cipherLength
-  } else {
-    itemLength = JSON.stringify(item).length
-  }
+  const itemLength = storedItemSize(item)
 
   const isTombstone = item.metadata.deleted === true
   const isLegacy = !!item.cipher
@@ -44,6 +29,20 @@ export function validateItem(item: VaultItem) {
   if (itemLength > MAX_ITEM_SIZE) {
     throw new Error(`Item length (${itemLength}) exceeds maximum (${MAX_ITEM_SIZE})`)
   }
+}
+
+/**
+ * About how many bytes an item record takes up: its JSON length, with a binary snapshot ciphertext
+ * counted by its byte length rather than expanded into a JSON array. Quotas count items this way.
+ */
+export function storedItemSize(item: Record<string, unknown> | VaultItem): number {
+  const record = item as VaultItem
+  const cipher = record.snapshot?.cipher
+  if (!(cipher instanceof Uint8Array)) {
+    return JSON.stringify(record).length
+  }
+  const withoutCipher = { ...record, snapshot: { ...record.snapshot, cipher: undefined } }
+  return JSON.stringify(withoutCipher).length + cipher.byteLength
 }
 
 /**

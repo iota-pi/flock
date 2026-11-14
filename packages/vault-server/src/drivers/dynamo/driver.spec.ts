@@ -39,9 +39,9 @@ describe('DynamoDriver', function () {
     const modified = Date.now()
 
     await expect(driver.set({ account, item, cipher: 'hello', metadata: { iv: 'there', modified } }))
-      .resolves.toEqual({ version: 1 })
+      .resolves.toMatchObject({ version: 1 })
     await expect(driver.set({ account, item, cipher: 'good', metadata: { iv: 'bye', modified } }))
-      .resolves.toEqual({ version: 2 })
+      .resolves.toMatchObject({ version: 2 })
     const results = await driver.fetchByIds({ account, itemIds: [item] })
     expect(results[0]).toEqual({ item, cipher: 'good', metadata: { iv: 'bye', modified }, version: 2 })
   })
@@ -88,7 +88,7 @@ describe('DynamoDriver', function () {
     await driver.set({ account, item, metadata: { iv: '', modified: modified + 100, deleted: true } })
     // From a device that hasn't seen the delete yet
     await expect(driver.set({ account, item, metadata: { iv: '', modified: modified + 200 }, snapshot }))
-      .resolves.toEqual({ version: 3 })
+      .resolves.toMatchObject({ version: 3 })
 
     const [result] = await driver.fetchByIds({ account, itemIds: [item] })
     expect(result.metadata).toEqual({ iv: '', modified: modified + 200, deleted: true })

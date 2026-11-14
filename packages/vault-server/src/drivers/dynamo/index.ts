@@ -3,3 +3,4 @@
 export { default } from './driver'
 export type { DynamoDriverOptions } from './driver'
 export { getConnectionParams, resolveVaultTableNames, type VaultTableNames } from './config'
+export type { AccountIndex } from './tables'

@@ -75,6 +75,7 @@ export async function updateAccountData<TExtra extends object = Record<never, ne
     account,
     expectedKeyringVersion,
     sessions,
+    remove,
     ...rest
   }: UpdateAccountDataParams & Partial<TExtra>,
 ): Promise<void> {
@@ -83,6 +84,7 @@ export async function updateAccountData<TExtra extends object = Record<never, ne
       ...rest,
       sessions: sessions !== undefined ? normalizeSessionRecords(sessions) : undefined,
     },
+    remove,
     condition: typeof expectedKeyringVersion === 'number'
       ? {
         expression: 'attribute_exists(account)'
@@ -112,6 +114,20 @@ export async function updateAccountData<TExtra extends object = Record<never, ne
     }
     throw new VersionConflictError('keyringVersion has changed')
   }
+}
+
+export async function addStorageUsage(
+  { client, tables }: DynamoContext,
+  { account, bytes }: BaseData & { bytes: number },
+): Promise<void> {
+  // ADD needs no read and touches nothing else, so it never conflicts with session writes
+  await sendConditional(client, new UpdateCommand({
+    TableName: tables.accounts,
+    Key: { account },
+    UpdateExpression: 'ADD storageBytes :bytes',
+    ConditionExpression: 'attribute_exists(account)',
+    ExpressionAttributeValues: { ':bytes': bytes },
+  }))
 }
 
 export async function addSession(

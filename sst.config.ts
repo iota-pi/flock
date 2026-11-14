@@ -40,8 +40,17 @@ export default $config({
       deletionProtection: isProd,
       fields: {
         account: "string",
+        reminderIndex: "string",
       },
       primaryIndex: { hashKey: "account" },
+      // The notifier's index of accounts with reminders on (REMINDER_INDEX in src/vault/flockDriver.ts).
+      // After first deploying it, run the indexReminderAccounts migration.
+      globalIndexes: {
+        ReminderIndex: {
+          hashKey: "reminderIndex",
+          projection: ["pushSubscriptions", "reminderTime", "reminderTimezone", "snoozeRemindersUntil"],
+        },
+      },
       transform: {
         table: (args) => {
           args.name = `FlockAccounts_${stage}`;

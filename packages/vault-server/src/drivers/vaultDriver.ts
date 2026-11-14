@@ -47,6 +47,8 @@ export type UpdateAccountDataParams = BaseData & {
   loginDevices?: string[],
   keyringVersion?: number,
   expectedKeyringVersion?: number,
+  /** App fields to delete from the account record, such as a sparse index's key */
+  remove?: string[],
 }
 
 /** How one stored item is encoded, for checking whether an account's data needs migrating */
@@ -65,12 +67,25 @@ export interface ItemFormatSummary {
 export interface AppendLogInput {
   account: string
   messages: SyncLogMessage[]
+  /**
+   * Most bytes of messages the account may append per UTC day. A push that would pass it throws
+   * `QuotaExceededError` and appends nothing (from that transaction on, for a push of several).
+   */
+  maxBytesPerDay?: number
 }
 
 /** Where a message landed in the account's log */
 export interface LogPushResult {
   itemId: ItemId
   seq: number
+}
+
+/** What writing an item did */
+export interface SetItemResult {
+  /** The version the write gave the item */
+  version: number
+  /** How many bytes the write added to the account's stored items (negative when it shrank them) */
+  storageDelta: number
 }
 
 export interface ReadLogInput {
@@ -145,8 +160,17 @@ export interface VaultDriver {
   /** Describes how each of the account's items is stored, without loading their payloads */
   listItemFormats(data: BaseData): Promise<ItemFormatSummary[]>
 
-  /** Writes an item and returns the version the write gave it */
-  set(item: VaultItem): Promise<{ version: number }>
+  /** Writes an item. Callers add its `storageDelta` to the account's usage with `addStorageUsage`. */
+  set(item: VaultItem): Promise<SetItemResult>
+
+  /** Adds `bytes` (which may be negative) to the account's `storageBytes` */
+  addStorageUsage(data: BaseData & { bytes: number }): Promise<void>
+
+  /**
+   * Counts how many bytes the account's items take up and stores that as its `storageBytes`,
+   * correcting any drift. It reads every item, so it's for migrations, not requests.
+   */
+  recountStorageUsage(data: BaseData): Promise<number>
 
   /** Lists every item the account has, deleted ones included, without their payloads */
   fetchManifest(data: BaseData): Promise<ManifestEntry[]>

@@ -1,7 +1,9 @@
 import type { TRPCError } from '@trpc/server'
 import { hashSessionToken, SESSION_EXPIRY_MS } from '../../sessions'
 import { syncRouter } from './sync'
-import { CLIENT_OUTDATED_MESSAGE, type ItemId } from '@vault/shared'
+import { CLIENT_OUTDATED_MESSAGE, QUOTA_EXCEEDED_MESSAGE, type ItemId } from '@vault/shared'
+import { DEFAULT_ACCOUNT_QUOTAS } from '../../quotas'
+import { QuotaExceededError } from '../../errors'
 
 function createContext(overrides?: {
   authToken?: string
@@ -24,6 +26,7 @@ function createContext(overrides?: {
   return {
     authToken,
     vault,
+    quotas: DEFAULT_ACCOUNT_QUOTAS,
   }
 }
 
@@ -68,7 +71,11 @@ describe('pollLog', () => {
 
     const result = await caller.pollLog(input)
 
-    expect(ctx.vault.appendLog).toHaveBeenCalledWith({ account: 'target-account', messages: input.push })
+    expect(ctx.vault.appendLog).toHaveBeenCalledWith({
+      account: 'target-account',
+      messages: input.push,
+      maxBytesPerDay: DEFAULT_ACCOUNT_QUOTAS.logBytesPerDay,
+    })
     expect(result).toEqual({
       pushResults: [{ itemId: 'item-1', seq: 1 }],
       entries: [],
@@ -113,5 +120,32 @@ describe('pollSync', () => {
   it('tells it to update on a server with no minimum version', async () => {
     await expect(callPollSync({ ...createContext(), protocolVersion: 4, minProtocolVersion: 0 }))
       .rejects.toMatchObject({ message: CLIENT_OUTDATED_MESSAGE })
+  })
+})
+
+describe('pollLog quota', () => {
+  const input = {
+    account: 'target-account',
+    push: [{ itemId: 'item-1' as ItemId, encryptedMessage: { iv: 'iv', cipher: 'cipher', format: 2 as const } }],
+    after: 0,
+  }
+
+  it('passes the daily log quota to the append', async () => {
+    const ctx = createContext()
+    await syncRouter.createCaller(ctx as any).pollLog(input)
+
+    expect(ctx.vault.appendLog).toHaveBeenCalledWith(expect.objectContaining({
+      maxBytesPerDay: DEFAULT_ACCOUNT_QUOTAS.logBytesPerDay,
+    }))
+  })
+
+  it('answers TOO_MANY_REQUESTS with QUOTA_EXCEEDED when the push passes it', async () => {
+    const ctx = createContext()
+    ctx.vault.appendLog.mockRejectedValueOnce(new QuotaExceededError('over'))
+
+    await expect(syncRouter.createCaller(ctx as any).pollLog(input)).rejects.toMatchObject({
+      code: 'TOO_MANY_REQUESTS',
+      message: QUOTA_EXCEEDED_MESSAGE,
+    })
   })
 })

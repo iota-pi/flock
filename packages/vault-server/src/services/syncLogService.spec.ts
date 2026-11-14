@@ -12,13 +12,19 @@ function createVault() {
   }
 }
 
+const QUOTAS = { logBytesPerDay: 1000 }
+
 describe('pollLog', () => {
   it('appends the push, then reads the log, so a poll sees its own rows', async () => {
     const vault = createVault()
 
-    const result = await pollLog(vault, { account: 'acct', push: [{ itemId, encryptedMessage }], after: 3 })
+    const result = await pollLog(vault, { account: 'acct', push: [{ itemId, encryptedMessage }], after: 3 }, QUOTAS)
 
-    expect(vault.appendLog).toHaveBeenCalledWith({ account: 'acct', messages: [{ itemId, encryptedMessage }] })
+    expect(vault.appendLog).toHaveBeenCalledWith({
+      account: 'acct',
+      messages: [{ itemId, encryptedMessage }],
+      maxBytesPerDay: 1000,
+    })
     expect(vault.readLog).toHaveBeenCalledWith({ account: 'acct', after: 3 })
     expect(vault.appendLog.mock.invocationCallOrder[0]).toBeLessThan(vault.readLog.mock.invocationCallOrder[0])
     expect(result).toEqual({
@@ -32,7 +38,7 @@ describe('pollLog', () => {
   it('appends nothing for an empty push', async () => {
     const vault = createVault()
 
-    const result = await pollLog(vault, { account: 'acct', push: [], after: 0 })
+    const result = await pollLog(vault, { account: 'acct', push: [], after: 0 }, QUOTAS)
 
     expect(vault.appendLog).not.toHaveBeenCalled()
     expect(result.pushResults).toEqual([])
@@ -42,7 +48,7 @@ describe('pollLog', () => {
     const vault = createVault()
     vault.appendLog.mockRejectedValue(new Error('Append failed'))
 
-    await expect(pollLog(vault, { account: 'acct', push: [{ itemId, encryptedMessage }], after: 0 }))
+    await expect(pollLog(vault, { account: 'acct', push: [{ itemId, encryptedMessage }], after: 0 }, QUOTAS))
       .rejects.toThrow('Append failed')
     expect(vault.readLog).not.toHaveBeenCalled()
   })
@@ -56,7 +62,7 @@ describe('pollLog', () => {
       return { entries: [{ ...entry, createdAt }], hasMore: false }
     })
 
-    const { serverNow } = await pollLog(vault, { account: 'acct', push: [], after: 0 })
+    const { serverNow } = await pollLog(vault, { account: 'acct', push: [], after: 0 }, QUOTAS)
 
     expect(serverNow).toBeGreaterThanOrEqual(createdAt)
   })

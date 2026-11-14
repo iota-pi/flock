@@ -5,18 +5,18 @@ import {
   type UpdateCommandOutput,
 } from '@aws-sdk/lib-dynamodb'
 import { chunk, CryptoResultSchema, type ItemId, type ManifestEntry } from '@vault/shared'
-import type { BaseData, FetchedVaultItem, ItemFormatSummary, VaultItem } from '../vaultDriver'
+import type { BaseData, FetchedVaultItem, ItemFormatSummary, SetItemResult, VaultItem } from '../vaultDriver'
 import type { VaultTableNames } from './config'
 import { buildUpdateParams, partitionKeyCondition, projection, RawUpdateValue } from './expressions'
 import { sendBatchWithRetry } from './batchRetry'
-import { fromStoredItem, toStoredItem, validateItem } from './items'
+import { fromStoredItem, storedItemSize, toStoredItem, validateItem } from './items'
 import { queryAll, sendConditional, type DynamoContext } from './commands'
 
 const FETCH_BATCH_SIZE = 100
 
 const ITEM_DATA_PROJECTION = projection(['item', 'metadata', 'cipher', 'snapshot', 'version'])
 
-export async function setItem({ client, tables }: DynamoContext, item: VaultItem): Promise<{ version: number }> {
+export async function setItem({ client, tables }: DynamoContext, item: VaultItem): Promise<SetItemResult> {
   const itemToPersist = toStoredItem(item)
 
   // Measured as stored, with the snapshot in binary. Clients limit its base64 text, which is
@@ -26,21 +26,24 @@ export async function setItem({ client, tables }: DynamoContext, item: VaultItem
   // Deletion is terminal. A snapshot from a device that hasn't seen the delete yet still replaces
   // the stored one (hydration merges, so that is harmless), but must keep the item deleted.
   if (itemToPersist.metadata.deleted !== true) {
-    const written = await sendConditional(client, updateItemCommand(tables, itemToPersist, { unlessDeleted: true }))
+    const update = itemUpdate(itemToPersist)
+    const written = await sendConditional(client, updateItemCommand(tables, itemToPersist, update, { unlessDeleted: true }))
     if (written) {
-      return readVersion(written)
+      return writeResult(itemToPersist, update, written)
     }
   }
   const tombstone = { ...itemToPersist, metadata: { ...itemToPersist.metadata, deleted: true } }
-  return readVersion(await client.send(updateItemCommand(tables, tombstone)))
+  const update = itemUpdate(tombstone)
+  return writeResult(tombstone, update, await client.send(updateItemCommand(tables, tombstone, update)))
 }
 
-/** Writes an item and bumps its version. With `unlessDeleted`, the write fails its condition on a tombstone. */
-function updateItemCommand(
-  tables: VaultTableNames,
-  item: VaultItem,
-  { unlessDeleted = false } = {},
-): UpdateCommand {
+/** What writing an item sets and removes */
+interface ItemUpdate {
+  set: Record<string, unknown>
+  remove: string[]
+}
+
+function itemUpdate(item: VaultItem): ItemUpdate {
   const modifiedAt = typeof item.metadata.modified === 'number'
     ? item.metadata.modified
     : Date.now()
@@ -49,7 +52,25 @@ function updateItemCommand(
   // Heads describe the snapshot written with them. Stale heads paired with a newer version would let
   // a client skip a snapshot it needs, so a write without heads removes them (docs/sync-design.md).
   const remove = [...(removeLegacyCipher ? ['cipher'] : []), ...(item.heads ? [] : ['heads'])]
+  return {
+    set: {
+      metadata: item.metadata,
+      snapshot: item.snapshot || undefined,
+      cipher: item.cipher || undefined,
+      heads: item.heads || undefined,
+      modifiedAt,
+    },
+    remove,
+  }
+}
 
+/** Writes an item and bumps its version. With `unlessDeleted`, the write fails its condition on a tombstone. */
+function updateItemCommand(
+  tables: VaultTableNames,
+  item: VaultItem,
+  { set, remove }: ItemUpdate,
+  { unlessDeleted = false } = {},
+): UpdateCommand {
   return new UpdateCommand({
     TableName: tables.items,
     Key: {
@@ -58,11 +79,7 @@ function updateItemCommand(
     },
     ...buildUpdateParams({
       set: {
-        metadata: item.metadata,
-        snapshot: item.snapshot || undefined,
-        cipher: item.cipher || undefined,
-        heads: item.heads || undefined,
-        modifiedAt,
+        ...set,
         version: new RawUpdateValue('if_not_exists(#version, :zero) + :one', { ':zero': 0, ':one': 1 }),
       },
       remove,
@@ -76,8 +93,45 @@ function updateItemCommand(
         }
         : undefined,
     }),
-    ReturnValues: 'UPDATED_NEW',
+    // The record as it was before this write, which gives both the version the write made and how
+    // much it grew the item. Unlike a read, returning it costs no read capacity.
+    ReturnValues: 'ALL_OLD',
   })
+}
+
+/** The version a write made and how many bytes it added, from the record as it was before */
+function writeResult(item: VaultItem, { set, remove }: ItemUpdate, response: UpdateCommandOutput): SetItemResult {
+  const before = response.Attributes
+  const version = (typeof before?.version === 'number' ? before.version : 0) + 1
+  const after: Record<string, unknown> = { account: item.account, item: item.item, ...before, version }
+  for (const [name, value] of Object.entries(set)) {
+    if (value !== undefined) after[name] = value
+  }
+  for (const name of remove) {
+    delete after[name]
+  }
+  const sizeBefore = before ? storedItemSize(before) : 0
+  return { version, storageDelta: storedItemSize(after) - sizeBefore }
+}
+
+/**
+ * Counts how many bytes the account's items take up, as `setItem` does, and stores it as the
+ * account's usage, with when it was counted. It reads every item in full. A write that lands while it
+ * reads may be left out of the count, which is only ever off by that write.
+ */
+export async function recountStorageUsage({ client, tables }: DynamoContext, { account }: BaseData): Promise<number> {
+  let total = 0
+  for await (const record of queryAll(client, { TableName: tables.items, ...partitionKeyCondition('account', account) })) {
+    total += storedItemSize(record)
+  }
+  await client.send(new UpdateCommand({
+    TableName: tables.accounts,
+    Key: { account },
+    UpdateExpression: 'SET storageBytes = :total, storageCountedAt = :now',
+    ConditionExpression: 'attribute_exists(account)',
+    ExpressionAttributeValues: { ':total': total, ':now': Date.now() },
+  }))
+  return total
 }
 
 export async function fetchManifest({ client, tables }: DynamoContext, { account }: BaseData): Promise<ManifestEntry[]> {
@@ -169,11 +223,6 @@ export async function fetchByIds(
   )
 
   return batchResults.flat().map(fromStoredItem)
-}
-
-/** The version that a write to the items table returned */
-function readVersion(response: UpdateCommandOutput): { version: number } {
-  return { version: (response.Attributes?.version as number) ?? 1 }
 }
 
 /** The item ID of an items-table record, or undefined for a record without one */

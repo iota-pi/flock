@@ -1,15 +1,23 @@
 import { itemsRouter } from './items'
 import { hashSessionToken, SESSION_EXPIRY_MS } from '../../sessions'
+import { DEFAULT_ACCOUNT_QUOTAS } from '../../quotas'
+import { QUOTA_EXCEEDED_MESSAGE, type ItemId } from '@vault/shared'
 
-function createContext(overrides?: { authToken?: string, sessionValid?: boolean }) {
+function createContext(overrides?: { authToken?: string, sessionValid?: boolean, storageBytes?: number }) {
   const sessionValid = overrides?.sessionValid ?? true
   const authToken = overrides?.authToken ?? 'session-token'
   const vault = {
     getAccountRecord: vi.fn(async () => (sessionValid
-      ? { account: 'acct-1', metadata: {}, sessions: [{ token: hashSessionToken(authToken), expiry: Date.now() + SESSION_EXPIRY_MS }] } as any
+      ? {
+        account: 'acct-1',
+        metadata: {},
+        storageBytes: overrides?.storageBytes,
+        sessions: [{ token: hashSessionToken(authToken), expiry: Date.now() + SESSION_EXPIRY_MS }],
+      } as any
       : undefined)),
     extendSession: vi.fn(async () => undefined),
-    set: vi.fn(async () => ({ version: 1 })),
+    set: vi.fn(async () => ({ version: 1, storageDelta: 0 })),
+    addStorageUsage: vi.fn(async () => undefined),
     updateAccountData: vi.fn(async () => undefined),
     readLogHead: vi.fn(async () => 0),
   }
@@ -17,6 +25,7 @@ function createContext(overrides?: { authToken?: string, sessionValid?: boolean 
   return {
     authToken,
     vault,
+    quotas: DEFAULT_ACCOUNT_QUOTAS,
   }
 }
 
@@ -233,5 +242,32 @@ describe('itemsRouter.fetchSnapshotsByIds', () => {
       expect(result.items).toHaveLength(3)
       expect(result).toMatchObject({ deferred: [] })
     })
+  })
+})
+
+describe('itemsRouter.putSnapshots storage quota', () => {
+  const snapshots = [{
+    itemId: 'item-1' as ItemId,
+    modified: 1,
+    snapshot: { iv: 'iv', cipher: 'cipher' },
+    snapshotCursor: 0,
+  }]
+
+  it('answers TOO_MANY_REQUESTS with QUOTA_EXCEEDED for an account at its quota', async () => {
+    const ctx = createContext({ storageBytes: DEFAULT_ACCOUNT_QUOTAS.storageBytes })
+    const caller = itemsRouter.createCaller(ctx as any)
+
+    await expect(caller.putSnapshots({ account: 'acct-1', snapshots })).rejects.toMatchObject({
+      code: 'TOO_MANY_REQUESTS',
+      message: QUOTA_EXCEEDED_MESSAGE,
+    })
+    expect(ctx.vault.set).not.toHaveBeenCalled()
+  })
+
+  it('accepts snapshots for an account under its quota', async () => {
+    const ctx = createContext({ storageBytes: DEFAULT_ACCOUNT_QUOTAS.storageBytes - 1 })
+    const caller = itemsRouter.createCaller(ctx as any)
+
+    await expect(caller.putSnapshots({ account: 'acct-1', snapshots })).resolves.toMatchObject({ success: true })
   })
 })
