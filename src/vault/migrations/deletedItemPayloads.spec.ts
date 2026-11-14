@@ -69,7 +69,7 @@ describe('dropDeletedItemPayloads', () => {
       expect(row).not.toHaveProperty('snapshot')
       expect(row).not.toHaveProperty('cipher')
     }
-    expect(await readRow(deleted)).toMatchObject({ version: 2, metadata: { deleted: true, modified: modified + 1 } })
+    expect(await readRow(deleted)).toMatchObject({ version: 2, metadata: { deleted: true } })
     expect(await readRow(topLevelDeleted)).toMatchObject({ version: 3, deleted: true })
     expect((await readRow(active))?.snapshot).toBeDefined()
     // Devices see exactly what they saw before, so none re-fetches or re-uploads anything

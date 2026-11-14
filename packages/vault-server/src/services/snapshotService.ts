@@ -43,9 +43,9 @@ export async function persistSnapshots(
       const item: VaultItem = {
         account: input.account,
         item: snapshot.itemId,
+        // The client's `modified` isn't stored: the driver records the server's own `modifiedAt`
         metadata: {
           iv: '',
-          modified: snapshot.modified,
           ...(snapshot.deleted ? { deleted: true } : {}),
         },
         // Payload-less tombstones intentionally omit the snapshot so the previous one is kept

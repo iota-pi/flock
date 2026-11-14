@@ -5,7 +5,8 @@ import { ItemIdSchema } from './ids'
 export const ItemEnvelopeMetadataSchema = z.object({
   /** Only legacy items use it. The server writes `''` with snapshots. */
   iv: z.string().optional(),
-  modified: z.number(),
+  /** Only on rows written before the server stopped storing the client's clock (it records `modifiedAt`) */
+  modified: z.number().optional(),
   deleted: z.boolean().optional(),
 })
 

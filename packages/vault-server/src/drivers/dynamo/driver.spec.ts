@@ -43,7 +43,7 @@ describe('DynamoDriver', function () {
     await expect(driver.set({ account, item, cipher: 'good', metadata: { iv: 'bye', modified } }))
       .resolves.toMatchObject({ version: 2 })
     const results = await driver.fetchByIds({ account, itemIds: [item] })
-    expect(results[0]).toEqual({ item, cipher: 'good', metadata: { iv: 'bye', modified }, version: 2 })
+    expect(results[0]).toEqual({ item, cipher: 'good', metadata: { iv: 'bye' }, version: 2 })
   })
 
   it('removes the legacy cipher when a snapshot is written', async () => {
@@ -91,7 +91,7 @@ describe('DynamoDriver', function () {
       .resolves.toMatchObject({ version: 3 })
 
     const [result] = await driver.fetchByIds({ account, itemIds: [item] })
-    expect(result.metadata).toEqual({ iv: '', modified: modified + 200, deleted: true })
+    expect(result.metadata).toEqual({ iv: '', deleted: true })
     expect(result.snapshot).toMatchObject({ iv: 'snap-iv' })
     const manifest = await driver.fetchManifest({ account })
     expect(manifest).toEqual([expect.objectContaining({ itemId: item, isDeleted: true, version: 3 })])
@@ -467,7 +467,33 @@ describe('DynamoDriver', function () {
     expect(ids).toContain(item2)
 
     const entry1 = manifest.find(m => m.itemId === item1)
-    expect(entry1?.modifiedAt).toBe(modified)
+    expect(entry1?.modifiedAt).toEqual(expect.any(Number))
+  })
+
+  it('records the server time as modifiedAt, not the client time, and does not store the latter', async () => {
+    const account = generateTestAccountId()
+    const item = generateItemId()
+    const before = Date.now()
+
+    await driver.set({ account, item, cipher: 'c', metadata: { iv: 'iv', modified: 1 } })
+
+    const [entry] = await driver.fetchManifest({ account })
+    expect(entry.modifiedAt).toBeGreaterThanOrEqual(before)
+    expect(entry.modifiedAt).toBeLessThanOrEqual(Date.now())
+    const [result] = await driver.fetchByIds({ account, itemIds: [item] })
+    expect(result.metadata).not.toHaveProperty('modified')
+  })
+
+  it('falls back to metadata.modified in the manifest for legacy rows', async () => {
+    const account = generateTestAccountId()
+    const item = generateItemId()
+    await driver.client.send(new PutCommand({
+      TableName: driver.tables.items,
+      Item: { account, item, cipher: 'old', metadata: { iv: 'iv', modified: 1234567890 }, version: 1 },
+    }))
+
+    const [entry] = await driver.fetchManifest({ account })
+    expect(entry.modifiedAt).toBe(1234567890)
   })
 
   it('fetchByIds retrieves exact items in batches', async () => {

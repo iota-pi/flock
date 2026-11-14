@@ -8,7 +8,8 @@ export const VaultKeySchema = z.object({
 
 const VaultMetaDataSchema = z.object({
   iv: z.string(),
-  modified: z.number(),
+  /** Only on rows written before the server stopped storing the client's clock (it records `modifiedAt`) */
+  modified: z.number().optional(),
   deleted: z.boolean().optional(),
 })
 
