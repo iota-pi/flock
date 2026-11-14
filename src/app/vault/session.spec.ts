@@ -5,6 +5,7 @@ import { unsubscribe } from '../../utils/pushNotifications'
 import * as syncBridgeModule from './syncBridge'
 import * as clientModule from '@vault/client'
 import * as pushNotificationsModule from '../../utils/pushNotifications'
+import { deferMigration, isMigrationDeferred } from '../../migrate/detection'
 import * as storeModule from '../../state/store'
 import { spyOnExports } from '../../utils/testUtils'
 
@@ -73,6 +74,17 @@ describe('vault session', () => {
     expect(unsubscribe).toHaveBeenCalledWith('acct-1')
     expect(clearVaultDeviceData).toHaveBeenCalledWith('acct-1')
     expect(mocks.updateAuth).toHaveBeenCalledWith({ account: '', loggedIn: false })
+  })
+
+  it('removeVaultFromDevice forgets a deferred migration for the account only', async () => {
+    deferMigration('acct-1')
+    deferMigration('acct-2')
+
+    await removeVaultFromDevice()
+
+    expect(isMigrationDeferred('acct-1')).toBe(false)
+    expect(isMigrationDeferred('acct-2')).toBe(true)
+    localStorage.clear()
   })
 
   it('removeVaultFromDevice still clears vault data when unsubscribing fails', async () => {

@@ -1,6 +1,7 @@
 import { rotateVaultKey, exportKeyringData } from './vault'
 import { createLogger } from '../utils/logger'
 import type { ReencryptCallOptions, ReencryptResult } from '../shared/types'
+import { reencryptPendingKey } from './reencryptPending'
 
 const log = createLogger('reencrypt')
 
@@ -11,8 +12,6 @@ export interface ReencryptionTarget {
   /** Waits until a re-encryption could push, without rewriting anything */
   prepareReencryption(options?: ReencryptCallOptions): Promise<void>
 }
-
-export const REENCRYPT_PENDING_KEY_PREFIX = 'vault_reencrypt_pending_'
 
 /**
  * Rotates to a new random data key and re-encrypts every item with it. It first waits until the
@@ -27,7 +26,7 @@ export async function reencryptAllItems(
 ): Promise<ReencryptResult> {
   await syncBridge.prepareReencryption(options)
 
-  const pendingKey = `${REENCRYPT_PENDING_KEY_PREFIX}${account}`
+  const pendingKey = reencryptPendingKey(account)
   localStorage.setItem(pendingKey, 'true')
 
   // 1. Rotate the key on the main thread (saves to localStorage and updates server)
@@ -56,7 +55,7 @@ export async function reencryptAllItems(
 }
 
 export async function resumePendingReencryption(syncBridge: ReencryptionTarget, account: string): Promise<void> {
-  const pendingKey = `${REENCRYPT_PENDING_KEY_PREFIX}${account}`
+  const pendingKey = reencryptPendingKey(account)
   if (localStorage.getItem(pendingKey) === 'true') {
     log.info(`Resuming interrupted re-encryption for ${account}...`)
     try {

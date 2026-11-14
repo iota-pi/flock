@@ -1,4 +1,5 @@
 import {
+  clearMigrationDeferral,
   deferMigration,
   hasLegacyLocalData,
   isMigrationDeferred,
@@ -16,6 +17,18 @@ describe('migration deferral', () => {
     expect(isMigrationDeferred('acct-1', now + 29 * 24 * 60 * 60 * 1000)).toBe(true)
     expect(isMigrationDeferred('acct-1', now + 31 * 24 * 60 * 60 * 1000)).toBe(false)
     expect(isMigrationDeferred('acct-2', now)).toBe(false)
+  })
+
+  it('forgets one account\'s deferral', () => {
+    deferMigration('acct-1')
+    deferMigration('acct-2')
+
+    clearMigrationDeferral('acct-1')
+    expect(isMigrationDeferred('acct-1')).toBe(false)
+    expect(isMigrationDeferred('acct-2')).toBe(true)
+
+    clearMigrationDeferral('acct-2')
+    expect(localStorage.getItem('flock-migration-deferred')).toBeNull()
   })
 
   it('treats unreadable storage as not deferred', () => {

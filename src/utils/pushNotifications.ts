@@ -123,13 +123,21 @@ export async function subscribe(account: string, hours: number[], key = env.VAPI
   })
 }
 
+/**
+ * Turns reminders off for this device. The browser unsubscribes even when the server can't be
+ * reached, so the device stops receiving pushes either way; the server drops the endpoint the next
+ * time the push service rejects it.
+ */
 export async function unsubscribe(account: string) {
   const registration = await navigator.serviceWorker.getRegistration()
   if (registration && 'pushManager' in registration && registration.pushManager) {
     const existing = await registration.pushManager.getSubscription()
     if (existing) {
-      await deletePushSubscription(account, existing.endpoint)
-      await existing.unsubscribe()
+      try {
+        await deletePushSubscription(account, existing.endpoint)
+      } finally {
+        await existing.unsubscribe()
+      }
     }
   }
 

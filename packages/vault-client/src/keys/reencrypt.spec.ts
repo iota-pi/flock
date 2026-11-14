@@ -1,4 +1,5 @@
-import { reencryptAllItems, resumePendingReencryption, REENCRYPT_PENDING_KEY_PREFIX } from './reencrypt'
+import { reencryptAllItems, resumePendingReencryption } from './reencrypt'
+import { REENCRYPT_PENDING_KEY_PREFIX } from './reencryptPending'
 import { rotateVaultKey, exportKeyringData } from './vault'
 import * as vaultModule from './vault'
 import { spyOnExports } from '../../test/moduleMocks'

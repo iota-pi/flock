@@ -61,6 +61,21 @@ export function isMigrationDeferred(account: string, now = Date.now()): boolean 
   return (readDeferrals()[account] ?? 0) > now
 }
 
+/** Forgets a deferral, for when the account's vault is removed from this device */
+export function clearMigrationDeferral(account: string): void {
+  const deferrals = readDeferrals()
+  delete deferrals[account]
+  try {
+    if (Object.keys(deferrals).length > 0) {
+      localStorage.setItem(DEFERRAL_KEY, JSON.stringify(deferrals))
+    } else {
+      localStorage.removeItem(DEFERRAL_KEY)
+    }
+  } catch {
+    // Nothing to clear when storage is unavailable
+  }
+}
+
 /** The per-store databases Flock used until its sync metadata was consolidated (2026-09-14) */
 export const LEGACY_SYNC_DATABASES = [
   'flock-sync-cursors',
