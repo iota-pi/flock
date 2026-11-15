@@ -34,9 +34,66 @@ function isForOtherKey(subscription: PushSubscription, key: Uint8Array) {
   return bytes.length !== key.length || bytes.some((byte, index) => byte !== key[index])
 }
 
-async function replaceSubscription(account: string, pushManager: PushManager, existing: PushSubscription | null, key: Uint8Array<ArrayBuffer>) {
+/**
+ * Remembers which account this browser's push subscription was registered to. A browser has one
+ * subscription however many accounts use it, and registering the same endpoint to a second account
+ * would show anyone who can read the account records that the two share a device.
+ */
+const SUBSCRIPTION_OWNER_KEY = 'FlockPushSubscriptionOwner'
+
+type Ownership = 'this' | 'other' | 'unknown'
+
+function getOwnership(account: string, subscription: PushSubscription): Ownership {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(SUBSCRIPTION_OWNER_KEY) ?? 'null')
+    if (
+      parsed && typeof parsed === 'object'
+      && 'account' in parsed && typeof parsed.account === 'string'
+      && 'endpoint' in parsed && parsed.endpoint === subscription.endpoint
+    ) {
+      return parsed.account === account ? 'this' : 'other'
+    }
+  } catch (error) {
+    log.warn('Failed to read the push subscription owner', error)
+  }
+  // Subscriptions made before the owner was recorded, or that the browser has since replaced
+  return 'unknown'
+}
+
+function setOwner(account: string, endpoint: string) {
+  try {
+    localStorage.setItem(SUBSCRIPTION_OWNER_KEY, JSON.stringify({ account, endpoint }))
+  } catch (error) {
+    log.warn('Failed to record the push subscription owner', error)
+  }
+}
+
+function clearOwner() {
+  try {
+    localStorage.removeItem(SUBSCRIPTION_OWNER_KEY)
+  } catch (error) {
+    log.warn('Failed to clear the push subscription owner', error)
+  }
+}
+
+/**
+ * Unsubscribes the existing subscription and makes a new one. The old endpoint is removed from this
+ * account unless it is known to be another account's, since sending that would link the two. Once
+ * unsubscribed, the push service rejects the old endpoint, and the notifier drops it from
+ * whichever account still holds it.
+ */
+async function replaceSubscription(
+  account: string,
+  pushManager: PushManager,
+  existing: PushSubscription | null,
+  key: Uint8Array<ArrayBuffer>,
+  removeFromServer: boolean,
+) {
   if (existing) {
-    await deletePushSubscription(account, existing.endpoint)
+    if (removeFromServer) {
+      await deletePushSubscription(account, existing.endpoint)
+    }
+    clearOwner()
     await existing.unsubscribe()
   }
   return pushManager.subscribe({
@@ -60,10 +117,15 @@ async function getPushSubscription(account: string, key: string) {
   const keyBytes = fromBase64Url(key)
 
   const existing = await registration.pushManager.getSubscription()
-  if (existing && !isForOtherKey(existing, keyBytes)) {
+  if (!existing) {
+    return replaceSubscription(account, registration.pushManager, null, keyBytes, false)
+  }
+  // A subscription of unknown ownership may be another account's, so it is replaced too
+  const ownership = getOwnership(account, existing)
+  if (ownership === 'this' && !isForOtherKey(existing, keyBytes)) {
     return existing
   }
-  return replaceSubscription(account, registration.pushManager, existing, keyBytes)
+  return replaceSubscription(account, registration.pushManager, existing, keyBytes, ownership !== 'other')
 }
 
 async function registerSubscription(account: string, subscription: PushSubscription) {
@@ -79,6 +141,7 @@ async function registerSubscription(account: string, subscription: PushSubscript
       p256dh: subscriptionJson.keys.p256dh,
     },
   })
+  setOwner(account, subscriptionJson.endpoint)
 }
 
 /**
@@ -99,7 +162,12 @@ export async function refreshPushSubscription(account: string, key = env.VAPID_P
   if (!existing || !isForOtherKey(existing, keyBytes)) {
     return false
   }
-  await registerSubscription(account, await replaceSubscription(account, pushManager, existing, keyBytes))
+  // Another account's subscription is left for that account to refresh. One of unknown ownership was
+  // most likely made by this account before owners were recorded.
+  if (getOwnership(account, existing) === 'other') {
+    return false
+  }
+  await registerSubscription(account, await replaceSubscription(account, pushManager, existing, keyBytes, true))
   return true
 }
 
@@ -132,10 +200,12 @@ export async function unsubscribe(account: string) {
   const registration = await navigator.serviceWorker.getRegistration()
   if (registration && 'pushManager' in registration && registration.pushManager) {
     const existing = await registration.pushManager.getSubscription()
-    if (existing) {
+    // Another account's subscription is left alone, so its reminders keep arriving
+    if (existing && getOwnership(account, existing) !== 'other') {
       try {
         await deletePushSubscription(account, existing.endpoint)
       } finally {
+        clearOwner()
         await existing.unsubscribe()
       }
     }
