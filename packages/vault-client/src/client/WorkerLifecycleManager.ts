@@ -385,8 +385,7 @@ export class WorkerLifecycleManager {
     if (this.activeShutdownPromise) {
       await this.activeShutdownPromise
       if (targetAccountId && (options?.clearLocalData || this.pendingShutdownClearAccounts.has(targetAccountId))) {
-        await clearAccountLocalData(targetAccountId)
-        this.pendingShutdownClearAccounts.delete(targetAccountId)
+        await this.clearLocalData(targetAccountId)
       }
       return
     }
@@ -445,8 +444,16 @@ export class WorkerLifecycleManager {
     }
 
     if (shouldClearLocalData && targetAccountId) {
-      await clearAccountLocalData(targetAccountId)
-      this.pendingShutdownClearAccounts.delete(targetAccountId)
+      await this.clearLocalData(targetAccountId)
+    }
+  }
+
+  /** Clears the account's local data, throwing `LocalDataCleanupError` if any of it remains */
+  private async clearLocalData(accountId: string): Promise<void> {
+    try {
+      await clearAccountLocalData(accountId)
+    } finally {
+      this.pendingShutdownClearAccounts.delete(accountId)
     }
   }
 }

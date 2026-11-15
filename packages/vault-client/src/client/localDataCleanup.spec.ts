@@ -1,4 +1,4 @@
-import { clearAccountLocalData } from './localDataCleanup'
+import { clearAccountLocalData, LocalDataCleanupError } from './localDataCleanup'
 import * as syncMetadataStorage from '../shared/syncMetadataStorage'
 import * as writeAheadLogStorage from '../shared/writeAheadLogStorage'
 import * as manualRecoveryStore from '../shared/manualRecoveryStore'
@@ -62,15 +62,21 @@ describe('localDataCleanup', () => {
       vi.useRealTimers()
     })
 
-    it('catches rejection from deleteDatabase gracefully', async () => {
+    it('clears everything else, then reports a database it could not delete', async () => {
       vi.useFakeTimers()
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
       const clearPromise = clearAccountLocalData('acc-1')
+      const outcome = clearPromise.catch((error: unknown) => error)
 
       mockReq.onblocked?.()
-      vi.advanceTimersByTime(5000)
+      await vi.advanceTimersByTimeAsync(5000)
 
-      // A failed delete is logged rather than thrown
-      await expect(clearPromise).resolves.toBeUndefined()
+      const error = await outcome
+      expect(error).toBeInstanceOf(LocalDataCleanupError)
+      expect((error as LocalDataCleanupError).failures).toEqual(expect.arrayContaining(['Automerge IndexedDB', 'sealed Automerge IndexedDB']))
+      expect(syncMetadataStorage.clearSyncMetadataStorage).toHaveBeenCalledWith('acc-1')
+      expect(manualRecoveryStore.clearManualRecoveryEntries).toHaveBeenCalledWith('acc-1')
+      consoleError.mockRestore()
     })
 
     it('deletes both the plaintext and sealed Automerge databases', async () => {

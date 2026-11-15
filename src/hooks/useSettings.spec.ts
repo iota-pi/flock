@@ -15,7 +15,7 @@ import { spyOnExports } from '../utils/testUtils'
 
 const mocks = {
   exportData: vi.fn(),
-  lockVault: vi.fn(),
+  lockVaultEverywhere: vi.fn(),
   removeVaultFromDevice: vi.fn(),
   storeItems: vi.fn(),
   setMetadata: vi.fn(),
@@ -50,7 +50,7 @@ const mockStore = {
 
 beforeEach(() => {
   spyOnExports(sessionModule, {
-    lockVault: mocks.lockVault,
+    lockVaultEverywhere: mocks.lockVaultEverywhere,
     removeVaultFromDevice: mocks.removeVaultFromDevice,
   })
   spyOnExports(clientModule, {
@@ -204,7 +204,7 @@ describe('useSettings backup portability', () => {
       await result.current.actions.handleLock()
     })
 
-    expect(mocks.lockVault).toHaveBeenCalledTimes(1)
+    expect(mocks.lockVaultEverywhere).toHaveBeenCalledTimes(1)
     expect(mocks.setMessage).toHaveBeenCalledWith({ message: 'App locked' })
   })
 
@@ -217,6 +217,22 @@ describe('useSettings backup portability', () => {
 
     expect(mocks.removeVaultFromDevice).toHaveBeenCalledTimes(1)
     expect(mocks.setMessage).toHaveBeenCalledWith({ message: 'Signed out and removed local data' })
+  })
+
+  it('reports local data that could not be removed', async () => {
+    mocks.removeVaultFromDevice.mockRejectedValueOnce(new Error('blocked'))
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { result } = renderHook(() => useSettings(mockItems))
+
+    await act(async () => {
+      await result.current.actions.handleRemoveAccountFromDevice()
+    })
+
+    expect(mocks.setMessage).toHaveBeenCalledWith(expect.objectContaining({
+      severity: 'error',
+      message: expect.stringMatching(/could not be removed/),
+    }))
+    consoleError.mockRestore()
   })
 
   it('saves auto-lock settings and displays updated summary', async () => {

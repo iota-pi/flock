@@ -25,7 +25,7 @@ export { readStoredMetadata } from './keys/storedMetadata'
 export { configureVaultHost, type VaultHostHooks } from './keys/vaultHost'
 export type { KeyProvider } from './keys/Keyring'
 export { createAccount, getSecurityParams } from './keys/AccountClient'
-export type { VaultBroadcastEvent } from './keys/vaultEvents'
+export { announceVaultLocked, announceVaultRemoved, type VaultBroadcastEvent } from './keys/vaultEvents'
 export {
   UnsupportedKeyDerivationError,
   type CryptoResult,
