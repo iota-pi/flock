@@ -4,6 +4,7 @@ import { addPlugins, createHandlerBoundToURL, precacheAndRoute } from 'workbox-p
 import { NavigationRoute, registerRoute } from 'workbox-routing'
 import { CacheFirst, NetworkOnly } from 'workbox-strategies'
 import { isPageInPlaceOfFile } from './utils/builtAssets'
+import { getNotificationTarget } from './utils/notificationTarget'
 
 declare const self: ServiceWorkerGlobalScope
 
@@ -84,32 +85,25 @@ registerRoute(
   }),
 )
 
-type PushPayload = {
-  title?: string
-  body?: string
-  icon?: string
-  badge?: string
-  url?: string
-  tag?: string
+// The notification's text, icon and tag are fixed here rather than taken from the push. Anyone who
+// could send pushes (say, with the server's VAPID key) could otherwise show their own words in Flock's
+// name. The payload may only choose which page of the app to open.
+const NOTIFICATION_TITLE = 'Prayer reminder'
+const NOTIFICATION_BODY = 'Time to pray for your flock.'
+const NOTIFICATION_ICON = '/android-chrome-192x192.png'
+const NOTIFICATION_BADGE = '/badge-96x96.png'
+const NOTIFICATION_TAG = 'prayer-reminder'
+
+function readPushUrl(data: PushMessageData | null): unknown {
+  try {
+    return (data?.json() as { url?: unknown } | null)?.url
+  } catch {
+    return undefined
+  }
 }
 
 self.addEventListener('push', event => {
-  const fallbackTitle = 'Prayer reminder'
-  const fallbackBody = 'Time to pray for your flock.'
-
-  let payload: PushPayload = {}
-  if (event.data) {
-    try {
-      payload = event.data.json() as PushPayload
-    } catch {
-      payload = {
-        body: event.data.text(),
-      }
-    }
-  }
-
-  const title = payload.title || fallbackTitle
-  const body = payload.body || fallbackBody
+  const url = getNotificationTarget(readPushUrl(event.data), self.location.origin)
 
   event.waitUntil(
     (async () => {
@@ -127,26 +121,18 @@ self.addEventListener('push', event => {
         for (const client of clientList) {
           client.postMessage({
             type: 'PASSIVE_PUSH_NOTIFICATION',
-            payload: {
-              title,
-              body,
-              url: payload.url || '/',
-            },
+            payload: { title: NOTIFICATION_TITLE, body: NOTIFICATION_BODY, url },
           })
         }
         return
       }
 
-      const icon = new URL(payload.icon || '/android-chrome-192x192.png', self.location.origin).href
-      const badge = new URL(payload.badge || '/badge-96x96.png', self.location.origin).href
-      await self.registration.showNotification(title, {
-        body,
-        icon,
-        badge,
-        tag: payload.tag || 'prayer-reminder',
-        data: {
-          url: payload.url || '/',
-        },
+      await self.registration.showNotification(NOTIFICATION_TITLE, {
+        body: NOTIFICATION_BODY,
+        icon: new URL(NOTIFICATION_ICON, self.location.origin).href,
+        badge: new URL(NOTIFICATION_BADGE, self.location.origin).href,
+        tag: NOTIFICATION_TAG,
+        data: { url },
       })
     })(),
   )
@@ -155,7 +141,8 @@ self.addEventListener('push', event => {
 self.addEventListener('notificationclick', event => {
   event.notification.close()
 
-  const targetUrl = (event.notification.data as { url?: string } | undefined)?.url || '/'
+  // Checked again in case the notification came from an older version of this worker
+  const targetUrl = getNotificationTarget((event.notification.data as { url?: unknown } | undefined)?.url, self.location.origin)
   const absoluteUrl = new URL(targetUrl, self.location.origin).href
 
   event.waitUntil(

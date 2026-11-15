@@ -13,6 +13,7 @@ import { useNavigate } from 'react-router'
 import { refreshPushSubscription, syncReminderTimezone } from '../utils/pushNotifications'
 import { useAutoClearPrayerNotifications } from '../hooks/useAutoClearPrayerNotifications'
 import { getLaunchRoute, type LaunchQueue } from './launchRoute'
+import { getNotificationTarget } from '../utils/notificationTarget'
 
 const log = createLogger('AppInitializer')
 
@@ -55,8 +56,8 @@ export default function AppInitializer() {
     }
 
     const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'NOTIFICATION_CLICK_NAVIGATE' && typeof event.data?.url === 'string') {
-        navigate(event.data.url)
+      if (event.data?.type === 'NOTIFICATION_CLICK_NAVIGATE') {
+        navigate(getNotificationTarget(event.data.url, window.location.origin))
       }
     }
 
