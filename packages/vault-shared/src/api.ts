@@ -56,6 +56,15 @@ export const LoginBodySchema = z.object({
   deviceToken: z.string().length(DEVICE_TOKEN_LENGTH).optional(),
 })
 
+/**
+ * Ends a session. The token is in the body rather than the Authorization header, because the
+ * client forgets its token as it locks, before the request goes out.
+ */
+export const LogoutBodySchema = z.object({
+  account: AccountIdInputSchema,
+  session: z.string().min(1).max(MAX_AUTH_TOKEN_LENGTH),
+})
+
 export const AccountInputSchema = z.looseObject({
   account: AccountIdInputSchema,
 })

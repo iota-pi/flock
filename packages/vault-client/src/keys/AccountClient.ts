@@ -74,6 +74,12 @@ export async function getSession(account: string, authToken: string, deviceToken
   return response.session
 }
 
+/** Ends a session on the server, so that the token stops working before it would expire */
+export async function endSession(account: string, session: string): Promise<void> {
+  const response = await getVaultTrpcClient().accounts.logout.mutate({ account, session })
+  assertSuccess(response, 'endSession')
+}
+
 /** The account's encrypted keyring */
 export async function getKeyring(account: string): Promise<{ keyring?: string }> {
   const response = await getVaultTrpcClient().accounts.getKeyring.query({ account })

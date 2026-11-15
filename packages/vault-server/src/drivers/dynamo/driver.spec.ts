@@ -292,6 +292,30 @@ describe('DynamoDriver', function () {
     expect(acc.lastAccess).toBeGreaterThan(Date.now() - 60_000)
   })
 
+  it('removeSession ends one session and keeps the others', async () => {
+    const account = generateTestAccountId()
+    await driver.createAccount({ account, authToken, salt, iterations })
+    const expiry = Date.now() + SESSION_EXPIRY_MS
+    await driver.addSession({ account, session: 'session-A', expiry })
+    await driver.addSession({ account, session: 'session-B', expiry })
+
+    await driver.removeSession({ account, session: 'session-A' })
+
+    await expect(getWithSession(account, 'session-A')).rejects.toThrow()
+    expect((await getWithSession(account, 'session-B')).account).toBe(account)
+
+    // Ending it again, or ending a session the account never had, changes nothing
+    await driver.removeSession({ account, session: 'session-A' })
+    await driver.removeSession({ account, session: 'unknown' })
+    expect((await getWithSession(account, 'session-B')).sessions).toHaveLength(1)
+  })
+
+  it("removeSession does nothing for an account that doesn't exist", async () => {
+    const account = generateTestAccountId()
+    await driver.removeSession({ account, session: 'session-A' })
+    expect(await driver.getAccountRecord({ account })).toBeUndefined()
+  })
+
   it('raiseDataVersion raises the version but never lowers it', async () => {
     const account = generateTestAccountId()
     await driver.createAccount({ account, authToken, salt, iterations })

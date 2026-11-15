@@ -5,6 +5,7 @@ import {
   AccountInputSchema,
   CreateAccountBodySchema,
   LoginBodySchema,
+  LogoutBodySchema,
   UpdateKeyringBodySchema,
   ChangePasswordBodySchema,
   TOO_MANY_REQUESTS_MESSAGE,
@@ -200,6 +201,16 @@ export const accountsRouter = router({
         success: true,
         session,
       }
+    }),
+
+  // Clients call this when they lock or forget the account. Holding the token is the proof, so it
+  // needs no other session, and it answers the same whether or not the token or account exists. Not a
+  // protected procedure, which would renew the session it is ending.
+  logout: publicProcedure
+    .input(LogoutBodySchema)
+    .mutation(async ({ ctx, input }) => {
+      await ctx.vault.removeSession({ account: input.account, session: input.session })
+      return { success: true }
     }),
 
   getSecurityParams: publicProcedure

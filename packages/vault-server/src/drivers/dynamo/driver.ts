@@ -165,6 +165,10 @@ export default class DynamoDriver implements VaultDriver {
     return accountRecords.extendSession(this.context, data)
   }
 
+  async removeSession(data: AuthData): Promise<void> {
+    return accountRecords.removeSession(this.context, data)
+  }
+
   async raiseDataVersion(data: BaseData & { dataVersion: number }): Promise<void> {
     return accountRecords.raiseDataVersion(this.context, data)
   }

@@ -59,6 +59,7 @@ function createContext(overrides?: {
         : undefined
     )),
     extendSession: vi.fn(async () => undefined),
+    removeSession: vi.fn(async () => undefined),
     addSession: vi.fn(async () => undefined),
     reserveLoginAttempt: vi.fn(async (): Promise<LoginAttemptReservation | undefined> => RESERVATION),
     releaseLoginAttempt: vi.fn(async () => undefined),
@@ -77,6 +78,33 @@ function createContext(overrides?: {
 describe('accountsRouter security contracts', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('logout ends the session it names, without renewing it or needing another', async () => {
+    const ctx = createContext({ authToken: '' })
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    const result = await caller.logout({ account: 'acct-1', session: SESSION_TOKEN })
+
+    expect(result).toEqual({ success: true })
+    expect(ctx.vault.removeSession).toHaveBeenCalledExactlyOnceWith({ account: 'acct-1', session: SESSION_TOKEN })
+    expect(ctx.vault.extendSession).not.toHaveBeenCalled()
+    expect(ctx.vault.getAccountRecord).not.toHaveBeenCalled()
+  })
+
+  it("logout answers the same for an account that doesn't exist", async () => {
+    const ctx = createContext({ sessionValid: false })
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.logout({ account: 'no-such-account', session: 'any' })).resolves.toEqual({ success: true })
+  })
+
+  it('logout rejects an empty or oversized session token', async () => {
+    const caller = accountsRouter.createCaller(createContext() as any)
+
+    await expect(caller.logout({ account: 'acct-1', session: '' })).rejects.toThrow()
+    await expect(caller.logout({ account: 'acct-1', session: 'x'.repeat(MAX_AUTH_TOKEN_LENGTH + 1) }))
+      .rejects.toThrow()
   })
 
   it('rotates session on login without mutating account metadata payloads', async () => {
