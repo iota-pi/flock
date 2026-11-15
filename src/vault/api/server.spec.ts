@@ -1,7 +1,7 @@
 import * as Sentry from '@sentry/node'
 import { CURRENT_SALT_VERSION, getDefaultKdf, PROTOCOL_VERSION_HEADER, VAULT_PROTOCOL_VERSION } from '@vault/shared'
 import DynamoDriver from '@vault/server/dynamo'
-import createServer, { getSignupThrottle, getUnknownAccountParams, MIN_PROTOCOL_VERSION } from './index'
+import createServer, { createLambdaProxy, getSignupThrottle, getUnknownAccountParams, MIN_PROTOCOL_VERSION } from './index'
 import { FLOCK_DATA_VERSION } from '../../shared/flockDataVersion'
 import * as secrets from '../secrets'
 import { spyOnExports } from '../../utils/testUtils'
@@ -220,6 +220,15 @@ describe('getSignupThrottle', () => {
 })
 
 describe('createServer sign-up limit', () => {
+  const SIGNUP = {
+    salt: 'salt',
+    authToken: 'auth',
+    saltVersion: CURRENT_SALT_VERSION,
+    kdf: getDefaultKdf(),
+    keyring: 'encrypted-keyring',
+    randomDataKeys: true,
+  }
+
   afterEach(() => {
     vi.restoreAllMocks()
   })
@@ -239,14 +248,7 @@ describe('createServer sign-up limit', () => {
           [PROTOCOL_VERSION_HEADER]: String(VAULT_PROTOCOL_VERSION),
           ...(forwardedFor ? { 'x-forwarded-for': forwardedFor } : {}),
         },
-        payload: {
-          salt: 'salt',
-          authToken: 'auth',
-          saltVersion: CURRENT_SALT_VERSION,
-          kdf: getDefaultKdf(),
-          keyring: 'encrypted-keyring',
-          randomDataKeys: true,
-        },
+        payload: SIGNUP,
       })
 
       // A forwarded address is ignored: only the connection's address counts
@@ -259,6 +261,48 @@ describe('createServer sign-up limit', () => {
       const [first, sameNetwork, forwardedAddress] = reserveSignup.mock.calls.map(([reservation]) => reservation.key)
       expect(sameNetwork).toBe(first)
       expect(forwardedAddress).not.toBe(first)
+    } finally {
+      await server.close()
+    }
+  })
+
+  it("counts API Gateway's source address, not the client's X-Forwarded-For", async () => {
+    vi.spyOn(secrets, 'readSecret').mockReturnValue('configured')
+    const reserveSignup = vi.spyOn(DynamoDriver.prototype, 'reserveSignup').mockResolvedValue(false)
+    const server = await createServer(true)
+    // Before the server starts, as in production
+    const proxy = createLambdaProxy(server)
+    try {
+      await server.inject({
+        method: 'POST',
+        url: '/trpc/accounts.createAccount',
+        remoteAddress: '203.0.113.7',
+        headers: { 'content-type': 'application/json', ...CURRENT_PROTOCOL },
+        payload: SIGNUP,
+      })
+      // An HTTP API event (payload format 2.0), trimmed to what the adapter reads
+      const response = await proxy({
+        version: '2.0',
+        routeKey: '$default',
+        rawPath: '/trpc/accounts.createAccount',
+        rawQueryString: '',
+        headers: {
+          'content-type': 'application/json',
+          host: 'api.flock.cross-code.org',
+          'x-forwarded-for': '198.51.100.1, 203.0.113.7',
+          ...CURRENT_PROTOCOL,
+        },
+        requestContext: {
+          domainName: 'api.flock.cross-code.org',
+          http: { method: 'POST', path: '/trpc/accounts.createAccount', sourceIp: '203.0.113.7' },
+        },
+        body: JSON.stringify(SIGNUP),
+        isBase64Encoded: false,
+      }, {})
+      expect(response.statusCode).toBe(429)
+
+      const [direct, viaGateway] = reserveSignup.mock.calls.map(([reservation]) => reservation.key)
+      expect(viaGateway).toBe(direct)
     } finally {
       await server.close()
     }

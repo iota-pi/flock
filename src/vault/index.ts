@@ -1,6 +1,5 @@
-import { awsLambdaFastify } from '@fastify/aws-lambda'
 import * as Sentry from '@sentry/node'
-import createServer from './api'
+import createServer, { createLambdaProxy } from './api'
 import { handler as migrationHandler } from './migrations'
 import { getServerSentryConfig } from './sentry'
 
@@ -8,13 +7,7 @@ if (process.env.SENTRY_DSN) {
   Sentry.init(getServerSentryConfig(process.env.SENTRY_DSN))
 }
 
-const proxyPromise = createServer().then(server =>
-  awsLambdaFastify(server, {
-    decorateRequest: true,
-    serializeLambdaArguments: true,
-    parseCommaSeparatedQueryParams: false,
-  })
-)
+const proxyPromise = createServer().then(createLambdaProxy)
 
 const handler = async (event: unknown, context: unknown) => {
   try {

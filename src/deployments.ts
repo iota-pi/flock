@@ -18,11 +18,11 @@ export const DEPLOYMENTS: Partial<Record<string, Deployment>> = {
     environment: 'production',
     sentryDsn: 'https://9165ee7e30058dda2ee3529b97cf1ae3@o4511115810832384.ingest.us.sentry.io/4511115818762240',
     vapidPublicKey: 'BFOkKeQTO1JoCY2sUhwQ0WEpkvM7SLcc0jSqIUE7mPr6i6aLJRCW0IWxSSkcVCOvonPnNR-bl6JN-c1vK8qpk9A',
-    vaultEndpoint: 'https://ja2y6d5r46nh27v444bcshalaa0ewvlc.lambda-url.ap-southeast-2.on.aws',
+    vaultEndpoint: 'https://api.flock.cross-code.org',
   },
   // Sends no reminders, so it holds no VAPID private key (production's must stay out of it)
   'flock-staging.cross-code.org': {
     environment: 'staging',
-    vaultEndpoint: 'https://meeda3h26slzeexlmqpeipc77m0zimut.lambda-url.ap-southeast-2.on.aws',
+    vaultEndpoint: 'https://api.flock-staging.cross-code.org',
   },
 }

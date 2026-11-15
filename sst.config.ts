@@ -28,6 +28,7 @@ export default $config({
     const domain = isProd
       ? "flock.cross-code.org"
       : `flock-${stage}.cross-code.org`;
+    const apiDomain = `api.${domain}`;
     const { DEPLOYMENTS } = await import("./src/deployments");
     const deployment = DEPLOYMENTS[domain];
     if (!isDev && !deployment) {
@@ -150,7 +151,7 @@ export default $config({
       resources: indexes ? [table.arn, $interpolate`${table.arn}/index/*`] : [table.arn],
     });
     // -----------------------------------------------------------------
-    // Vault API Lambda + Function URL
+    // Vault API Lambda, behind API Gateway on api.<site domain>
     // -----------------------------------------------------------------
     // Derives the salts getSecurityParams makes up for unknown accounts. Never change it.
     const unknownAccountSecret = new sst.Secret("UNKNOWN_ACCOUNT_SECRET");
@@ -161,6 +162,9 @@ export default $config({
       // Leaves room for a cold start plus DynamoDB retries on a full sync batch, while staying
       // under the client's 30s request timeout
       timeout: "15 seconds",
+      // Only for builds from before the API moved to apiDomain: installed apps keep calling this
+      // until they update. Like API Gateway, it reports the client's own address as `sourceIp`.
+      // Remove it once those builds are gone.
       url: {
         cors: false,
       },
@@ -180,6 +184,46 @@ export default $config({
         dynamoAccess(loginThrottleTable, ["GetItem", "UpdateItem"]),
       ],
     });
+    // The sign-up limit counts by `request.ip`, which is the event's `requestContext.http.sourceIp`:
+    // the address that connected to API Gateway. Keep it that way:
+    // - The DNS record must not be proxied. Through Cloudflare's proxy, every request would come
+    //   from a Cloudflare address, so all sign-ups would share a few limits.
+    // - Don't put CloudFront or another proxy in front, or trust X-Forwarded-For: the API stays
+    //   reachable without the proxy, so a client could send any address it liked.
+    const vaultApiGateway = new sst.aws.ApiGatewayV2("VaultApiGateway", {
+      domain: isDev ? undefined : {
+        name: apiDomain,
+        dns: sst.cloudflare.dns({ proxy: false }),
+      },
+      // The server answers CORS itself (src/vault/api/index.ts). API Gateway's would replace it.
+      cors: false,
+      transform: {
+        api: (args) => {
+          // Only apiDomain serves the API (and the Function URL, until it goes)
+          args.disableExecuteApiEndpoint = !isDev;
+        },
+        stage: (args) => {
+          // SST's default access log format records each client's IP address and user agent, which
+          // nothing else keeps (the throttle only holds an HMAC of the network).
+          args.accessLogSettings = $output(args.accessLogSettings).apply(settings => settings && {
+            ...settings,
+            format: JSON.stringify({
+              requestId: "$context.requestId",
+              requestTime: "$context.requestTime",
+              httpMethod: "$context.httpMethod",
+              path: "$context.path",
+              status: "$context.status",
+              responseLatency: "$context.responseLatency",
+              integrationLatency: "$context.integrationLatency",
+              integrationStatus: "$context.integrationStatus",
+              integrationErrorMessage: "$context.integrationErrorMessage",
+              responseLength: "$context.responseLength",
+            }),
+          });
+        },
+      },
+    });
+    vaultApiGateway.route("$default", vaultApi.arn);
     // -----------------------------------------------------------------
     // Migrations Lambda (invoked manually or via CI)
     // -----------------------------------------------------------------
@@ -328,7 +372,7 @@ export default $config({
             // a failed check stops the upload, and the API deploys before the site, which clients
             // rely on. The site is built beforehand, without deploy credentials
             // (.github/workflows/deploy.yml), so it only knows these values from src/deployments.ts.
-            DEPLOY_CHECK: $resolve([vaultApi.url, vapidPublicKey?.value ?? ""]).apply(
+            DEPLOY_CHECK: $resolve([vaultApiGateway.url, vapidPublicKey?.value ?? ""]).apply(
               ([url, vapidKey]) => {
                 const endpoint = url.replace(/\/$/, "");
                 if (endpoint !== deployment?.vaultEndpoint) {
@@ -344,7 +388,8 @@ export default $config({
         });
     return {
       appUrl: app?.url,
-      vaultEndpoint: vaultApi.url,
+      vaultEndpoint: vaultApiGateway.url,
+      legacyVaultEndpoint: vaultApi.url,
       migrationsLambda: migrationsLambda.name,
     };
   },
