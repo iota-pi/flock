@@ -498,7 +498,7 @@ describe('accountsRouter security contracts', () => {
     })
 
     expect(result).toEqual({ success: true })
-    // A PBKDF2 account's stored iterations are left alone: clients ignore them once `kdf` is set
+    // A PBKDF2 account's stale iteration count goes, so it doesn't set the account apart
     expect(ctx.vault.updateAccountData).toHaveBeenCalledWith({
       account: 'acct-1',
       authToken: hashString(clientNewAuthToken),
@@ -507,6 +507,7 @@ describe('accountsRouter security contracts', () => {
       keyring: 'new-keyring',
       sessions: [{ token: hashSessionToken(SESSION_TOKEN), expiry: SESSION_EXPIRY }],
       loginDevices: [],
+      remove: ['iterations'],
     })
   })
 
@@ -696,6 +697,36 @@ describe('accountsRouter security contracts', () => {
 
       expect(unknown.kdf).toEqual(ARGON2ID)
       expect(definedKeys(unknown)).toEqual(definedKeys(real))
+    })
+
+    it('answers a migrated PBKDF2 account exactly like an unknown one, key order included', async () => {
+      const ctx = createContext({ authToken: '' })
+      // A migrated legacy account, still holding its PBKDF2 iteration count, whose stored `kdf`
+      // map came back in a different key order
+      const realRecord = storedAccount({
+        account: 'real',
+        authToken: 'hash',
+        salt: 'salt-1',
+        iterations: 100000,
+        saltVersion: 1,
+        kdf: { memoryKiB: ARGON2ID.memoryKiB, passes: ARGON2ID.passes, parallelism: ARGON2ID.parallelism, algorithm: 'argon2id' },
+        dataVersion: 3,
+      })
+      ctx.vault.getAccountRecord.mockImplementation((async ({ account }: { account: string }) => (
+        account === 'real' ? realRecord : undefined
+      )) as any)
+      const caller = accountsRouter.createCaller({
+        ...ctx,
+        unknownAccountParams: { secret: 'server-secret', saltVersion: 1, kdf: ARGON2ID },
+        dataVersionPolicy: { current: 3, findBlockers: vi.fn() },
+      } as any)
+
+      const shape = (params: object) => JSON.stringify(params, (key, value) => (key === 'salt' ? '' : value))
+      const real = await caller.getSecurityParams({ account: 'real' })
+      const unknown = await caller.getSecurityParams({ account: 'unknown' })
+
+      expect(real).not.toHaveProperty('iterations')
+      expect(shape(real)).toEqual(shape(unknown))
     })
 
     it('does not hide a database failure behind made-up parameters', async () => {
