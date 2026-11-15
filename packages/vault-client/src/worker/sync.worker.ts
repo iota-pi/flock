@@ -475,6 +475,9 @@ export class SyncWorker implements SyncApi {
     return this.withContext(ctx => ctx.setVisibility(visible, returned))
   }
 
+  reportActivity = () =>
+    this.withContext(ctx => ctx.reportActivity())
+
   async shutdown(options?: { clearLocalData?: boolean }) {
     setApiAuthToken('')
     this.isShutDown = true

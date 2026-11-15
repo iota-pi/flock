@@ -14,6 +14,8 @@ export interface TabVisibility {
   visible: boolean
   /** The user just came back to the tab (it became visible or got focus), so the leader should poll */
   returned: boolean
+  /** The user is using the tab, so the leader should poll at the active rate */
+  active?: boolean
 }
 type TabVisibilityListener = (visibility: TabVisibility) => void
 
@@ -97,7 +99,12 @@ export class RealtimeBus {
     const message = data as { type?: string; itemIds?: unknown } & Partial<TabVisibility> | null
     if (message?.type === 'tab_visibility') {
       if (typeof message.tabId !== 'string') return
-      const visibility = { tabId: message.tabId, visible: !!message.visible, returned: !!message.returned }
+      const visibility = {
+        tabId: message.tabId,
+        visible: !!message.visible,
+        returned: !!message.returned,
+        active: !!message.active,
+      }
       notifyListeners(this.tabVisibilityListeners, visibility, 'TabVisibilityListener')
       return
     }

@@ -1,6 +1,7 @@
 import { getOnlineState } from '../utils/onlineStatus'
 import type { VaultBroadcastEvent } from '../keys/vaultEvents'
 import { getVaultStorageNames } from '../shared/storageNames'
+import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
 
@@ -17,13 +18,21 @@ export interface SyncDOMListenersCallbacks {
    */
   onVisibilityChange?: (visible: boolean, returned: boolean) => void
   onKeyringChange: () => void
+  /** The user used the visible page (input of any kind), at most once per `activityReportThrottle` */
+  onUserActivity?: () => void
 }
+
+/** Input that shows the user is using the page */
+const ACTIVITY_EVENTS = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const
+const ACTIVITY_LISTENER_OPTIONS: AddEventListenerOptions = { capture: true, passive: true }
 
 export class SyncDOMListeners {
   private callbacks: SyncDOMListenersCallbacks | null = null
   private onlineHandler: (() => void) | null = null
   private visibilityHandler: ((event?: Event) => void) | null = null
   private focusHandler: (() => void) | null = null
+  private activityHandler: (() => void) | null = null
+  private lastActivityReportAt = -Infinity
   private storageHandler: ((event: StorageEvent) => void) | null = null
   private vaultEventsChannel: BroadcastChannel | null = null
   private eventSequence = 0
@@ -62,6 +71,19 @@ export class SyncDOMListeners {
         }
       }
       window.addEventListener('focus', this.focusHandler)
+    }
+
+    if (!this.activityHandler && typeof window !== 'undefined' && typeof document !== 'undefined') {
+      this.activityHandler = () => {
+        if (document.visibilityState !== 'visible') return
+        const now = Date.now()
+        if (now - this.lastActivityReportAt < SYNC_TIMEOUTS.activityReportThrottle) return
+        this.lastActivityReportAt = now
+        this.callbacks?.onUserActivity?.()
+      }
+      for (const type of ACTIVITY_EVENTS) {
+        window.addEventListener(type, this.activityHandler, ACTIVITY_LISTENER_OPTIONS)
+      }
     }
 
     if (typeof document !== 'undefined') {
@@ -159,6 +181,14 @@ export class SyncDOMListeners {
     if (this.focusHandler && typeof window !== 'undefined') {
       window.removeEventListener('focus', this.focusHandler)
       this.focusHandler = null
+    }
+
+    if (this.activityHandler && typeof window !== 'undefined') {
+      for (const type of ACTIVITY_EVENTS) {
+        window.removeEventListener(type, this.activityHandler, ACTIVITY_LISTENER_OPTIONS)
+      }
+      this.activityHandler = null
+      this.lastActivityReportAt = -Infinity
     }
 
     if (this.storageHandler && typeof window !== 'undefined') {
