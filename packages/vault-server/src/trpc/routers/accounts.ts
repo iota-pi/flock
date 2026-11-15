@@ -54,6 +54,35 @@ function accountSecurityParams(record: StoredAccount): SecurityParams {
 }
 
 /**
+ * Builds `getSecurityParams`'s response field by field in a fixed order, so that a real account
+ * and a made-up one can't be told apart by which fields are set or the order of their keys (a
+ * stored `kdf` map comes back from DynamoDB in its own key order). `iterations` is left out once
+ * the account has Argon2id parameters, since clients ignore it then and only migrated PBKDF2
+ * accounts would still have it.
+ */
+function securityParamsResponse(params: SecurityParams) {
+  const { salt, iterations, saltVersion, kdf, dataVersion } = params
+  return {
+    success: true,
+    salt,
+    ...(!kdf && iterations !== undefined ? { iterations } : {}),
+    ...(saltVersion !== undefined ? { saltVersion } : {}),
+    ...(kdf
+      ? {
+        kdf: {
+          algorithm: kdf.algorithm,
+          memoryKiB: kdf.memoryKiB,
+          passes: kdf.passes,
+          parallelism: kdf.parallelism,
+        } satisfies KdfParams,
+      }
+      : {}),
+    // Returned before login, so that the app can route accounts that need migrating
+    dataVersion: dataVersion ?? 0,
+  }
+}
+
+/**
  * Made-up security parameters for an account that doesn't exist. They look like an account that has
  * nothing to migrate, so that logging in fails as for a wrong password.
  */
@@ -186,12 +215,7 @@ export const accountsRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Account not found' })
       }
 
-      return {
-        success: true,
-        ...params,
-        // Returned before login, so that the app can route accounts that need migrating
-        dataVersion: params.dataVersion ?? 0,
-      }
+      return securityParamsResponse(params)
     }),
 
   // Clients call this once their migrations have run. Returns why it couldn't be raised, if it couldn't.
@@ -260,6 +284,9 @@ export const accountsRouter = router({
           expectedKeyringVersion: input.expectedKeyringVersion,
           sessions: addSessionRecord([], ctx.authToken, currentSessionExpiry),
           loginDevices: [],
+          // The new password always uses Argon2id, so a migrated PBKDF2 account's iteration count
+          // is stale, and keeping it would set the account apart from others
+          remove: ['iterations'],
         })
       } catch (error) {
         throw toTrpcError(error, [
