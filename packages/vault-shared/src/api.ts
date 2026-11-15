@@ -7,6 +7,7 @@ import {
   MAX_AUTH_TOKEN_LENGTH,
   MAX_CIPHER_FIELD_LENGTH,
   MAX_KEYRING_LENGTH,
+  MAX_LOG_CIPHER_LENGTH,
   MAX_SALT_LENGTH,
 } from './limits'
 
@@ -129,7 +130,10 @@ const SyncEncryptedMessageSchema = (
 
 const SyncLogMessageSchema = z.object({
   itemId: ItemIdSchema,
-  encryptedMessage: SyncEncryptedMessageSchema,
+  // Capped so an oversized row is refused here (400) rather than failing in DynamoDB (500)
+  encryptedMessage: SyncEncryptedMessageSchema.extend({
+    cipher: z.string().min(1).max(MAX_LOG_CIPHER_LENGTH),
+  }),
 })
 /** A message on its way to the account's log */
 export type SyncLogMessage = z.infer<typeof SyncLogMessageSchema>

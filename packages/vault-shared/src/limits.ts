@@ -30,6 +30,15 @@ export const MAX_ITEM_CONTENT_BYTES = MAX_ITEM_CONTENT_KB * 1024
  */
 export const MAX_INCREMENTAL_MESSAGE_BYTES = 256 * 1024
 
+/** The bytes AES-GCM adds to what it encrypts (its authentication tag) */
+const AES_GCM_TAG_BYTES = 16
+
+/**
+ * The longest log row ciphertext the server accepts, in base64 characters: a full
+ * `MAX_INCREMENTAL_MESSAGE_BYTES` row once encrypted. Anything longer would only fail in DynamoDB.
+ */
+export const MAX_LOG_CIPHER_LENGTH = Math.ceil((MAX_INCREMENTAL_MESSAGE_BYTES + AES_GCM_TAG_BYTES) / 3) * 4
+
 /**
  * The ciphertext a client asks `fetchSnapshotsByIds` to return at most, in characters. Lambda refuses
  * responses over 6 MB, and 50 items of up to 350 KB each (more as base64) can pass that, so this

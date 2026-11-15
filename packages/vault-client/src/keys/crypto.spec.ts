@@ -19,7 +19,7 @@ import {
   type KdfWorkerApi,
 } from './kdf'
 import { deriveLegacyKey } from '../../test/deriveLegacyKey'
-import { getDefaultKdf } from '@vault/shared'
+import { getDefaultKdf, MAX_INCREMENTAL_MESSAGE_BYTES, MAX_LOG_CIPHER_LENGTH } from '@vault/shared'
 
 const PRODUCTION_KDF: KdfParams = { algorithm: 'argon2id', memoryKiB: 65536, passes: 3, parallelism: 1 }
 
@@ -49,6 +49,12 @@ describe('Vault Cryptography', () => {
 
     const decrypted = await decryptBytesWithKey(key, payload)
     expect(Array.from(decrypted)).toEqual([10, 20, 30, 40])
+  })
+
+  it('encrypts the largest log row to a cipher the server accepts', async () => {
+    const key = await testKey()
+    const payload = await encryptBytesWithKey(key, new Uint8Array(MAX_INCREMENTAL_MESSAGE_BYTES), '1', 'item-a')
+    expect(payload.cipher.length).toBe(MAX_LOG_CIPHER_LENGTH)
   })
 
   describe('doc-bound ciphertexts', () => {

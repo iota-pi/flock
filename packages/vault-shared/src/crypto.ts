@@ -22,8 +22,8 @@ export const KdfParamsSchema = z.object({
 export type KdfParams = z.infer<typeof KdfParamsSchema>
 
 /**
- * The cipher itself has no cap here: the server checks snapshots against MAX_ITEM_SIZE, and
- * DynamoDB's item limit bounds log rows.
+ * The cipher itself has no cap here: the server checks snapshots against MAX_ITEM_SIZE, and the
+ * log message schema caps log rows at MAX_LOG_CIPHER_LENGTH.
  */
 export const CryptoResultSchema = z.object({
   iv: z.string().min(1).max(MAX_CIPHER_FIELD_LENGTH),

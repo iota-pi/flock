@@ -1,7 +1,7 @@
 import type { TRPCError } from '@trpc/server'
 import { hashSessionToken, SESSION_EXPIRY_MS } from '../../sessions'
 import { syncRouter } from './sync'
-import { CLIENT_OUTDATED_MESSAGE, QUOTA_EXCEEDED_MESSAGE, type ItemId } from '@vault/shared'
+import { CLIENT_OUTDATED_MESSAGE, MAX_LOG_CIPHER_LENGTH, QUOTA_EXCEEDED_MESSAGE, type ItemId } from '@vault/shared'
 import { DEFAULT_ACCOUNT_QUOTAS } from '../../quotas'
 import { QuotaExceededError } from '../../errors'
 
@@ -90,6 +90,26 @@ describe('pollLog', () => {
 
     await expect(caller.pollLog({ account: 'target-account', push: [] } as any))
       .rejects.toMatchObject({ code: 'BAD_REQUEST' } satisfies Partial<TRPCError>)
+  })
+
+  it('refuses a row longer than a client could send, and stores nothing', async () => {
+    const ctx = createContext()
+    const caller = syncRouter.createCaller(ctx as any)
+    const oversized = { ...input.push[0], encryptedMessage: { ...input.push[0].encryptedMessage, cipher: 'a'.repeat(600 * 1024) } }
+
+    await expect(caller.pollLog({ ...input, push: [oversized] }))
+      .rejects.toMatchObject({ code: 'BAD_REQUEST' } satisfies Partial<TRPCError>)
+    expect(ctx.vault.appendLog).not.toHaveBeenCalled()
+  })
+
+  it('accepts a row of the longest length allowed', async () => {
+    const ctx = createContext()
+    const caller = syncRouter.createCaller(ctx as any)
+    const largest = { ...input.push[0], encryptedMessage: { ...input.push[0].encryptedMessage, cipher: 'a'.repeat(MAX_LOG_CIPHER_LENGTH) } }
+
+    await caller.pollLog({ ...input, push: [largest] })
+
+    expect(ctx.vault.appendLog).toHaveBeenCalledWith(expect.objectContaining({ messages: [largest] }))
   })
 })
 
