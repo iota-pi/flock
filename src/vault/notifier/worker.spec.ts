@@ -1,4 +1,4 @@
-import { handler, processMessage } from './worker'
+import { handler, processMessage, removeSubscription } from './worker'
 import { sendPushNotification } from './webpush'
 import * as webpushModule from './webpush'
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
@@ -81,8 +81,102 @@ describe('notifier worker', () => {
     await expect(processMessage(reminder('expired-sub'))).resolves.toBeUndefined()
 
     const update = mockDbSend.mock.calls.map(([command]) => command).find(command => command instanceof UpdateCommand)
-    expect(update?.input.ExpressionAttributeValues).toEqual({
+    expect(update?.input.ExpressionAttributeValues).toMatchObject({
       ':pushSubscriptions': [{ endpoint: 'https://push.example.com/valid-sub' }],
+    })
+  })
+
+  describe('removeSubscription', () => {
+    const subscriptions = [
+      { endpoint: 'https://push.example.com/expired-sub' },
+      { endpoint: 'https://push.example.com/valid-sub' },
+    ]
+    const conditionFailure = () => Object.assign(new Error('The conditional request failed'), {
+      name: 'ConditionalCheckFailedException',
+    })
+    const mockDb = () => DynamoDBDocumentClient.prototype.send as unknown as ReturnType<typeof vi.fn>
+    const sentCommands = () => mockDb().mock.calls.map(([command]) => command)
+    const updates = () => sentCommands().filter(command => command instanceof UpdateCommand) as UpdateCommand[]
+
+    it('writes only if the account exists and its subscriptions are unchanged', async () => {
+      await removeSubscription('user-1', 'https://push.example.com/expired-sub')
+
+      const [get] = sentCommands()
+      expect(get).toBeInstanceOf(GetCommand)
+      expect((get as GetCommand).input.ConsistentRead).toBe(true)
+      expect(updates()).toHaveLength(1)
+      expect(updates()[0].input).toMatchObject({
+        ConditionExpression: 'attribute_exists(account) AND pushSubscriptions = :currentSubscriptions',
+        ExpressionAttributeValues: {
+          ':pushSubscriptions': [{ endpoint: 'https://push.example.com/valid-sub' }],
+          ':currentSubscriptions': subscriptions,
+        },
+      })
+    })
+
+    it('does not write when the account is missing', async () => {
+      mockDb().mockImplementation(async () => ({}))
+
+      await expect(removeSubscription('user-1', 'https://push.example.com/expired-sub')).resolves.toBeUndefined()
+
+      expect(updates()).toHaveLength(0)
+    })
+
+    it('does not write when the subscription is already gone', async () => {
+      await removeSubscription('user-1', 'https://push.example.com/other-sub')
+
+      expect(updates()).toHaveLength(0)
+    })
+
+    it('re-reads and retries when the subscriptions changed in between', async () => {
+      const added = { endpoint: 'https://push.example.com/new-sub' }
+      let reads = 0
+      let writes = 0
+      mockDb().mockImplementation(async (command: unknown) => {
+        if (command instanceof GetCommand) {
+          reads += 1
+          return { Item: { account: 'user-1', pushSubscriptions: reads === 1 ? subscriptions : [...subscriptions, added] } }
+        }
+        writes += 1
+        if (writes === 1) {
+          throw conditionFailure()
+        }
+        return {}
+      })
+
+      await removeSubscription('user-1', 'https://push.example.com/expired-sub')
+
+      expect(updates()).toHaveLength(2)
+      expect(updates()[1].input.ExpressionAttributeValues).toEqual({
+        ':pushSubscriptions': [{ endpoint: 'https://push.example.com/valid-sub' }, added],
+        ':currentSubscriptions': [...subscriptions, added],
+      })
+    })
+
+    it('gives up after repeated conflicts so the message is retried', async () => {
+      mockDb().mockImplementation(async (command: unknown) => {
+        if (command instanceof GetCommand) {
+          return { Item: { account: 'user-1', pushSubscriptions: subscriptions } }
+        }
+        throw conditionFailure()
+      })
+
+      await expect(removeSubscription('user-1', 'https://push.example.com/expired-sub'))
+        .rejects.toMatchObject({ name: 'ConditionalCheckFailedException' })
+      expect(updates()).toHaveLength(3)
+    })
+
+    it('rethrows other write errors without retrying', async () => {
+      const error = new Error('Throttled')
+      mockDb().mockImplementation(async (command: unknown) => {
+        if (command instanceof GetCommand) {
+          return { Item: { account: 'user-1', pushSubscriptions: subscriptions } }
+        }
+        throw error
+      })
+
+      await expect(removeSubscription('user-1', 'https://push.example.com/expired-sub')).rejects.toBe(error)
+      expect(updates()).toHaveLength(1)
     })
   })
 
