@@ -5,6 +5,11 @@ inputs:
   cypress-binary:
     description: Whether to download the Cypress binary during install
     default: 'false'
+  privileged:
+    description: >-
+      Set in jobs that hold deploy credentials: don't trust the cached packages that yarn.lock
+      has no checksum for, since jobs without credentials write the cache too
+    default: 'false'
 
 runs:
   using: composite
@@ -15,6 +20,23 @@ runs:
       with:
         node-version: 26
         cache: yarn
+    # Yarn checks cached archives against their yarn.lock checksums, but platform packages
+    # (`conditions:` entries, such as sst-linux-x64 and esbuild) never get one. Their archives are
+    # named with the bare cache key instead of a checksum, so delete those and fetch them fresh.
+    - if: inputs.privileged == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        key="$(sed -n 's/^  cacheKey: //p' yarn.lock)"
+        if [ -z "$key" ]; then
+          echo "::error::No cacheKey in yarn.lock"
+          exit 1
+        fi
+        cache="$(yarn config get cacheFolder)"
+        if [ -d "$cache" ]; then
+          echo "Removing cached archives that yarn.lock can't verify:"
+          find "$cache" -name "*-${key}.zip" -print -delete
+        fi
     - run: yarn install --immutable
       shell: bash
       env:
