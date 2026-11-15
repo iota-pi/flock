@@ -671,6 +671,22 @@ describe('Vault Keyring Integration', () => {
     expect(hasVaultKey('1')).toBe(false)
   })
 
+  it('keeps the cached keyring after a wrong password offline, so the right one still works', async () => {
+    const loginParams = { account: 'test-account', salt: SALT, saltVersion: 1, iterations: 1000 }
+    await loginVault({ ...loginParams, password: 'password123' })
+    const cachedKeyring = readCachedKeyring()!
+    await lockVaultKeys()
+
+    vi.mocked(getSession).mockRejectedValue(new Error('Network offline'))
+    vi.mocked(getKeyring).mockRejectedValue(new Error('Network offline'))
+    await expect(loginVault({ ...loginParams, password: 'wrong-password' }))
+      .rejects.toThrow(/Incorrect account ID or password/)
+    expect(readCachedKeyring()).toBe(cachedKeyring)
+
+    await loginVault({ ...loginParams, password: 'password123' })
+    expect(hasVaultKey('1')).toBe(true)
+  })
+
   describe('Cross-tab key version utilities & storage reload', () => {
     it('correctly reports hasVaultKey for existing and missing versions', async () => {
       await initialiseVault({ password: 'password123', salt: SALT, saltVersion: 1, iterations: 1000 })
