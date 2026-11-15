@@ -62,6 +62,29 @@ export function getSignupThrottle(): SignupThrottleOptions | undefined {
   return { secret: createHmac('sha256', secret).update(SIGNUP_THROTTLE_KEY_LABEL).digest('base64url') }
 }
 
+const LOCALHOST_ORIGIN = /^https?:\/\/localhost(:[0-9]+)?$/
+
+/**
+ * The browser origins allowed to call the API: the stage's own site (SITE_ORIGIN, set by
+ * sst.config.ts), plus localhost for a local server or `sst dev`. A deployed stage never allows
+ * localhost or another stage's site. Without SITE_ORIGIN a deployed API allows no origins, so
+ * browsers can't call it.
+ */
+export function getAllowedOrigins(devMode: boolean): (string | RegExp)[] {
+  const origins: (string | RegExp)[] = []
+  const siteOrigin = process.env.SITE_ORIGIN
+  if (siteOrigin) {
+    origins.push(siteOrigin)
+  }
+  if (devMode || process.env.ALLOW_LOCALHOST_ORIGINS === 'true') {
+    origins.push(LOCALHOST_ORIGIN)
+  }
+  if (origins.length === 0) {
+    console.error('SITE_ORIGIN is not set, so the API allows no browser origins')
+  }
+  return origins
+}
+
 async function createServer(devMode = false) {
   const server = Fastify({
     logger: {
@@ -69,14 +92,11 @@ async function createServer(devMode = false) {
     },
     bodyLimit: 10 * 1024 * 1024,
   })
+  // Clients authenticate with a bearer header, never cookies, so CORS doesn't allow credentials
   await server.register(cors, {
-    origin: [
-      /^https:\/\/flock(-[^.]+)?\.cross-code\.org$/,
-      /^https?:\/\/localhost(:[0-9]+)?$/,
-    ],
+    origin: getAllowedOrigins(devMode),
     methods: ['GET', 'PATCH', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', PROTOCOL_VERSION_HEADER],
-    credentials: true,
   })
 
   await server.register(fastifyTRPCPlugin, {

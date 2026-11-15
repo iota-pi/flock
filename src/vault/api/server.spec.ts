@@ -308,3 +308,66 @@ describe('createServer sign-up limit', () => {
     }
   })
 })
+
+describe('createServer CORS', () => {
+  const originalSiteOrigin = process.env.SITE_ORIGIN
+  const originalAllowLocalhost = process.env.ALLOW_LOCALHOST_ORIGINS
+
+  beforeEach(() => {
+    process.env.SITE_ORIGIN = 'https://flock.cross-code.org'
+    delete process.env.ALLOW_LOCALHOST_ORIGINS
+  })
+
+  afterEach(() => {
+    process.env.SITE_ORIGIN = originalSiteOrigin
+    if (originalSiteOrigin === undefined) delete process.env.SITE_ORIGIN
+    process.env.ALLOW_LOCALHOST_ORIGINS = originalAllowLocalhost
+    if (originalAllowLocalhost === undefined) delete process.env.ALLOW_LOCALHOST_ORIGINS
+    vi.restoreAllMocks()
+  })
+
+  async function preflight(devMode: boolean, origin: string) {
+    const server = await createServer(devMode)
+    try {
+      return await server.inject({
+        method: 'OPTIONS',
+        url: '/trpc/accounts.getSecurityParams',
+        headers: { origin, 'access-control-request-method': 'POST' },
+      })
+    } finally {
+      await server.close()
+    }
+  }
+
+  it('allows the stage\'s own site, without credentials', async () => {
+    const response = await preflight(false, 'https://flock.cross-code.org')
+    expect(response.headers['access-control-allow-origin']).toBe('https://flock.cross-code.org')
+    expect(response.headers['access-control-allow-credentials']).toBeUndefined()
+  })
+
+  it.each([
+    'https://flock-staging.cross-code.org',
+    'https://flock-evil.cross-code.org',
+    'http://localhost:5173',
+  ])('turns away %s from a deployed stage', async origin => {
+    const response = await preflight(false, origin)
+    expect(response.headers['access-control-allow-origin']).toBeUndefined()
+  })
+
+  it('allows localhost on a local server or under sst dev', async () => {
+    expect((await preflight(true, 'http://localhost:5173')).headers['access-control-allow-origin'])
+      .toBe('http://localhost:5173')
+
+    process.env.ALLOW_LOCALHOST_ORIGINS = 'true'
+    expect((await preflight(false, 'http://localhost:5173')).headers['access-control-allow-origin'])
+      .toBe('http://localhost:5173')
+  })
+
+  it('allows no origins when a deployed stage has no SITE_ORIGIN', async () => {
+    delete process.env.SITE_ORIGIN
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const response = await preflight(false, 'https://flock.cross-code.org')
+    expect(response.headers['access-control-allow-origin']).toBeUndefined()
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('SITE_ORIGIN'))
+  })
+})

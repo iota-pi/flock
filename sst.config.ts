@@ -174,6 +174,10 @@ export default $config({
         SYNC_LOG_TABLE: syncLogTable.name,
         LOGIN_THROTTLE_TABLE: loginThrottleTable.name,
         SENTRY_DSN: deployment?.sentryDsn ?? "",
+        // The only browser origin the API answers CORS for (src/vault/api/index.ts). `sst dev`
+        // serves the app from localhost, so it allows that too.
+        SITE_ORIGIN: `https://${domain}`,
+        ALLOW_LOCALHOST_ORIGINS: isDev ? "true" : "",
       },
       link: [unknownAccountSecret],
       permissions: [
