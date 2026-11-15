@@ -354,7 +354,7 @@ export async function clearVaultDeviceData(account?: string) {
   await attempt(clearCachedKeyring)
   await attempt(clearDeviceToken)
   await attempt(deleteStoredSessionToken)
-  await attempt(clearStoredMetadata)
+  await attempt(() => clearStoredMetadata(account))
   if (firstError) throw firstError
 }
 

@@ -16,7 +16,14 @@ import { establishSessionFromKeyHash, lockVaultKeys, onLateSession } from './ses
 import { StaleBiometricKeyError, unlockWithBiometrics } from './biometrics'
 import { hasBiometricData, writeBiometricData } from './biometricStore'
 import { readCachedKeyring } from './keyringCache'
-import { readStoredMetadata, writeStoredMetadata } from './storedMetadata'
+import {
+  hasUsedArgon2id,
+  isStoredAsPbkdf2,
+  readStoredMetadata,
+  rememberKeyVersion,
+  writeStoredMetadata,
+} from './storedMetadata'
+import { vaultKeys } from './VaultKeyState'
 import { configureVaultHost } from './vaultHost'
 import { changePassword, createAccount, getKeyring, getSession, updateKeyring } from './AccountClient'
 import { decryptWithKey, deriveVaultKey, encryptWithKey, exportVaultKey, generateVaultKey } from './crypto'
@@ -370,6 +377,32 @@ describe('rotating off data key v1 at unlock', () => {
     expect(getActiveKeyVersion()).toBe('2')
     expect((await uploadedKeyring(masterKey)).activeVersion).toBe('2')
   })
+
+  it("keeps an Argon2id account's metadata through another account's login and biometric unlocks", async () => {
+    const { masterKey, keyring } = await seedArgon2idServerKeyring(CURRENT_KDF)
+    writeStoredMetadata(ACCOUNT, { salt: SALT, saltVersion: 1, kdf: CURRENT_KDF })
+    rememberKeyVersion(ACCOUNT, '3')
+    const prfKey = await crypto.subtle.importKey('raw', PRF_OUTPUT, { name: 'AES-GCM', length: 256 }, false, ['encrypt'])
+    const encrypted = await encryptWithKey(prfKey, await exportVaultKey(masterKey), 'master')
+    writeBiometricData({
+      account: ACCOUNT,
+      credentialId: 'cred',
+      prfSalt: 'salt',
+      encryptedMasterKey: { iv: encrypted.iv, cipher: encrypted.cipher },
+    })
+    // Another account logs in with its password
+    writeStoredMetadata('other-account', { salt: 'b3RoZXI=', saltVersion: 1, kdf: CURRENT_KDF })
+    vi.mocked(getKeyring).mockResolvedValue({ keyring })
+
+    await unlockWithBiometrics(ACCOUNT)
+    await lockVaultKeys()
+    await unlockWithBiometrics(ACCOUNT)
+
+    expect(vaultKeys.masterKeyIsLegacy).toBe(false)
+    expect(readStoredMetadata(ACCOUNT)).toMatchObject({ salt: SALT, kdf: CURRENT_KDF, keyVersion: '3' })
+    expect(hasUsedArgon2id(ACCOUNT)).toBe(true)
+    expect(isStoredAsPbkdf2(ACCOUNT)).toBe(false)
+  })
 })
 
 describe('createVaultAccount', () => {
@@ -452,6 +485,8 @@ describe('biometric unlock with a stale key', () => {
     // Save biometric unlock for a master key, along with a keyring wrapped with it
     const params = { password: PASSWORD, salt: 'Y3VycmVudC1zYWx0', iterations: 1000, saltVersion: 1, deriveLegacyKey }
     await initialiseVault(params)
+    // As a password login on this PBKDF2 account records them
+    writeStoredMetadata(ACCOUNT, { salt: params.salt, iterations: params.iterations, saltVersion: params.saltVersion })
     await storeVault(ACCOUNT)
     const masterKey = await deriveVaultKey(params)
     const prfKey = await crypto.subtle.importKey('raw', PRF_OUTPUT, { name: 'AES-GCM', length: 256 }, false, ['encrypt'])
