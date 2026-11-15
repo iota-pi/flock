@@ -367,6 +367,30 @@ export async function importData<T = unknown>(data: CryptoResult): Promise<T> {
   return JSON.parse(plainData) as T
 }
 
+/** The password given isn't the account's */
+export class IncorrectPasswordError extends Error {
+  constructor() {
+    super('Incorrect password')
+    this.name = 'IncorrectPasswordError'
+  }
+}
+
+/**
+ * Checks the password of the unlocked account and returns the auth token that proves it to the server,
+ * for requests that need the password as well as the session (such as deleting the account). It checks
+ * against the unlocked keys first, so a wrong password throws `IncorrectPasswordError` without a
+ * request that the server would reject as UNAUTHORIZED, which the app takes for an expired session.
+ */
+export async function confirmAccountPassword(account: string, password: string): Promise<string> {
+  const { salt, kdf, iterations, saltVersion } = await getSecurityParams(account)
+  const masterKey = await deriveMasterKey({ password, salt, kdf, iterations, saltVersion })
+  const authToken = await hashVaultKey(masterKey)
+  if (authToken !== vaultKeys.keyHash) {
+    throw new IncorrectPasswordError()
+  }
+  return authToken
+}
+
 export async function changePassword(account: string, currentPassword: string, newPassword: string): Promise<void> {
   const { salt, kdf, iterations, saltVersion } = await getSecurityParams(account)
   const currentMasterKey = await deriveMasterKey({ password: currentPassword, salt, kdf, iterations, saltVersion })

@@ -65,6 +65,9 @@ function createContext(overrides?: {
     releaseLoginAttempt: vi.fn(async () => undefined),
     removeLoginDevice: vi.fn(async () => undefined),
     reserveSignup: vi.fn(async () => true),
+    deleteItems: vi.fn(async () => ({ deleted: 0, done: true })),
+    deleteSyncLog: vi.fn(async () => ({ deleted: 0, done: true })),
+    deleteAccount: vi.fn(async () => undefined),
   }
 
   return {
@@ -822,5 +825,105 @@ describe('accountsRouter security contracts', () => {
         .resolves.toEqual({ success: true, dataVersion: 2, blockers: [] })
       expect(findBlockers).not.toHaveBeenCalled()
     })
+  })
+})
+
+describe('accountsRouter account deletion', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  const DELETE_INPUT = { account: 'acct-1', currentAuthToken: CURRENT_AUTH_TOKEN }
+
+  it('ends every other session and login device before deleting any items', async () => {
+    const ctx = createContext()
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    const result = await caller.deleteItems(DELETE_INPUT)
+
+    expect(result).toEqual({ success: true, done: true })
+    expect(ctx.vault.updateAccountData).toHaveBeenCalledWith({
+      account: 'acct-1',
+      sessions: [{ token: hashSessionToken(SESSION_TOKEN), expiry: SESSION_EXPIRY }],
+      loginDevices: [],
+      deletingSince: expect.any(Number),
+    })
+    expect(ctx.vault.updateAccountData.mock.invocationCallOrder[0])
+      .toBeLessThan(ctx.vault.deleteItems.mock.invocationCallOrder[0])
+    expect(ctx.vault.deleteItems).toHaveBeenCalledWith({ account: 'acct-1', limit: expect.any(Number) })
+    expect(ctx.vault.deleteSyncLog).toHaveBeenCalledWith({ account: 'acct-1', limit: expect.any(Number) })
+  })
+
+  it('keeps when the deletion first started', async () => {
+    const ctx = createContext()
+    ctx.vault.getAccountRecord.mockResolvedValueOnce(storedAccount({
+      authToken: hashString(CURRENT_AUTH_TOKEN),
+      deletingSince: 1234,
+    }) as any)
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await caller.deleteItems(DELETE_INPUT)
+
+    expect(ctx.vault.updateAccountData).toHaveBeenCalledWith(expect.objectContaining({ deletingSince: 1234 }))
+  })
+
+  it('refuses to log into an account being deleted, even with the right password', async () => {
+    const ctx = createContext()
+    ctx.vault.getAccountRecord.mockResolvedValueOnce(storedAccount({
+      authToken: hashString(CURRENT_AUTH_TOKEN),
+      deletingSince: Date.now(),
+    }) as any)
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.login({ account: 'acct-1', authToken: CURRENT_AUTH_TOKEN }))
+      .rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    expect(ctx.vault.addSession).not.toHaveBeenCalled()
+  })
+
+  it('leaves the log until every item is gone, and reports that more is left', async () => {
+    const ctx = createContext()
+    ctx.vault.deleteItems.mockResolvedValueOnce({ deleted: 500, done: false })
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.deleteItems(DELETE_INPUT)).resolves.toEqual({ success: true, done: false })
+    expect(ctx.vault.deleteSyncLog).not.toHaveBeenCalled()
+  })
+
+  it('reports that more is left while log rows remain', async () => {
+    const ctx = createContext()
+    ctx.vault.deleteSyncLog.mockResolvedValueOnce({ deleted: 500, done: false })
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.deleteItems(DELETE_INPUT)).resolves.toEqual({ success: true, done: false })
+  })
+
+  it('deletes nothing without the current password', async () => {
+    const ctx = createContext()
+    const caller = accountsRouter.createCaller(ctx as any)
+    const input = { account: 'acct-1', currentAuthToken: 'wrong-auth-token' }
+
+    await expect(caller.deleteItems(input)).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    await expect(caller.deleteAccount(input)).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    expect(ctx.vault.updateAccountData).not.toHaveBeenCalled()
+    expect(ctx.vault.deleteItems).not.toHaveBeenCalled()
+    expect(ctx.vault.deleteAccount).not.toHaveBeenCalled()
+  })
+
+  it('deletes nothing without a valid session', async () => {
+    const ctx = createContext({ sessionValid: false })
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.deleteItems(DELETE_INPUT)).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    await expect(caller.deleteAccount(DELETE_INPUT)).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    expect(ctx.vault.deleteItems).not.toHaveBeenCalled()
+    expect(ctx.vault.deleteAccount).not.toHaveBeenCalled()
+  })
+
+  it('deletes the account record', async () => {
+    const ctx = createContext()
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.deleteAccount(DELETE_INPUT)).resolves.toEqual({ success: true })
+    expect(ctx.vault.deleteAccount).toHaveBeenCalledWith({ account: 'acct-1' })
   })
 })

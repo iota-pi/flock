@@ -40,7 +40,8 @@ export function authenticateLogin(
       throw new TooManyLoginAttemptsError('Too many failed logins for this account ID')
     }
   }
-  if (!record) {
+  // An account being deleted takes no new sessions, so its devices can't sync deleted data back up
+  if (!record || record.deletingSince !== undefined) {
     throw new AuthenticationError('Could not find account')
   }
   if (!matchesAuthTokenHash(record, authTokenHash)) {

@@ -195,15 +195,21 @@ export async function subscribe(account: string, hours: number[], key = env.VAPI
  * Turns reminders off for this device. The browser unsubscribes even when the server can't be
  * reached, so the device stops receiving pushes either way; the server drops the endpoint the next
  * time the push service rejects it.
+ *
+ * With `serverGone`, for an account that has just been deleted from the server, it only unsubscribes
+ * the browser: the server's copy of the reminders went with the account, and asking it about an
+ * account it no longer has would be taken for an expired session.
  */
-export async function unsubscribe(account: string) {
+export async function unsubscribe(account: string, { serverGone = false } = {}) {
   const registration = await navigator.serviceWorker.getRegistration()
   if (registration && 'pushManager' in registration && registration.pushManager) {
     const existing = await registration.pushManager.getSubscription()
     // Another account's subscription is left alone, so its reminders keep arriving
     if (existing && getOwnership(account, existing) !== 'other') {
       try {
-        await deletePushSubscription(account, existing.endpoint)
+        if (!serverGone) {
+          await deletePushSubscription(account, existing.endpoint)
+        }
       } finally {
         clearOwner()
         await existing.unsubscribe()
@@ -211,6 +217,7 @@ export async function unsubscribe(account: string) {
     }
   }
 
+  if (serverGone) return
   await updateReminderSettings(account, {
     reminderEnabled: false,
     reminderTime: '08:00',

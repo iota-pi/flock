@@ -178,10 +178,21 @@ OCC would be harmful. A blind relay cannot resolve conflicts, so concurrent or o
 - Deletes are soft-deletes. The CRDT doc gets `deleted: true`, and that propagates through messages and snapshots (`metadata.deleted`). `FlockItems` rows are never hard-deleted and have no TTL.
 - The server never clears `metadata.deleted`. A later snapshot from a device that hasn't seen the delete yet still bumps the version but keeps the item deleted.
 - **Deleted content.** Every tombstone write, including that late snapshot, removes the row's `snapshot`, legacy `cipher` and `heads`, keeping only `metadata`, `version` and `modifiedAt`, so the manifest is unchanged. Nothing reads a deleted item's content: manifest sync records a deleted entry without fetching it, and hydration returns early on `metadata.deleted`. The item's log rows go with the log's 30-day TTL. Rows deleted before this kept their snapshot until the `dropDeletedItemPayloads` migration.
-- A hard-delete would be undone. An item missing from the manifest looks like an offline creation, so manifest sync would re-upload it.
+- A hard-delete would be undone. An item missing from the manifest looks like an offline creation, so manifest sync would re-upload it. Deleting the whole account is the one exception (see below).
 - Deletion is terminal, with no undelete. New items always get a fresh `generateItemId()` (126-bit nanoid). Reusing an ID would merge the old entity's history into the new one.
 - `AutomergeDocStore.findOrCreateHandle` refuses to create a blank doc when `hasDataInStorage(itemId)`. This guard prevents data loss: without it, a handle-lookup timeout would overwrite an existing doc.
 - Selectors filter `!item.deleted`, and `AutomergeIndexManager` excludes tombstones from the active index.
+
+### Account deletion
+
+Deleting an account (Settings → Delete account) hard-deletes everything the server holds for it, in this order, each step retryable:
+
+1. The client checks the password against its unlocked keys (`confirmAccountPassword`), so a wrong one never reaches the server as an UNAUTHORIZED the app would take for an expired session. It then stops sync on this device without clearing local data, so nothing is pushed after the server's copy goes.
+2. `accounts.deleteItems`, called until it reports `done`, first sets `deletingSince` on the account record, which makes every login fail, and ends every session but the caller's and forgets the login devices. Without that, another device would silently log in again with its in-memory key hash and re-upload the missing items. It then deletes a bounded round of `FlockItems` rows and, once they're gone, of `FlockSyncLog` rows (head row included), so each request stays within the Lambda's timeout.
+3. `accounts.deleteAccount` deletes the account record, which also drops its push subscriptions and its `ReminderIndex` entry. Every other account write is conditional on the record existing, so nothing recreates it.
+4. The client removes the account from this device exactly as "Sign out & remove local data" does (`removeVaultFromDevice`).
+
+Both server procedures need the password-derived auth token as well as the session. If the user carries on past a failed step, what's left is ciphertext on an account that can no longer log in.
 
 ## Concurrent string edits
 

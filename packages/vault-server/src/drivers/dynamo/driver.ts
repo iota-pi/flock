@@ -10,6 +10,7 @@ import type {
   AppendLogInput,
   AuthData,
   BaseData,
+  DeleteBatchResult,
   FetchedVaultItem,
   ItemFormatSummary,
   LogPushResult,
@@ -28,6 +29,7 @@ import { getConnectionParams, resolveVaultTableNames, type VaultTableNames } fro
 import { getVaultTableDefinitions, type AccountIndex, type VaultTableDefinition } from './tables'
 import type { DynamoContext } from './commands'
 import type { LoginAttemptReservation } from '../../loginThrottle'
+import * as accountDeletion from './accountDeletion'
 import * as accountRecords from './accountRecords'
 import type { SignupReservation } from '../../signupThrottle'
 import * as loginThrottleRecords from './loginThrottleRecords'
@@ -207,5 +209,17 @@ export default class DynamoDriver implements VaultDriver {
 
   async readLogHead(data: BaseData): Promise<number> {
     return syncLog.readLogHead(this.context, data)
+  }
+
+  async deleteItems(data: BaseData & { limit: number }): Promise<DeleteBatchResult> {
+    return accountDeletion.deleteItems(this.context, data)
+  }
+
+  async deleteSyncLog(data: BaseData & { limit: number }): Promise<DeleteBatchResult> {
+    return accountDeletion.deleteSyncLog(this.context, data)
+  }
+
+  async deleteAccount(data: BaseData): Promise<void> {
+    return accountDeletion.deleteAccount(this.context, data)
   }
 }

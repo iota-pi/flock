@@ -8,6 +8,8 @@ import type { MuiIconType } from './Icons'
 
 
 interface SettingsItemProps {
+  /** Shows the item in the error colour, for actions that destroy data */
+  danger?: boolean,
   disabled?: boolean,
   icon?: MuiIconType,
   id: string,
@@ -17,6 +19,7 @@ interface SettingsItemProps {
 }
 
 function SettingsItem({
+  danger,
   disabled,
   icon: Icon,
   id,
@@ -32,7 +35,7 @@ function SettingsItem({
     >
       {Icon && (
         <ListItemIcon>
-          <Icon fontSize="small" />
+          <Icon color={danger ? 'error' : undefined} fontSize="small" />
         </ListItemIcon>
       )}
       <Box sx={{
@@ -41,7 +44,7 @@ function SettingsItem({
         <Box sx={{
           py: 1
         }}>
-          <Typography>
+          <Typography color={danger ? 'error' : undefined}>
             {title}
           </Typography>
         </Box>

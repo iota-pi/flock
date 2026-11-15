@@ -9,6 +9,11 @@ export interface UIState {
   /** The user chose to update later, so the prompt stays hidden (Settings still offers it) */
   appUpdateDismissed: boolean
   darkMode: boolean | null
+  /**
+   * Whether the delete account dialog is open. It lives in the store, and the dialog in App, because
+   * deleting stops sync, which replaces the page (and anything mounted in it) with a spinner.
+   */
+  deleteAccountOpen: boolean
   filters: FilterCriterion[]
   justCreatedAccount: boolean
   showArchived: boolean
@@ -29,6 +34,7 @@ const initialUiState: UIState = {
   appUpdateReady: false,
   appUpdateDismissed: false,
   darkMode: null,
+  deleteAccountOpen: false,
   filters: DEFAULT_FILTER_CRITERIA,
   justCreatedAccount: false,
   showArchived: false,

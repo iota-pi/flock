@@ -5,10 +5,12 @@
 export {
   changePassword,
   clearVaultDeviceData,
+  confirmAccountPassword,
   createVaultAccount,
   exportData,
   getActiveKeyVersion,
   importData,
+  IncorrectPasswordError,
   loginVault,
   upgradeKeyDerivation,
 } from './keys/vault'
@@ -24,7 +26,7 @@ export { isWebAuthnPrfSupported } from './keys/webauthn'
 export { hasUsedArgon2id, readStoredMetadata } from './keys/storedMetadata'
 export { configureVaultHost, type VaultHostHooks } from './keys/vaultHost'
 export type { KeyProvider } from './keys/Keyring'
-export { createAccount, getSecurityParams } from './keys/AccountClient'
+export { createAccount, deleteAccountItems, deleteAccountRecord, getSecurityParams } from './keys/AccountClient'
 export { announceVaultLocked, announceVaultRemoved, type VaultBroadcastEvent } from './keys/vaultEvents'
 export {
   UnsupportedKeyDerivationError,

@@ -123,6 +123,7 @@ export default function SettingsItemsList({ actionHandlers, values }: SettingsIt
           onClick: actionHandlers[item.action],
           value: renderValue(item.valueRenderer, values),
           disabled,
+          danger: item.danger,
         }
 
         if (isBiometricsUnsupported) {

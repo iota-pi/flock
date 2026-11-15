@@ -79,6 +79,12 @@ export const UpdateKeyringBodySchema = z.object({
   expectedKeyringVersion: z.number().int().min(1).optional(),
 })
 
+/** Deleting an account's data or its record needs the current password as well as the session */
+export const DeleteAccountBodySchema = z.object({
+  account: AccountIdInputSchema,
+  currentAuthToken: AuthTokenSchema,
+})
+
 export const ChangePasswordBodySchema = z.object({
   account: AccountIdInputSchema,
   currentAuthToken: AuthTokenSchema,

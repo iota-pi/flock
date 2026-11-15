@@ -8,6 +8,8 @@ import {
   reloadKeyringFromStorage,
   clearVaultDeviceData,
   syncKeyringFromServer,
+  confirmAccountPassword,
+  IncorrectPasswordError,
 } from './vault'
 import { getVaultSession, handleSessionExpired, lockVaultKeys, onLateSession } from './session'
 import { clearCachedKeyring, readCachedKeyring } from './keyringCache'
@@ -21,7 +23,7 @@ import { deleteStoredSessionToken } from '../shared/workerAuthStore'
 import { deriveLegacyKey } from '../../test/deriveLegacyKey'
 import { reencryptPendingKey } from './reencryptPending'
 
-import { updateKeyring, getKeyring, getSession } from './AccountClient'
+import { updateKeyring, getKeyring, getSecurityParams, getSession } from './AccountClient'
 import * as accountClientModule from './AccountClient'
 import * as workerAuthStoreModule from '../shared/workerAuthStore'
 import { spyOnExports } from '../../test/moduleMocks'
@@ -789,5 +791,29 @@ describe('Vault Keyring Integration', () => {
       await worker.load(await exportKeyringData())
       await expect(worker.encryptBytes(new Uint8Array([1]), 'item-1')).rejects.toBeInstanceOf(StaleKeyringError)
     })
+  })
+})
+
+describe('confirmAccountPassword', () => {
+  beforeEach(async () => {
+    localStorage.clear()
+    configureVaultHost({ deriveLegacyKey })
+    await clearVaultDeviceData()
+    vi.clearAllMocks()
+    vi.mocked(getSecurityParams).mockResolvedValue({ salt: SALT, saltVersion: 1, iterations: 1000, dataVersion: 0 })
+  })
+
+  it("returns the auth token for the unlocked account's password", async () => {
+    const hash = await initialiseVault({ password: 'password123', salt: SALT, saltVersion: 1, iterations: 1000 })
+
+    await expect(confirmAccountPassword('test-account', 'password123')).resolves.toBe(hash)
+    expect(getSecurityParams).toHaveBeenCalledWith('test-account')
+  })
+
+  it('rejects another password without asking the server to check it', async () => {
+    await initialiseVault({ password: 'password123', salt: SALT, saltVersion: 1, iterations: 1000 })
+
+    await expect(confirmAccountPassword('test-account', 'wrong-password'))
+      .rejects.toBeInstanceOf(IncorrectPasswordError)
   })
 })

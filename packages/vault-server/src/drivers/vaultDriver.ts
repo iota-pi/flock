@@ -47,6 +47,8 @@ export type UpdateAccountDataParams = BaseData & {
   loginDevices?: string[],
   keyringVersion?: number,
   expectedKeyringVersion?: number,
+  /** Marks the account as being deleted, which stops it logging in (see `authenticateLogin`) */
+  deletingSince?: number,
   /** App fields to delete from the account record, such as a sparse index's key */
   remove?: string[],
 }
@@ -100,6 +102,13 @@ export interface ReadLogInput {
 export interface SyncLogPage {
   entries: SyncLogEntry[]
   hasMore: boolean
+}
+
+/** What one round of deleting an account's rows did */
+export interface DeleteBatchResult {
+  deleted: number
+  /** Whether the account has no rows left in the table */
+  done: boolean
 }
 
 /**
@@ -197,4 +206,16 @@ export interface VaultDriver {
 
   /** Returns the last seq the account's log has used, by a strongly consistent read (0 when it's empty) */
   readLogHead(data: BaseData): Promise<number>
+
+  /**
+   * Hard-deletes up to `limit` of the account's items, only for deleting the account: anywhere else,
+   * a missing item would be re-uploaded by manifest sync (see docs/sync-design.md).
+   */
+  deleteItems(data: BaseData & { limit: number }): Promise<DeleteBatchResult>
+
+  /** Deletes up to `limit` of the account's log rows, its head row included, for deleting the account */
+  deleteSyncLog(data: BaseData & { limit: number }): Promise<DeleteBatchResult>
+
+  /** Deletes the account record. Does nothing if there isn't one. */
+  deleteAccount(data: BaseData): Promise<void>
 }

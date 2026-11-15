@@ -7,6 +7,7 @@ const initialState: UIState = {
   appUpdateReady: false,
   appUpdateDismissed: false,
   darkMode: null,
+  deleteAccountOpen: false,
   filters: useAppStore.getState().filters,
   justCreatedAccount: false,
   showArchived: false,
