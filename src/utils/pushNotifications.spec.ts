@@ -259,6 +259,104 @@ describe('pushNotifications utility', () => {
       expect(current.unsubscribe).toHaveBeenCalled()
     })
 
+    const OWNER_KEY = 'FlockPushSubscriptionOwner'
+    const ownedBy = (account: string, endpoint: string) => {
+      localStorage.setItem(OWNER_KEY, JSON.stringify({ account, endpoint }))
+    }
+
+    it('subscribing keeps a subscription this account registered', async () => {
+      const current = browserSubscription('https://push.example.com/current', [1, 2, 3])
+      ownedBy('user-1', current.endpoint)
+      const pushManager = stubPushManager(current)
+
+      await subscribe('user-1', [9], key)
+
+      expect(pushManager.subscribe).not.toHaveBeenCalled()
+      expect(current.unsubscribe).not.toHaveBeenCalled()
+      expect(addPushSubscription).toHaveBeenCalledWith('user-1', {
+        endpoint: 'https://push.example.com/current',
+        keys: { auth: 'auth', p256dh: 'p256dh' },
+      })
+    })
+
+    it("subscribing makes a new endpoint instead of reusing another account's", async () => {
+      const others = browserSubscription('https://push.example.com/other', [1, 2, 3])
+      ownedBy('user-2', others.endpoint)
+      stubPushManager(others)
+
+      await subscribe('user-1', [9], key)
+
+      expect(deletePushSubscription).not.toHaveBeenCalled()
+      expect(others.unsubscribe).toHaveBeenCalled()
+      expect(addPushSubscription).toHaveBeenCalledTimes(1)
+      expect(addPushSubscription).toHaveBeenCalledWith('user-1', expect.objectContaining({
+        endpoint: 'https://push.example.com/new',
+      }))
+      expect(JSON.parse(localStorage.getItem(OWNER_KEY) ?? 'null')).toEqual({
+        account: 'user-1',
+        endpoint: 'https://push.example.com/new',
+      })
+    })
+
+    it('subscribing replaces a subscription whose owner was not recorded', async () => {
+      const unknown = browserSubscription('https://push.example.com/unknown', [1, 2, 3])
+      stubPushManager(unknown)
+
+      await subscribe('user-1', [9], key)
+
+      expect(unknown.unsubscribe).toHaveBeenCalled()
+      expect(addPushSubscription).toHaveBeenCalledWith('user-1', expect.objectContaining({
+        endpoint: 'https://push.example.com/new',
+      }))
+    })
+
+    it('treats a recorded owner for a different endpoint as unknown', async () => {
+      const current = browserSubscription('https://push.example.com/current', [1, 2, 3])
+      ownedBy('user-1', 'https://push.example.com/replaced-by-browser')
+      const pushManager = stubPushManager(current)
+
+      await subscribe('user-1', [9], key)
+
+      expect(pushManager.subscribe).toHaveBeenCalled()
+    })
+
+    it("does not refresh another account's subscription", async () => {
+      const stale = browserSubscription('https://push.example.com/old', [9, 9, 9])
+      ownedBy('user-2', stale.endpoint)
+      const pushManager = stubPushManager(stale)
+
+      await expect(refreshPushSubscription('user-1', key)).resolves.toBe(false)
+
+      expect(stale.unsubscribe).not.toHaveBeenCalled()
+      expect(pushManager.subscribe).not.toHaveBeenCalled()
+      expect(deletePushSubscription).not.toHaveBeenCalled()
+    })
+
+    it("unsubscribing leaves another account's subscription alone", async () => {
+      const others = browserSubscription('https://push.example.com/other', [1, 2, 3])
+      ownedBy('user-2', others.endpoint)
+      stubPushManager(others)
+
+      await unsubscribe('user-1')
+
+      expect(others.unsubscribe).not.toHaveBeenCalled()
+      expect(deletePushSubscription).not.toHaveBeenCalled()
+      expect(updateReminderSettings).toHaveBeenCalledWith('user-1', expect.objectContaining({ reminderEnabled: false }))
+      expect(localStorage.getItem(OWNER_KEY)).not.toBeNull()
+    })
+
+    it("unsubscribing removes this account's subscription and forgets its owner", async () => {
+      const current = browserSubscription('https://push.example.com/current', [1, 2, 3])
+      ownedBy('user-1', current.endpoint)
+      stubPushManager(current)
+
+      await unsubscribe('user-1')
+
+      expect(deletePushSubscription).toHaveBeenCalledWith('user-1', current.endpoint)
+      expect(current.unsubscribe).toHaveBeenCalled()
+      expect(localStorage.getItem(OWNER_KEY)).toBeNull()
+    })
+
     it('subscribing replaces a subscription made with another key', async () => {
       const stale = browserSubscription('https://push.example.com/old', [9, 9, 9])
       stubPushManager(stale)
