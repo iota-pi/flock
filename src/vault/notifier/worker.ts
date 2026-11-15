@@ -27,25 +27,53 @@ type SqsBatchResponse = {
 const ddb = new DynamoDBClient(getConnectionParams())
 const docClient = DynamoDBDocumentClient.from(ddb)
 
+/** How many times to re-read and retry when the subscriptions change between the read and the write */
+const REMOVE_SUBSCRIPTION_ATTEMPTS = 3
+
+function isConditionalCheckFailure(error: unknown) {
+  return (error as { name?: unknown })?.name === 'ConditionalCheckFailedException'
+}
+
+/**
+ * Removes a dead subscription from the account. The write only goes through if the account still
+ * exists and its subscriptions are the ones that were read, so it can't drop a subscription added
+ * in the meantime or create an account record (one with no auth token) for a deleted account.
+ */
 export async function removeSubscription(accountId: string, endpoint: string) {
-  const accountResponse = await docClient.send(new GetCommand({
-    TableName: FLOCK_TABLES.accounts,
-    Key: { account: accountId },
-    ProjectionExpression: 'account, pushSubscriptions',
-  }))
+  for (let attempt = 1; ; attempt += 1) {
+    const accountResponse = await docClient.send(new GetCommand({
+      TableName: FLOCK_TABLES.accounts,
+      Key: { account: accountId },
+      ProjectionExpression: 'account, pushSubscriptions',
+      ConsistentRead: true,
+    }))
 
-  const account = accountResponse.Item as { pushSubscriptions?: WebPushSubscription[] } | undefined
-  const currentSubscriptions = account?.pushSubscriptions ?? []
-  const nextSubscriptions = currentSubscriptions.filter(sub => sub.endpoint !== endpoint)
+    const account = accountResponse.Item as { pushSubscriptions?: WebPushSubscription[] } | undefined
+    const currentSubscriptions = account?.pushSubscriptions ?? []
+    const nextSubscriptions = currentSubscriptions.filter(sub => sub.endpoint !== endpoint)
+    if (nextSubscriptions.length === currentSubscriptions.length) {
+      // The account is gone, or the subscription was already removed
+      return
+    }
 
-  await docClient.send(new UpdateCommand({
-    TableName: FLOCK_TABLES.accounts,
-    Key: { account: accountId },
-    UpdateExpression: 'SET pushSubscriptions = :pushSubscriptions',
-    ExpressionAttributeValues: {
-      ':pushSubscriptions': nextSubscriptions,
-    },
-  }))
+    try {
+      await docClient.send(new UpdateCommand({
+        TableName: FLOCK_TABLES.accounts,
+        Key: { account: accountId },
+        UpdateExpression: 'SET pushSubscriptions = :pushSubscriptions',
+        ConditionExpression: 'attribute_exists(account) AND pushSubscriptions = :currentSubscriptions',
+        ExpressionAttributeValues: {
+          ':pushSubscriptions': nextSubscriptions,
+          ':currentSubscriptions': currentSubscriptions,
+        },
+      }))
+      return
+    } catch (error) {
+      if (!isConditionalCheckFailure(error) || attempt >= REMOVE_SUBSCRIPTION_ATTEMPTS) {
+        throw error
+      }
+    }
+  }
 }
 
 const REMINDER_PAYLOAD = {
