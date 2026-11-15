@@ -1,6 +1,6 @@
 import { GetCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
 import { backOff, VersionConflictError, type BackoffOptions } from '@vault/shared'
-import { addSessionRecord, normalizeSessionRecords, renewSessionRecord } from '../../sessions'
+import { addSessionRecord, isSessionFor, normalizeSessionRecords, renewSessionRecord } from '../../sessions'
 import { AuthenticationError } from '../../errors'
 import { normalizeLoginDevices, withLoginDevice, withoutLoginDevice } from '../../loginDevices'
 import type {
@@ -147,6 +147,13 @@ export async function extendSession(context: DynamoContext, { account, session }
   await updateAccess(context, account, ({ sessions }, now, attempt) => {
     const renewed = renewSessionRecord(sessions, session, now, attempt > 0)
     return renewed && { sessions: renewed }
+  })
+}
+
+export async function removeSession(context: DynamoContext, { account, session }: AuthData): Promise<void> {
+  await updateAccess(context, account, ({ sessions }) => {
+    const remaining = sessions.filter(active => !isSessionFor(active, session))
+    return remaining.length < sessions.length ? { sessions: remaining } : undefined
   })
 }
 

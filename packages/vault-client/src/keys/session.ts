@@ -3,7 +3,7 @@ import { delay } from '../utils/abort'
 import { classifySyncError } from '../utils/errorClassifier'
 import { createLogger } from '../utils/logger'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
-import { getSession } from './AccountClient'
+import { endSession, getSession } from './AccountClient'
 import { loadDeviceToken, rememberDeviceToken, type DeviceToken } from './deviceToken'
 import { getApiAuthToken, setApiAuthToken, setApiSessionExpiredHandler } from './runtime'
 import { readStoredMetadata } from './storedMetadata'
@@ -44,6 +44,7 @@ export async function establishSessionFromKeyHash(account: string, nextKeyHash: 
   const device = await loadDeviceTokenSafely(account, nextKeyHash)
   const nextSession = await getSession(account, nextKeyHash, device?.token)
   if (!vaultKeys.isCurrent(generation)) {
+    revokeSession(account, nextSession)
     throw new Error('The vault was locked before the session was established')
   }
   vaultKeys.activeAccount = account
@@ -135,11 +136,26 @@ export async function attemptSession<T extends NonNullable<unknown>>(
   return outcome
 }
 
-/** Forgets the keys and the session, in this realm only */
+/**
+ * Ends a session on the server without waiting, so that locking doesn't wait on the network. Failing
+ * (offline, say) leaves the session to expire as it would have.
+ */
+function revokeSession(account: string, session: string) {
+  endSession(account, session).catch((err: unknown) => {
+    log.warn('Could not end the session on the server:', err)
+  })
+}
+
+/** Forgets the keys and the session, in this realm only, and ends the session on the server */
 export function clearKeyData() {
+  const account = vaultKeys.activeAccount
+  const session = getApiAuthToken()
   vaultKeys.clear()
   setApiAuthToken('')
   setApiSessionExpiredHandler(null)
+  if (account && session) {
+    revokeSession(account, session)
+  }
 }
 
 /** Fails a login or unlock that ended up without any data keys, which can't decrypt anything */

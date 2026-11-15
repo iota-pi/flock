@@ -157,6 +157,9 @@ export interface VaultDriver {
   /** Extends a session's expiry (called on authenticated requests) */
   extendSession(data: AuthData): Promise<void>
 
+  /** Ends a session (called on logout). Does nothing if it isn't one of the account's. */
+  removeSession(data: AuthData): Promise<void>
+
   /** Raises the account's data version. Never lowers it. */
   raiseDataVersion(data: BaseData & { dataVersion: number }): Promise<void>
 
