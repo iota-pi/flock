@@ -138,7 +138,7 @@ export class SnapshotPusher {
         await this.deps.recoveryManager.quarantine(
           itemId,
           'snapshotFailure',
-          `Snapshot failure: ${detailedReason}`,
+          { code: 'snapshotFailed', stage: failureType },
         )
       } catch (recoveryError) {
         log.error('Failed to record manual recovery entry', recoveryError)
@@ -164,7 +164,7 @@ export class SnapshotPusher {
         this.deps.recoveryManager.quarantine(
           itemId,
           'oversized',
-          `Snapshot size (${Math.round(snapshotSize / 1024)} KB) exceeds ${MAX_ITEM_SIZE_KB} KB limit. Recreating the item with fresh history is required to resume sync.`,
+          { code: 'oversized', sizeKb: Math.round(snapshotSize / 1024) },
         ),
         'SnapshotPusher:quarantine',
       )

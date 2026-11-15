@@ -153,7 +153,7 @@ describe('SyncEventProcessor', () => {
     expect(listener).toHaveBeenCalledWith([])
 
     const mockEntries: ManualRecoveryEntry[] = [
-      { id: 'r1', itemId: 'item-1' as ItemId, reason: 'error', kind: 'pullDecryption', createdAt: 123 },
+      { id: 'r1', itemId: 'item-1' as ItemId, reason: 'error', detail: { code: 'unspecified' }, kind: 'pullDecryption', createdAt: 123 },
     ]
     processor.handleSyncEvent({ type: 'recoveryItemsChanged', entries: mockEntries })
 
@@ -168,7 +168,7 @@ describe('SyncEventProcessor', () => {
     vi.useFakeTimers()
     processor.handleSyncEvent({
       type: 'recoveryItemsChanged',
-      entries: [{ id: 'r1', itemId: 'item-1' as ItemId, reason: 'error', kind: 'pullDecryption', createdAt: 123 }],
+      entries: [{ id: 'r1', itemId: 'item-1' as ItemId, reason: 'error', detail: { code: 'unspecified' }, kind: 'pullDecryption', createdAt: 123 }],
     })
     const listener = vi.fn()
     processor.subscribeRecoveryItems(listener)

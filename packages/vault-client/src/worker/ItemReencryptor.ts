@@ -20,6 +20,7 @@ import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { fireAndForget } from '../utils/fireAndForget'
 import type { ItemId } from '@vault/shared'
 import type { ReencryptOptions, ReencryptResult, ReencryptStage } from '../shared/types'
+import type { ManualRecoveryStage } from '../shared/manualRecoveryStore'
 import { ReencryptionWaitError } from '../shared/reencryptionWaitError'
 import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
 import { createLogger } from '../utils/logger'
@@ -344,7 +345,7 @@ export class ItemReencryptor {
       }
     }
 
-    await this.recordFailures(buildFailures, 'Re-encryption snapshot build failed', result)
+    await this.recordFailures(buildFailures, 'build', result)
 
     // The chunk already caps the item count
     const snapshotBatches = SizeAwareBatchAccumulator.batch(readySnapshots, {
@@ -364,7 +365,7 @@ export class ItemReencryptor {
         result.succeeded.push(...stored.map(item => item.snapshot.itemId))
         await this.recordFailures(
           unstored.map(({ snapshot }) => ({ itemId: snapshot.itemId, error })),
-          'Re-encryption upload failed',
+          'upload',
           result
         )
         continue
@@ -485,13 +486,18 @@ export class ItemReencryptor {
   /** Adds failed items to `result` and quarantines them for manual recovery */
   private async recordFailures(
     failures: FailedItem[],
-    stage: string,
+    stage: ManualRecoveryStage,
     result: ReencryptResult
   ): Promise<void> {
     for (const failure of failures) {
       result.failed.push(failure)
       try {
-        await this.deps.recoveryManager.quarantine(failure.itemId, 'snapshotFailure', `${stage}: ${failure.error}`)
+        // The error stays in the logged result; the stored entry gets only the stage
+        await this.deps.recoveryManager.quarantine(
+          failure.itemId,
+          'snapshotFailure',
+          { code: 'reencryptionFailed', stage },
+        )
       } catch (storageErr) {
         log.error(`Failed to quarantine item ${failure.itemId}:`, storageErr)
       }

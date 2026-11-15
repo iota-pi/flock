@@ -197,7 +197,7 @@ describe('SnapshotPusher', () => {
     expect(mockRecoveryManager.quarantine).toHaveBeenCalledWith(
       'item-1',
       'oversized',
-      expect.stringContaining(`exceeds ${MAX_ITEM_SIZE_KB} KB limit`),
+      { code: 'oversized', sizeKb: expect.any(Number) },
     )
   })
 
@@ -309,7 +309,7 @@ describe('SnapshotPusher', () => {
     expect(mockRecoveryManager.quarantine).toHaveBeenCalledWith(
       'item-1',
       'snapshotFailure',
-      expect.stringContaining('Snapshot failure'),
+      { code: 'snapshotFailed', stage: 'build' },
     )
   })
 
@@ -454,7 +454,7 @@ describe('SnapshotPusher', () => {
       expect(mockRecoveryManager.quarantine).toHaveBeenCalledWith(
         'item-1',
         'snapshotFailure',
-        expect.stringContaining('Document lookup timed out'),
+        { code: 'snapshotFailed', stage: 'build' },
       )
     })
 
@@ -1273,7 +1273,7 @@ describe('SnapshotPusher', () => {
           'test-account',
           expect.objectContaining({
             itemId: 'item-1',
-            reason: expect.stringContaining('Snapshot failure:'),
+            detail: { code: 'snapshotFailed', stage: 'build' },
           }),
         )
 
@@ -1360,7 +1360,7 @@ describe('SnapshotPusher', () => {
           'test-account',
           expect.objectContaining({
             itemId: 'item-1',
-            reason: expect.stringContaining(`exceeds ${MAX_ITEM_SIZE_KB} KB limit`),
+            detail: { code: 'oversized', sizeKb: expect.any(Number) },
           }),
         )
       })

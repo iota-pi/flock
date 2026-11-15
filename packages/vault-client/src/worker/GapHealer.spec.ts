@@ -181,7 +181,7 @@ describe('GapHealer', () => {
       expect(recoveryManager.quarantine).toHaveBeenCalledWith(
         ITEM,
         'missingChanges',
-        'Waiting for changes from another device',
+        { code: 'waitingForChanges' },
       )
 
       incoming.apply.mockResolvedValue(true)

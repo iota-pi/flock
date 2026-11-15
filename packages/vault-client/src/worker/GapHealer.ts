@@ -196,7 +196,7 @@ export class GapHealer {
     item.attempts += 1
     item.nextAttemptAt = Date.now() + GAP_HEAL_DELAYS[Math.min(item.attempts - 1, GAP_HEAL_DELAYS.length - 1)]
     if (isMissingDeps && Date.now() - item.since >= SYNC_TIMEOUTS.missingChangesQuarantine) {
-      await this.deps.recoveryManager.quarantine(itemId, 'missingChanges', 'Waiting for changes from another device')
+      await this.deps.recoveryManager.quarantine(itemId, 'missingChanges', { code: 'waitingForChanges' })
     }
   }
 
