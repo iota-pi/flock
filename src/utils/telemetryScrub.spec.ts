@@ -87,4 +87,23 @@ describe('scrubEvent', () => {
     expect(event.exception.values[0].value).toBe('GET https://x.test/ failed')
     expect(event.breadcrumbs).toEqual([{ category: 'sync', message: 'ok' }])
   })
+
+  it('replaces exception text that quotes user input', () => {
+    const event = scrubEvent({
+      exception: {
+        values: [
+          { type: 'SyntaxError', value: 'Unexpected token \'J\', "Jane Smith" is not valid JSON' },
+          {
+            type: 'Error',
+            value: 'Invalid Opening Quote: a quote is found on field 0 at line 2, value is "Jane \\"Smith"',
+          },
+          { type: 'Error', value: 'Quote Not Closed: the parsing is finished with an opening quote at line 3' },
+          { type: 'TypeError', value: 'x is not a function' },
+        ],
+      },
+    })
+    const values = event.exception.values.map(exception => exception.value)
+    expect(values.slice(0, 3)).toEqual(Array(3).fill('[message removed: it may quote user input]'))
+    expect(values[3]).toBe('x is not a function')
+  })
 })

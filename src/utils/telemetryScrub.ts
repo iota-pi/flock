@@ -9,6 +9,18 @@ const EMAIL_PATTERN = /[\w.%+-]+@[\w-]+(\.[\w-]+)*\.[a-z]{2,}/gi
 /** An attribute in a selector Sentry builds for a click, such as `[aria-label="Jane Smith"]` */
 const SELECTOR_ATTRIBUTE_PATTERN = /\[([\w-]+)=(?:"[^"]*"|'[^']*'|[^\]]*)\]/g
 
+/**
+ * Error types whose messages quote the input that failed: V8's `JSON.parse` errors include a
+ * snippet of the text, for one. Their messages are replaced, keeping only the type.
+ */
+const INPUT_QUOTING_ERROR_TYPES = new Set(['SyntaxError'])
+/**
+ * csv-parse's errors, which quote the offending field or record. They keep the name `Error`, so
+ * they are recognised by how their messages start.
+ */
+const CSV_ERROR_PATTERN = /^(Invalid (Opening|Closing) Quote|Invalid Column Mapping|Invalid Record Length|Max Record Size|Quote Not Closed):/
+const REDACTED_ERROR_MESSAGE = '[message removed: it may quote user input]'
+
 /** Headers that may be reported, compared in lower case. Everything else is dropped. */
 const SAFE_HEADERS = new Set(['user-agent', 'content-type', 'content-length', 'accept', 'x-vault-protocol'])
 
@@ -73,7 +85,7 @@ export function scrubBreadcrumb<T extends BreadcrumbLike>(breadcrumb: T): T | nu
 
 export interface EventLike {
   message?: string
-  exception?: { values?: Array<{ value?: string }> }
+  exception?: { values?: Array<{ type?: string, value?: string }> }
   request?: {
     url?: string
     query_string?: unknown
@@ -83,6 +95,10 @@ export interface EventLike {
   }
   user?: { id?: string | number } & Record<string, unknown>
   breadcrumbs?: BreadcrumbLike[]
+}
+
+function quotesInput(type: string | undefined, message: string): boolean {
+  return (type !== undefined && INPUT_QUOTING_ERROR_TYPES.has(type)) || CSV_ERROR_PATTERN.test(message)
 }
 
 /**
@@ -95,7 +111,9 @@ export function scrubEvent<T extends EventLike>(event: T): T {
   }
   for (const exception of event.exception?.values ?? []) {
     if (exception.value) {
-      exception.value = scrubText(exception.value)
+      exception.value = quotesInput(exception.type, exception.value)
+        ? REDACTED_ERROR_MESSAGE
+        : scrubText(exception.value)
     }
   }
 
