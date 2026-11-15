@@ -34,7 +34,14 @@ export async function setItem({ client, tables }: DynamoContext, item: VaultItem
   }
   const tombstone = { ...itemToPersist, metadata: { ...itemToPersist.metadata, deleted: true } }
   const update = itemUpdate(tombstone)
-  return writeResult(tombstone, update, await client.send(updateItemCommand(tables, tombstone, update)))
+  // A tombstone without a payload only marks an existing item deleted. Creating rows for IDs the
+  // server has never seen would get round the storage quota and grow the manifest without limit.
+  const payloadless = !tombstone.snapshot && !tombstone.cipher
+  if (!payloadless) {
+    return writeResult(tombstone, update, await client.send(updateItemCommand(tables, tombstone, update)))
+  }
+  const written = await sendConditional(client, updateItemCommand(tables, tombstone, update, { mustExist: true }))
+  return written ? writeResult(tombstone, update, written) : { version: 0, storageDelta: 0 }
 }
 
 /** What writing an item sets and removes */
@@ -65,12 +72,15 @@ function itemUpdate(item: VaultItem): ItemUpdate {
   }
 }
 
-/** Writes an item and bumps its version. With `unlessDeleted`, the write fails its condition on a tombstone. */
+/**
+ * Writes an item and bumps its version. With `unlessDeleted`, the write fails its condition on a
+ * tombstone, and with `mustExist`, on an item the table doesn't have.
+ */
 function updateItemCommand(
   tables: VaultTableNames,
   item: VaultItem,
   { set, remove }: ItemUpdate,
-  { unlessDeleted = false } = {},
+  { unlessDeleted = false, mustExist = false } = {},
 ): UpdateCommand {
   return new UpdateCommand({
     TableName: tables.items,
@@ -92,7 +102,9 @@ function updateItemCommand(
           names: { '#deleted': 'deleted' },
           values: { ':true': true },
         }
-        : undefined,
+        : mustExist
+          ? { expression: 'attribute_exists(#item)', names: { '#item': 'item' } }
+          : undefined,
     }),
     // The record as it was before this write, which gives both the version the write made and how
     // much it grew the item. Unlike a read, returning it costs no read capacity.
