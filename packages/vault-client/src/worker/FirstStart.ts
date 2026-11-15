@@ -11,7 +11,7 @@ import { createPendingMark } from './ChangeOutbox'
 import { MissingKeyError } from './utils/decryptWithKeyResolution'
 import { areHeadsEqual } from './utils/automerge'
 import { SYNC_LOG_STORES } from '../shared/syncLogStorage'
-import type { ManualRecoveryKind } from '../shared/manualRecoveryStore'
+import type { ManualRecoveryDetail, ManualRecoveryKind } from '../shared/manualRecoveryStore'
 import { FIRST_START_MAX_ATTEMPTS, SYNC_BATCH_SIZES, SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { clearWriteAheadLog } from '../shared/writeAheadLogStorage'
 import { checkAlive, isAbortError, untilAborted } from '../utils/abort'
@@ -298,7 +298,7 @@ export class FirstStart {
     const quarantined = await this.listQuarantined()
     for (const { itemId } of awaited) {
       if (quarantined.has(itemId)) continue
-      await this.retryOrQuarantine(itemId, 'snapshotFailure', 'This device\'s snapshot of the item was never stored', () => {
+      await this.retryOrQuarantine(itemId, 'snapshotFailure', { code: 'snapshotNeverStored' }, () => {
         if (!this.deps.isDirty(itemId)) this.deps.requestSnapshot(itemId)
       })
     }
@@ -323,7 +323,7 @@ export class FirstStart {
       } catch (error) {
         if (error instanceof MissingKeyError) {
           const { kver } = error
-          await this.retryOrQuarantine(itemId, 'unknown', `Key version ${kver} for the item's heads never arrived`, () => {
+          await this.retryOrQuarantine(itemId, 'unknown', { code: 'keyVersionMissing' }, () => {
             this.deps.onKeyVersionMissing?.(kver)
           })
           return
@@ -348,7 +348,7 @@ export class FirstStart {
       // Below the server's version, manifest sync fetches the snapshot. At or above it, manifest sync
       // takes the snapshot as merged and never fetches it, so it's fetched here.
       if (baseVersion >= version) {
-        await this.retryOrQuarantine(itemId, 'unknown', 'The item never received the changes the server\'s snapshot holds', () => {
+        await this.retryOrQuarantine(itemId, 'unknown', { code: 'changesNeverArrived' }, () => {
           this.forceFetch.add(itemId)
         })
       }
@@ -370,7 +370,7 @@ export class FirstStart {
   private async retryOrQuarantine(
     itemId: ItemId,
     kind: ManualRecoveryKind,
-    reason: string,
+    detail: ManualRecoveryDetail,
     retry: () => void,
   ): Promise<void> {
     const record = this.records.get(itemId)
@@ -381,7 +381,7 @@ export class FirstStart {
     const attempts = record.attempts ?? 0
     if (attempts >= FIRST_START_MAX_ATTEMPTS) {
       log.warn(`First start couldn't resolve ${itemId} after ${attempts} tries; quarantining it`)
-      await this.deps.recoveryManager.quarantine(itemId, kind, reason)
+      await this.deps.recoveryManager.quarantine(itemId, kind, detail)
       await this.saveRecord({ itemId, state: record.state })
       return
     }

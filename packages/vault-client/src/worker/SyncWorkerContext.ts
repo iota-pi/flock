@@ -479,9 +479,10 @@ export class SyncWorkerContext {
         )
       },
       // Quarantined with the version that failed, so manifest sync skips it until the server has a newer one
-      onRepeatedHydrationError: (itemId, error, serverVersion) => {
+      // The hydrator logs the error, which can quote decrypted content, so it isn't stored
+      onRepeatedHydrationError: (itemId, _error, serverVersion) => {
         fireAndForget(
-          recoveryManager.quarantine(itemId, 'unknown', error, { serverVersion }),
+          recoveryManager.quarantine(itemId, 'unknown', { code: 'hydrationFailed' }, { serverVersion }),
           'SyncWorkerContext:quarantineRepeatedHydrationError',
         )
       },

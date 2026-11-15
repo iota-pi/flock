@@ -871,6 +871,7 @@ describe('SyncBridge', () => {
           id: 'rec-1',
           itemId: 'item-1' as ItemId,
           reason: 'invalid document',
+          detail: { code: 'unspecified' },
           kind: 'pullDecryption',
           createdAt: 123456,
         },

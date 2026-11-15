@@ -55,7 +55,7 @@ export type {
 } from './shared/types'
 export { ReencryptionWaitError, reencryptionWaitStage } from './shared/reencryptionWaitError'
 export { BackupSyncStateSchema, type BackupSyncState } from './shared/backupSyncState'
-export type { ManualRecoveryEntry, ManualRecoveryKind } from './shared/manualRecoveryStore'
+export type { ManualRecoveryDetail, ManualRecoveryEntry, ManualRecoveryKind } from './shared/manualRecoveryStore'
 export { getOnlineState } from './utils/onlineStatus'
 export { ensurePersistentStorage } from './utils/storageQuota'
 export { fireAndForget } from './utils/fireAndForget'

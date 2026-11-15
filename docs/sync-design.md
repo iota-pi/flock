@@ -225,6 +225,7 @@ The deleted old doc still exceeds the limit. `SnapshotPusher` therefore uploads 
 
 Items that can't be synced are quarantined in `manualRecoveryStore` and shown to the user.
 - `kind` is one of `pullDecryption`, `snapshotDecryption`, `oversized`, `snapshotFailure`, `pushFailure` (no longer written), `missingChanges` or `unknown`. For legacy entries it is inferred from the reason text.
+- `detail` says why, as a `ManualRecoveryDetail`: a fixed code plus at most a size or a stage. The store is unsealed, and an error message can quote decrypted content, so `quarantine` takes no error and callers log it instead. The displayed `reason` is built from `detail` when the entry is read. Reading rewrites entries from older builds, which stored a free-text reason, without it.
 - `pullDecryption` is auto-cleared only by a successfully applied entry from another device. Own push echoes are excluded via `SyncLogPuller.recordOwnPushes`. The `GapHealer` clears `missingChanges` when it heals the item.
 - A server-confirmed snapshot upload clears every kind, as does any explicit user action (retry, overwrite, delete, recreate, dismiss).
 - `serverVersion` (optional) is the server version that failed; manifest sync skips the item until the server has a newer one (see "Monotonic versions"). An upsert keeps the highest version seen, even when a weaker kind doesn't replace the entry.

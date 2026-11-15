@@ -1,6 +1,7 @@
 import type { ItemId } from '@vault/shared'
 import type { ClientEventHub } from './SyncEventHub'
 import {
+  type ManualRecoveryDetail,
   type ManualRecoveryEntry,
   type ManualRecoveryKind,
   type ReadManualRecoveryOptions,
@@ -28,7 +29,6 @@ export interface RecoveryManagerDeps {
 export interface QuarantineOptions {
   checkCooldown?: boolean
   cooldownMs?: number
-  failedBranches?: string[]
   /** The server version that failed, recorded so manifest sync waits for a newer one */
   serverVersion?: number
 }
@@ -88,10 +88,14 @@ export class RecoveryManager {
     return await readManualRecoveryEntries(this.deps.accountId, options)
   }
 
+  /**
+   * Records an item for manual recovery. The detail is stored unsealed, so callers log the error itself
+   * rather than passing its message on.
+   */
   async quarantine(
     itemId: ItemId,
     kind: ManualRecoveryKind,
-    error?: unknown,
+    detail: ManualRecoveryDetail,
     options?: QuarantineOptions,
   ): Promise<void> {
     const accountId = this.deps.accountId
@@ -108,19 +112,7 @@ export class RecoveryManager {
 
     this.setInFlight(itemId, true)
     try {
-      let reason: string
-      if (options?.failedBranches && options.failedBranches.length > 0) {
-        reason = `Corrupted branches: ${options.failedBranches.join(', ')}`
-      } else if (typeof error === 'string') {
-        reason = error
-      } else if (error) {
-        const normalized = normalizeSyncError(error)
-        reason = normalized.message || 'Automated recovery is unavailable for this revision'
-      } else {
-        reason = 'Automated recovery is unavailable for this revision'
-      }
-
-      await upsertManualRecoveryEntry(accountId, { itemId, reason, kind, serverVersion: options?.serverVersion })
+      await upsertManualRecoveryEntry(accountId, { itemId, detail, kind, serverVersion: options?.serverVersion })
       await this.pushRecoveryItems()
 
       const cooldownMs = options?.cooldownMs ?? SYNC_TIMEOUTS.recoveryCooldown
@@ -184,7 +176,7 @@ export class RecoveryManager {
     itemId: ItemId,
     kind: 'pullDecryption' | 'snapshotDecryption' | 'localDecryption',
     error: unknown,
-    options?: Pick<QuarantineOptions, 'failedBranches' | 'serverVersion'>,
+    options?: Pick<QuarantineOptions, 'serverVersion'>,
   ): Promise<void> {
     const normalizedError = normalizeSyncError(error)
     log.error('Failed to decrypt item', {
@@ -194,7 +186,7 @@ export class RecoveryManager {
 
     if (!itemId) return
     try {
-      await this.quarantine(itemId, kind, null, { ...options, checkCooldown: true })
+      await this.quarantine(itemId, kind, { code: 'decryptionFailed' }, { ...options, checkCooldown: true })
     } catch (quarantineError) {
       log.error('Failed to record manual recovery entry', quarantineError)
     }

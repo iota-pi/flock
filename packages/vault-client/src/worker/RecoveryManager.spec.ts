@@ -52,11 +52,11 @@ describe('RecoveryManager', () => {
       const mockEntries = [{ id: 'item-1', itemId: 'item-1', reason: 'bad decrypt', kind: 'pullDecryption', createdAt: 12345 }]
       mockReadManualRecoveryEntries.mockResolvedValue(mockEntries)
 
-      await recoveryManager.quarantine('item-1' as ItemId, 'pushFailure', new Error('bad decrypt'))
+      await recoveryManager.quarantine('item-1' as ItemId, 'pushFailure', { code: 'hydrationFailed' })
 
       expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith('account-123', {
         itemId: 'item-1',
-        reason: 'bad decrypt',
+        detail: { code: 'hydrationFailed' },
         kind: 'pushFailure',
       })
       expect(onEventMock).toHaveBeenCalledWith({
@@ -68,31 +68,19 @@ describe('RecoveryManager', () => {
     })
 
     it('works when accountId is provided in constructor and called without explicit accountId', async () => {
-      await recoveryManager.quarantine('item-2' as ItemId, 'pushFailure', 'Snapshot failed')
+      await recoveryManager.quarantine('item-2' as ItemId, 'snapshotFailure', { code: 'snapshotFailed', stage: 'build' })
 
       expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith('account-123', {
         itemId: 'item-2',
-        reason: 'Snapshot failed',
-        kind: 'pushFailure',
-      })
-    })
-
-    it('formats branch hints when failedBranches are provided', async () => {
-      await recoveryManager.quarantine('item-3' as ItemId, 'pushFailure', new Error('fail'), {
-        failedBranches: ['branch-a', 'branch-b'],
-      })
-
-      expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith('account-123', {
-        itemId: 'item-3',
-        reason: 'Corrupted branches: branch-a, branch-b',
-        kind: 'pushFailure',
+        detail: { code: 'snapshotFailed', stage: 'build' },
+        kind: 'snapshotFailure',
       })
     })
 
     it('respects checkCooldown option when in cooldown', async () => {
       recoveryManager['setRecoveryCooldown']('item-1' as ItemId, Date.now() + 10000)
 
-      await recoveryManager.quarantine('item-1' as ItemId, 'pushFailure', 'another fail', {
+      await recoveryManager.quarantine('item-1' as ItemId, 'pushFailure', { code: 'unspecified' }, {
         checkCooldown: true,
       })
 
@@ -102,7 +90,7 @@ describe('RecoveryManager', () => {
     it('respects in-flight protection', async () => {
       recoveryManager['setInFlight']('item-1' as ItemId, true)
 
-      await recoveryManager.quarantine('item-1' as ItemId, 'pushFailure', 'fail')
+      await recoveryManager.quarantine('item-1' as ItemId, 'pushFailure', { code: 'unspecified' })
 
       expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
     })
@@ -112,7 +100,7 @@ describe('RecoveryManager', () => {
       mockUpsertManualRecoveryEntry.mockRejectedValueOnce(new Error('Storage failure'))
 
       await expect(
-        recoveryManager.quarantine('item-fail' as ItemId, 'pushFailure', 'fail')
+        recoveryManager.quarantine('item-fail' as ItemId, 'pushFailure', { code: 'unspecified' })
       ).rejects.toThrow('Storage failure')
 
       expect(recoveryManager['isInFlight']('item-fail' as ItemId)).toBe(false)
@@ -227,9 +215,10 @@ describe('RecoveryManager', () => {
 
       await recoveryManager.reportDecryptionFailure('item-1' as ItemId, 'pullDecryption', new Error('bad decrypt'))
 
+      // Only the code is stored, never the error's message
       expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith('account-123', {
         itemId: 'item-1',
-        reason: 'Automated recovery is unavailable for this revision',
+        detail: { code: 'decryptionFailed' },
         kind: 'pullDecryption',
       })
       expect(onEventMock).toHaveBeenCalledWith({ type: 'recoveryItemsChanged', entries: mockEntries })
@@ -261,23 +250,6 @@ describe('RecoveryManager', () => {
         kind: 'snapshotDecryption',
         serverVersion: 7,
       }))
-      consoleSpy.mockRestore()
-    })
-
-    it('includes failed branches hint when available', async () => {
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-      await recoveryManager.reportDecryptionFailure(
-        'item-1' as ItemId,
-        'pullDecryption',
-        new Error('bad decrypt'),
-        { failedBranches: ['branch-A', 'branch-B'] },
-      )
-
-      expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith('account-123', {
-        itemId: 'item-1',
-        reason: 'Corrupted branches: branch-A, branch-B',
-        kind: 'pullDecryption',
-      })
       consoleSpy.mockRestore()
     })
 

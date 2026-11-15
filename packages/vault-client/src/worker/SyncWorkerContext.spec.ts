@@ -433,6 +433,7 @@ describe('SyncWorkerContext', () => {
           id: `entry-${itemId}`,
           itemId: itemId as ItemId,
           reason: 'failed',
+          detail: { code: 'unspecified' } as const,
           kind: 'unknown' as const,
           createdAt: 0,
         })),

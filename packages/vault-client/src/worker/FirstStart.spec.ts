@@ -320,7 +320,7 @@ describe('first start', () => {
         await processStuck()
         await firstStart.runDue()
         expect(fetchSnapshots).toHaveBeenCalledTimes(FIRST_START_MAX_ATTEMPTS)
-        expect(quarantine).toHaveBeenCalledWith(ITEM, 'unknown', expect.any(String))
+        expect(quarantine).toHaveBeenCalledWith(ITEM, 'unknown', { code: 'changesNeverArrived' })
         expect(await db.getAll(SYNC_LOG_STORES.firstStart)).toEqual([{ itemId: ITEM, state: 'awaitingHeads' }])
       })
 
@@ -379,7 +379,7 @@ describe('first start', () => {
         expect(quarantine).not.toHaveBeenCalled()
 
         await firstStart.onManifestProcessed([entry({ heads })])
-        expect(quarantine).toHaveBeenCalledWith(ITEM, 'unknown', expect.stringContaining('Key version'))
+        expect(quarantine).toHaveBeenCalledWith(ITEM, 'unknown', { code: 'keyVersionMissing' })
       })
     })
 
@@ -438,7 +438,7 @@ describe('first start', () => {
 
         now += SYNC_TIMEOUTS.firstStartRetryGap
         await firstStart.onManifestProcessed([])
-        expect(quarantine).toHaveBeenCalledWith(ITEM, 'snapshotFailure', expect.any(String))
+        expect(quarantine).toHaveBeenCalledWith(ITEM, 'snapshotFailure', { code: 'snapshotNeverStored' })
         expect(firstStart.stateOf(ITEM)).toBe('awaitingSnapshot')
       })
     })

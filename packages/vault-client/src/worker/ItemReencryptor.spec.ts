@@ -248,7 +248,7 @@ describe('ItemReencryptor.run', () => {
     expect(upsertManualRecoveryEntry).toHaveBeenCalledWith('test-account', {
       itemId: 'item-1',
       kind: 'snapshotFailure',
-      reason: expect.stringContaining('Re-encryption upload failed'),
+      detail: { code: 'reencryptionFailed', stage: 'upload' },
     })
   })
 
@@ -312,7 +312,7 @@ describe('ItemReencryptor.run', () => {
     expect(upsertManualRecoveryEntry).toHaveBeenCalledWith('test-account', {
       itemId: 'item-bad',
       kind: 'snapshotFailure',
-      reason: expect.stringContaining('Corrupt document'),
+      detail: { code: 'reencryptionFailed', stage: 'build' },
     })
 
     // A build error isn't retried; only a document or vault that isn't ready is
@@ -360,7 +360,7 @@ describe('ItemReencryptor.run', () => {
     expect(upsertManualRecoveryEntry).toHaveBeenCalledWith('test-account', {
       itemId: 'item-bad-doc',
       kind: 'snapshotFailure',
-      reason: 'Re-encryption snapshot build failed: Failed to build snapshot for item item-bad-doc: Document data not available',
+      detail: { code: 'reencryptionFailed', stage: 'build' },
     })
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
     expect(onProgress).toHaveBeenCalledWith(3, 3)
@@ -426,7 +426,7 @@ describe('ItemReencryptor.run', () => {
     expect(upsertManualRecoveryEntry).toHaveBeenCalledWith('test-account', {
       itemId: 'item-always-not-ready',
       kind: 'snapshotFailure',
-      reason: 'Re-encryption snapshot build failed: Failed to build snapshot for item item-always-not-ready: Item item-always-not-ready document or vault was not ready',
+      detail: { code: 'reencryptionFailed', stage: 'build' },
     })
     expect(mockPutSnapshots).not.toHaveBeenCalled()
 
@@ -748,7 +748,7 @@ describe('ItemReencryptor.run', () => {
       expect(upsertManualRecoveryEntry).toHaveBeenCalledWith('test-account', {
         itemId: 'item-perm-fail',
         kind: 'snapshotFailure',
-        reason: expect.stringContaining('Re-encryption upload failed'),
+        detail: { code: 'reencryptionFailed', stage: 'upload' },
       })
     })
   })
@@ -891,7 +891,7 @@ describe('ItemReencryptor.run', () => {
       expect(upsertManualRecoveryEntry).toHaveBeenCalledWith('test-account', {
         itemId: 'item-1',
         kind: 'snapshotFailure',
-        reason: expect.stringContaining('Re-encryption upload failed'),
+        detail: { code: 'reencryptionFailed', stage: 'upload' },
       })
     })
   })
