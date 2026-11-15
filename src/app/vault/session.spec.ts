@@ -91,9 +91,16 @@ describe('vault session', () => {
 
     expect(SyncBridge.requestClearOnShutdown).toHaveBeenCalledWith('acct-1')
     expect(SyncBridge.shutdown).toHaveBeenCalledWith({ clearLocalData: true, accountId: 'acct-1' })
-    expect(unsubscribe).toHaveBeenCalledWith('acct-1')
+    expect(unsubscribe).toHaveBeenCalledWith('acct-1', { serverGone: false })
     expect(clearVaultDeviceData).toHaveBeenCalledWith('acct-1')
     expect(mocks.updateAuth).toHaveBeenCalledWith({ account: '', loggedIn: false })
+  })
+
+  it('removeVaultFromDevice only unsubscribes the browser for an account the server no longer has', async () => {
+    await removeVaultFromDevice({ accountDeleted: true })
+
+    expect(unsubscribe).toHaveBeenCalledWith('acct-1', { serverGone: true })
+    expect(clearVaultDeviceData).toHaveBeenCalledWith('acct-1')
   })
 
   it('removeVaultFromDevice forgets a deferred migration for the account only', async () => {

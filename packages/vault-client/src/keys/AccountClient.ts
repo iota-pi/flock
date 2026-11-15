@@ -144,3 +144,28 @@ export async function changePassword({
   })
   assertSuccess(response, 'changePassword')
 }
+
+/**
+ * Deletes every one of the account's items and log rows from the server, a round per request until
+ * none are left. Each round ends the account's other sessions first, so no other device can sync
+ * the items back up. Safe to call again after a failure: it carries on from what's left.
+ */
+export async function deleteAccountItems({ account, currentAuthToken }: {
+  account: string,
+  currentAuthToken: string,
+}): Promise<void> {
+  for (;;) {
+    const response = await getVaultTrpcClient().accounts.deleteItems.mutate({ account, currentAuthToken })
+    assertSuccess(response, 'deleteItems')
+    if (response.done) return
+  }
+}
+
+/** Deletes the account record from the server, ending every session */
+export async function deleteAccountRecord({ account, currentAuthToken }: {
+  account: string,
+  currentAuthToken: string,
+}): Promise<void> {
+  const response = await getVaultTrpcClient().accounts.deleteAccount.mutate({ account, currentAuthToken })
+  assertSuccess(response, 'deleteAccount')
+}

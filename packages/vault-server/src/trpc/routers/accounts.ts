@@ -8,6 +8,7 @@ import {
   LogoutBodySchema,
   UpdateKeyringBodySchema,
   ChangePasswordBodySchema,
+  DeleteAccountBodySchema,
   TOO_MANY_REQUESTS_MESSAGE,
   VersionConflictError,
 } from '@vault/shared'
@@ -26,6 +27,9 @@ import type { DataVersionPolicy } from '../../services/dataVersion'
 
 // Each attempt is a single conditional write, and a collision between random IDs is very unlikely
 const MAX_CREATE_ACCOUNT_ATTEMPTS = 10
+
+// The most rows one `deleteItems` call deletes from each table
+const DELETE_BATCH_LIMIT = 500
 
 /** What a client needs to derive an account's master key, plus its data version */
 interface SecurityParams {
@@ -305,6 +309,49 @@ export const accountsRouter = router({
         ])
       }
 
+      return { success: true }
+    }),
+
+  /**
+   * The first step of deleting an account: deletes a round of its items, then of its log rows, and
+   * reports whether any are left, so the client calls it until they're gone. Each call stays well
+   * within the Lambda's timeout, however much data the account has.
+   *
+   * It hard-deletes, which is safe only because the account is going: it first marks the account as
+   * being deleted, which stops it logging in, and ends every other session and forgets every login
+   * device, so no other device can sync the missing items back up.
+   */
+  deleteItems: protectedProcedure
+    .input(DeleteAccountBodySchema)
+    .mutation(async ({ ctx, input }) => {
+      assertCurrentAuthToken(ctx.accountData, input.currentAuthToken)
+
+      const currentSessionExpiry = findSession(ctx.accountData.sessions, ctx.authToken)?.expiry
+        ?? Date.now() + SESSION_EXPIRY_MS
+      await ctx.vault.updateAccountData({
+        account: input.account,
+        sessions: addSessionRecord([], ctx.authToken, currentSessionExpiry),
+        loginDevices: [],
+        deletingSince: ctx.accountData.deletingSince ?? Date.now(),
+      })
+
+      const items = await ctx.vault.deleteItems({ account: input.account, limit: DELETE_BATCH_LIMIT })
+      if (!items.done) {
+        return { success: true, done: false }
+      }
+      const log = await ctx.vault.deleteSyncLog({ account: input.account, limit: DELETE_BATCH_LIMIT })
+      return { success: true, done: log.done }
+    }),
+
+  /**
+   * The second step of deleting an account: deletes its record, which ends every session and stops its
+   * reminders. Clients call it after `deleteItems`, whose rows would be left with no way to delete them.
+   */
+  deleteAccount: protectedProcedure
+    .input(DeleteAccountBodySchema)
+    .mutation(async ({ ctx, input }) => {
+      assertCurrentAuthToken(ctx.accountData, input.currentAuthToken)
+      await ctx.vault.deleteAccount({ account: input.account })
       return { success: true }
     }),
 })

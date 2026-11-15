@@ -1,4 +1,5 @@
 import {
+  DeleteIcon,
   DownloadIcon,
   FrequencyIcon,
   LockIcon,
@@ -17,6 +18,7 @@ import {
 export type SettingsActionId =
   | 'lock'
   | 'removeAccount'
+  | 'deleteAccount'
   | 'toggleDarkMode'
   | 'toggleBiometrics'
   | 'openAutoLockDialog'
@@ -40,6 +42,8 @@ type SettingsItemConfig = {
   action: SettingsActionId
   valueRenderer?: SettingsValueRenderer
   disabledWhen?: 'noRecoveryItems' | 'biometricsUnsupported' | 'remindersUnavailable'
+  /** Shown in the error colour, for actions that destroy data */
+  danger?: boolean
 }
 
 type SettingsDividerConfig = {
@@ -160,4 +164,13 @@ export const settingsConfig: SettingsConfigEntry[] = [
     action: 'forceSync',
   },
   { type: 'divider', key: 'd5' },
+  {
+    type: 'item',
+    id: 'delete-account',
+    title: 'Delete account',
+    icon: DeleteIcon,
+    action: 'deleteAccount',
+    danger: true,
+  },
+  { type: 'divider', key: 'd6' },
 ]

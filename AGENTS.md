@@ -53,7 +53,7 @@ Read [docs/sync-design.md](docs/sync-design.md) before changing or reviewing any
 
 1. **The local Automerge doc in IndexedDB is the source of truth.** The log (incremental changes) and snapshots (full binaries) only deliver it. The server is a blind relay and never merges.
 2. **Never reuse an item ID or recreate a doc under an existing ID.** Deletes are terminal soft-deletes (tombstones). Oversized items (>350 KB) are handled by `recreateOversizedItem` with a new ID, never by in-place compaction. Keep the `hasDataInStorage` guard in `findOrCreateHandle`. The one exception is the account settings document, whose fixed ID devices may create concurrently; it is never deleted or recreated.
-3. **Never hard-delete server items.** Manifest sync would treat a missing item as an offline creation and re-upload it.
+3. **Never hard-delete server items.** Manifest sync would treat a missing item as an offline creation and re-upload it. The one exception is deleting a whole account (`accounts.deleteItems`), which first stops the account logging in and ends its other sessions, so no device can upload them again.
 4. **`SyncPoller.executePoll` must return `'failure'` if anything threw.** Reporting `'success'` resets backoff and can cause a 0ms re-poll loop. Waiting on a gap is never an immediate pull.
 5. **Shut down the Repo before clearing IndexedDB.** Don't run `clearSyncMetadataStorage` concurrently with per-store `.clear()` calls.
 6. **DocHandle listeners must use the same function reference** for `.on()` and `.off()`.

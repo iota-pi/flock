@@ -43,6 +43,11 @@ export const VaultAccountSchema = z.object({
   storageBytes: z.number().optional(),
   /** When `storageBytes` was last counted from the items themselves, rather than kept up by writes */
   storageCountedAt: z.number().optional(),
+  /**
+   * When the account's deletion started. From then on it can't be logged into, so a device that was
+   * signed in can't log in again and sync deleted items back up before the record is deleted.
+   */
+  deletingSince: z.number().optional(),
 })
 
 export const VaultAccountWithAuthSchema = VaultAccountSchema.extend({

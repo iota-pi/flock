@@ -259,6 +259,17 @@ describe('pushNotifications utility', () => {
       expect(current.unsubscribe).toHaveBeenCalled()
     })
 
+    it('unsubscribes only the browser for an account the server no longer has', async () => {
+      const current = browserSubscription('https://push.example.com/current', [1, 2, 3])
+      stubPushManager(current)
+
+      await unsubscribe('user-1', { serverGone: true })
+
+      expect(current.unsubscribe).toHaveBeenCalled()
+      expect(deletePushSubscription).not.toHaveBeenCalled()
+      expect(updateReminderSettings).not.toHaveBeenCalled()
+    })
+
     const OWNER_KEY = 'FlockPushSubscriptionOwner'
     const ownedBy = (account: string, endpoint: string) => {
       localStorage.setItem(OWNER_KEY, JSON.stringify({ account, endpoint }))

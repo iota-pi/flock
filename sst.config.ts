@@ -121,8 +121,9 @@ export default $config({
     // DynamoDB permissions
     // -----------------------------------------------------------------
     // Functions get the table names from their environment, not from links, because linking a table
-    // grants dynamodb:* on it. Each function instead gets only the actions it makes, so no role can
-    // delete an item (sync rule 3 in AGENTS.md) and only the migrations can scan. Transactions need
+    // grants dynamodb:* on it. Each function instead gets only the actions it makes, so only the API
+    // can delete an item, which it does only to delete a whole account (sync rule 3 in AGENTS.md), and
+    // only the migrations can scan. Transactions need
     // no actions of their own: DynamoDB checks each write in them. Add an action here when the code
     // starts making it, or it fails with AccessDenied once deployed (DynamoDB Local doesn't check).
     const dynamoAccess = (
@@ -164,10 +165,11 @@ export default $config({
       },
       link: [unknownAccountSecret],
       permissions: [
-        dynamoAccess(accountsTable, ["GetItem", "PutItem", "UpdateItem"]),
-        dynamoAccess(itemsTable, ["Query", "BatchGetItem", "UpdateItem"]),
+        // DeleteItem and BatchWriteItem are for deleting an account
+        dynamoAccess(accountsTable, ["GetItem", "PutItem", "UpdateItem", "DeleteItem"]),
+        dynamoAccess(itemsTable, ["Query", "BatchGetItem", "UpdateItem", "BatchWriteItem"]),
         // The head row's update and the message puts in each append's transaction
-        dynamoAccess(syncLogTable, ["GetItem", "Query", "PutItem", "UpdateItem"]),
+        dynamoAccess(syncLogTable, ["GetItem", "Query", "PutItem", "UpdateItem", "BatchWriteItem"]),
         dynamoAccess(loginThrottleTable, ["GetItem", "UpdateItem"]),
       ],
     });

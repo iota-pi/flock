@@ -5,6 +5,8 @@ import {
   getKeyring,
   updateKeyring,
   changePassword,
+  deleteAccountItems,
+  deleteAccountRecord,
 } from './AccountClient'
 import { getLegacyPbkdf2Iterations } from './kdf'
 import { getVaultTrpcClient } from './vaultTrpcClient'
@@ -19,6 +21,8 @@ const mockTrpcClient = {
     getKeyring: { query: vi.fn() },
     updateKeyring: { mutate: vi.fn() },
     changePassword: { mutate: vi.fn() },
+    deleteItems: { mutate: vi.fn() },
+    deleteAccount: { mutate: vi.fn() },
   },
 }
 
@@ -238,5 +242,43 @@ describe('AccountClient', () => {
       newKdf: ARGON2ID,
       newKeyring: 'new-keyring',
     })
+  })
+})
+
+describe('account deletion requests', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('deletes items a round at a time until the server reports none left', async () => {
+    const deleteItems = vi.mocked(getVaultTrpcClient().accounts.deleteItems.mutate)
+    deleteItems
+      .mockResolvedValueOnce({ success: true, done: false })
+      .mockResolvedValueOnce({ success: true, done: false })
+      .mockResolvedValueOnce({ success: true, done: true })
+
+    await deleteAccountItems({ account: 'acc-1', currentAuthToken: 'token' })
+
+    expect(deleteItems).toHaveBeenCalledTimes(3)
+    expect(deleteItems).toHaveBeenCalledWith({ account: 'acc-1', currentAuthToken: 'token' })
+  })
+
+  it('stops at a failed round, so that retrying carries on from what is left', async () => {
+    const deleteItems = vi.mocked(getVaultTrpcClient().accounts.deleteItems.mutate)
+    deleteItems
+      .mockResolvedValueOnce({ success: true, done: false })
+      .mockRejectedValueOnce(new Error('offline'))
+
+    await expect(deleteAccountItems({ account: 'acc-1', currentAuthToken: 'token' })).rejects.toThrow('offline')
+    expect(deleteItems).toHaveBeenCalledTimes(2)
+  })
+
+  it('deletes the account record', async () => {
+    const deleteAccount = vi.mocked(getVaultTrpcClient().accounts.deleteAccount.mutate)
+    deleteAccount.mockResolvedValueOnce({ success: true })
+
+    await deleteAccountRecord({ account: 'acc-1', currentAuthToken: 'token' })
+
+    expect(deleteAccount).toHaveBeenCalledWith({ account: 'acc-1', currentAuthToken: 'token' })
   })
 })

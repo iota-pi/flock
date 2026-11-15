@@ -82,9 +82,10 @@ export class LocalDataRemovalError extends Error {
 /**
  * Signs out, locks every other tab and deletes the account's data from this device. It always signs
  * out, and carries on past failures so it removes as much as it can, then throws
- * `LocalDataRemovalError` if anything was left behind.
+ * `LocalDataRemovalError` if anything was left behind. Pass `accountDeleted` once the server no longer
+ * has the account, so that it makes no more requests for it.
  */
-export async function removeVaultFromDevice() {
+export async function removeVaultFromDevice({ accountDeleted = false } = {}) {
   const { account, updateAuth } = useAppStore.getState()
   const failures: unknown[] = []
 
@@ -103,7 +104,7 @@ export async function removeVaultFromDevice() {
 
   if (account) {
     try {
-      await unsubscribeFromNotifications(account)
+      await unsubscribeFromNotifications(account, { serverGone: accountDeleted })
     } catch (error) {
       log.error('Failed to unsubscribe from notifications', error)
     }

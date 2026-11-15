@@ -40,6 +40,7 @@ function SettingsPage() {
   const reencryptDialog = useDialogState('reencrypt')
   const autoLockDialog = useDialogState('autoLock')
   const [confirmRemoveAccountOpen, setConfirmRemoveAccountOpen] = useState(false)
+  const setUi = useAppStore(state => state.setUi)
   // Still offered here after the user put off the update prompt
   const appUpdateReady = useAppStore(state => state.appUpdateReady)
 
@@ -66,6 +67,9 @@ function SettingsPage() {
     },
     removeAccount: () => {
       setConfirmRemoveAccountOpen(true)
+    },
+    deleteAccount: () => {
+      setUi({ deleteAccountOpen: true })
     },
     toggleDarkMode: actions.handleToggleDarkMode,
     toggleBiometrics: () => {
