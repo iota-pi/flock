@@ -82,7 +82,10 @@ export interface LogPushResult {
 
 /** What writing an item did */
 export interface SetItemResult {
-  /** The version the write gave the item */
+  /**
+   * The version the write gave the item, or 0 when nothing was written: a tombstone without a
+   * payload for an item the server doesn't have, which only an existing item may take
+   */
   version: number
   /** How many bytes the write added to the account's stored items (negative when it shrank them) */
   storageDelta: number
