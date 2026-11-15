@@ -1,8 +1,16 @@
 import { getServerSentryConfig } from './sentry'
 
 describe('getServerSentryConfig', () => {
-  it('turns off default PII', () => {
-    expect(getServerSentryConfig('https://fake@sentry.io/1').sendDefaultPii).toBe(false)
+  it('turns off collection of user data', () => {
+    expect(getServerSentryConfig('https://fake@sentry.io/1').dataCollection).toEqual({
+      userInfo: false,
+      cookies: false,
+      httpHeaders: false,
+      httpBodies: [],
+      urlQueryParams: false,
+      databaseQueryData: false,
+      stackFrameVariables: false,
+    })
   })
 
   it('removes request bodies and auth headers from events', () => {
