@@ -14,6 +14,45 @@ import { UploadIcon } from '../Icons'
 import { importPeople } from 'src/utils/importUtils'
 
 
+function parsePeopleCsv(text: string): Record<string, string>[] {
+  return parse<Record<string, string>>(text, {
+    skipEmptyLines: true,
+    columns: (headers: string[]) => headers.map(header => {
+      const normalised = header.replace(/[ _-]/g, '').toLowerCase()
+      const headersMap: Record<string, string> = {
+        name: 'name',
+        fullname: 'name',
+        firstname: 'firstname',
+        lastname: 'lastname',
+        surname: 'lastname',
+        description: 'description',
+        summary: 'notes',
+        notes: 'notes',
+      }
+      return headersMap[normalised] || null
+    }),
+    onRecord: record => {
+      if (typeof record.name === 'string') {
+        const nameParts = record.name.split(',')
+        if (nameParts.length > 1) {
+          return {
+            ...record,
+            name: nameParts[1] + nameParts[0],
+          }
+        }
+      }
+      return record
+    },
+  })
+}
+
+/** A message for a CSV parse error, which says where the problem is but not what the file contains */
+function describeCsvError(error: unknown): string {
+  const lines = typeof error === 'object' && error !== null && 'lines' in error ? error.lines : undefined
+  const where = typeof lines === 'number' ? ` near line ${lines}` : ''
+  return `This file could not be read as CSV${where}. Check its quotes and columns, then try again.`
+}
+
 interface Props {
   existingPeople: Item[],
   onClose: () => void,
@@ -60,35 +99,16 @@ function ImportPeopleDialog({
       if (files.length > 0) {
         const file = files[0]
         const text = await file.text()
-        const data = parse<Record<string, string>>(text, {
-          skipEmptyLines: true,
-          columns: (headers: string[]) => headers.map(header => {
-            const normalised = header.replace(/[ _-]/g, '').toLowerCase()
-            const headersMap: Record<string, string> = {
-              name: 'name',
-              fullname: 'name',
-              firstname: 'firstname',
-              lastname: 'lastname',
-              surname: 'lastname',
-              description: 'description',
-              summary: 'notes',
-              notes: 'notes',
-            }
-            return headersMap[normalised] || null
-          }),
-          onRecord: record => {
-            if (typeof record.name === 'string') {
-              const nameParts = record.name.split(',')
-              if (nameParts.length > 1) {
-                return {
-                  ...record,
-                  name: nameParts[1] + nameParts[0],
-                }
-              }
-            }
-            return record
-          },
-        })
+        let data: Record<string, string>[]
+        try {
+          data = parsePeopleCsv(text)
+        } catch (error) {
+          // csv-parse's messages quote the offending field, so they are shown here rather than
+          // thrown, where they would reach error telemetry
+          setImportedItems([])
+          setErrorMessage(describeCsvError(error))
+          return
+        }
         setErrorMessage('')
         const items = await importPeople(data)
         setImportedItems(items)
