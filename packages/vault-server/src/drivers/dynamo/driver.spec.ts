@@ -77,6 +77,28 @@ describe('DynamoDriver', function () {
     expect(result.metadata.deleted).toBe(true)
   })
 
+  it('writes nothing for a tombstone without a snapshot for an item it does not have', async () => {
+    const account = generateTestAccountId()
+    const item = generateItemId()
+
+    await expect(driver.set({ account, item, metadata: { iv: '', modified: Date.now(), deleted: true } }))
+      .resolves.toEqual({ version: 0, storageDelta: 0 })
+
+    await expect(driver.fetchByIds({ account, itemIds: [item] })).resolves.toEqual([])
+    await expect(driver.fetchManifest({ account })).resolves.toEqual([])
+  })
+
+  it('creates an item from a tombstone that carries a snapshot', async () => {
+    const account = generateTestAccountId()
+    const item = generateItemId()
+    const snapshot = { iv: 'snap-iv', cipher: 'c25hcHNob3Q=', kver: '1', format: 2 as const }
+
+    await expect(driver.set({ account, item, metadata: { iv: '', modified: Date.now(), deleted: true }, snapshot }))
+      .resolves.toMatchObject({ version: 1 })
+
+    const manifest = await driver.fetchManifest({ account })
+    expect(manifest).toEqual([expect.objectContaining({ itemId: item, isDeleted: true, version: 1 })])
+  })
 
   it('keeps an item deleted when a snapshot without the deletion is written after it', async () => {
     const account = generateTestAccountId()
@@ -300,6 +322,8 @@ describe('DynamoDriver', function () {
     await driver.set({ account, item: unbound, metadata: { iv: '', modified }, snapshot: { cipher: payload, iv: 'iv', kver: '1' } })
     await driver.set({ account, item: bound, metadata: { iv: '', modified }, snapshot: { cipher: payload, iv: 'iv', kver: '1', format: 2 } })
     await driver.set({ account, item: rotated, metadata: { iv: '', modified }, snapshot: { cipher: payload, iv: 'iv', kver: '2', format: 2 } })
+    // A payload-less tombstone only deletes an item the server already has, and keeps its snapshot
+    await driver.set({ account, item: deleted, cipher: 'legacy-cipher', metadata: { iv: 'iv', modified } })
     await driver.set({ account, item: deleted, metadata: { iv: '', modified, deleted: true } })
 
     const formats = await driver.listItemFormats({ account })
@@ -308,7 +332,7 @@ describe('DynamoDriver', function () {
       [unbound, { itemId: unbound, deleted: false, hasSnapshot: true, snapshotKver: '1', hasCipher: false }],
       [bound, { itemId: bound, deleted: false, hasSnapshot: true, snapshotFormat: 2, snapshotKver: '1', hasCipher: false }],
       [rotated, { itemId: rotated, deleted: false, hasSnapshot: true, snapshotFormat: 2, snapshotKver: '2', hasCipher: false }],
-      [deleted, { itemId: deleted, deleted: true, hasSnapshot: false, hasCipher: false }],
+      [deleted, { itemId: deleted, deleted: true, hasSnapshot: false, hasCipher: true }],
     ]))
   })
 
