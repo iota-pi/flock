@@ -81,28 +81,6 @@ export default $config({
         },
       },
     });
-    // Nothing reads or writes this since the sync log replaced it. It stays for repairs until its
-    // rows expire (see "First start" in docs/sync-design.md), and no function links to it.
-    new sst.aws.Dynamo("FlockSyncMessages", {
-      fields: {
-        syncId: "string",
-        cursor: "number",
-        account: "string",
-      },
-      primaryIndex: { hashKey: "syncId", rangeKey: "cursor" },
-      globalIndexes: {
-        AccountCursorIndex: { hashKey: "account", rangeKey: "cursor" },
-      },
-      transform: {
-        table: (args) => {
-          args.name = `FlockSyncMessages_${stage}`;
-          args.ttl = {
-            attributeName: "expiresAt",
-            enabled: true,
-          };
-        },
-      },
-    });
     const syncLogTable = new sst.aws.Dynamo("FlockSyncLog", {
       fields: {
         account: "string",

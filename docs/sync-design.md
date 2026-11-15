@@ -99,7 +99,7 @@ Every wait is bounded for a caller that asks: with `waitTimeoutMs`, waiting for 
 
 ## First start
 
-The log started empty at the cut, and nothing was copied from `FlockSyncMessages`: snapshots carry the data across, and each device uploads what it has that they lack. `FirstStart` moves each device across once per account. Old server heads can't be trusted, because they can name changes only the old table held.
+The log started empty at the cut, and nothing was copied from the table it replaced: snapshots carry the data across, and each device uploads what it has that they lack. `FirstStart` moves each device across once per account. Old server heads can't be trusted, because they can name changes only the old table held.
 
 - **Local part** (`runFirstStartLocalPart`): inside the `withLocalDataLock` call that opens local storage, it records every active item as `awaitingHeads`, marks it pending, clears the old server heads and cursors, and persists `firstStartReset`. The flag comes last, so an interrupted run repeats, and it never runs again, because a later tab would otherwise clear heads the leader has set.
 - **Network part** (`FirstStart.ensureSynced`, before the leader's first `pollLog`): it holds no lock, because it can wait indefinitely on an offline device. It runs catch-up's manifest sync, resolves each item from its manifest entry, pushes as normal and persists `firstStartSynced`. Then it clears any leftover WAL with `clearWriteAheadLog` and persists `walCleared`, retrying at the next start if that fails.
@@ -122,7 +122,6 @@ Two devices can upload an `awaitingSnapshot` item at once. S2 can't help, becaus
 
 - **The WAL wasn't migrated.** Nothing replays it, because each device's doc nearly always holds the same changes. A change that only reached the WAL (a tab killed straight after an edit, or a doc save that failed on full storage) was dropped at the cut: the one accepted exception to never resetting local data without the user confirming.
 - **Removing first start.** Its code stays until no device can still be on a pre-log build, and goes only with a later `MIN_PROTOCOL_VERSION` bump once every device has run it: a device that skipped it would trust old server heads.
-- **`FlockSyncMessages`** (the table the log replaced) is neither read nor written. It stays for repairs until its rows expire (90 days after the cut on 2026-11-05), and can then come out of `sst.config.ts`.
 
 ## Snapshot sync
 

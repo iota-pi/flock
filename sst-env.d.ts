@@ -26,10 +26,6 @@ declare module "sst" {
       "name": string
       "type": "sst.aws.Dynamo"
     }
-    "FlockSyncMessages": {
-      "name": string
-      "type": "sst.aws.Dynamo"
-    }
     "PushNotificationsDLQ": {
       "type": "sst.aws.Queue"
       "url": string
