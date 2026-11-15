@@ -1,9 +1,9 @@
 import {
   getActiveKeyVersion,
   getSecurityParams,
+  hasUsedArgon2id,
   lockVaultKeys,
   loginVault,
-  readStoredMetadata,
   reencryptAllItems,
   upgradeKeyDerivation,
   type DataVersionStatus,
@@ -59,8 +59,7 @@ export async function startMigration(account: string, password: string): Promise
 
   // A device that has used Argon2id for this account never derives a PBKDF2 key for it again: that
   // would hand the server an auth token far cheaper to guess the password from
-  const stored = readStoredMetadata()
-  if (!params.kdf && stored?.account === account && stored.kdf) {
+  if (!params.kdf && hasUsedArgon2id(account)) {
     throw new KeyDerivationDowngradeError()
   }
 

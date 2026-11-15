@@ -10,7 +10,7 @@ import {
   establishSessionFromKeyHash,
   notifyLateSession,
 } from './session'
-import { readStoredMetadata, rememberKeyVersion, writeStoredMetadata } from './storedMetadata'
+import { isStoredAsPbkdf2, rememberKeyVersion, writeStoredMetadata } from './storedMetadata'
 import { ApiHttpError } from './trackedFetch'
 import { pinKnownKeyVersions, rotateOffKeyV1, syncKeyringFromServer } from './vault'
 import { getHostHooks } from './vaultHost'
@@ -79,10 +79,9 @@ export async function unlockWithBiometrics(account: string): Promise<void> {
   })
 
   const derivedKey = await importVaultKey(exportedMasterKey)
-  // The stored parameters may be another account's (whoever logged in last). Only this account's
-  // say it's PBKDF2; otherwise its keys come from the cache or the server, never the master key.
-  const meta = readStoredMetadata()
-  vaultKeys.setMasterKey(derivedKey, meta?.account === account && !meta.kdf)
+  // Only metadata that says outright this account is PBKDF2 makes the master key its data key v1.
+  // Otherwise its keys come from the cache or the server, never the master key.
+  vaultKeys.setMasterKey(derivedKey, isStoredAsPbkdf2(account))
   vaultKeys.keyHash = await hashVaultKey(derivedKey)
   pinKnownKeyVersions(account)
 

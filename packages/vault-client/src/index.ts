@@ -21,7 +21,7 @@ export {
   subscribeBiometrics,
 } from './keys/biometricStore'
 export { isWebAuthnPrfSupported } from './keys/webauthn'
-export { readStoredMetadata } from './keys/storedMetadata'
+export { hasUsedArgon2id, readStoredMetadata } from './keys/storedMetadata'
 export { configureVaultHost, type VaultHostHooks } from './keys/vaultHost'
 export type { KeyProvider } from './keys/Keyring'
 export { createAccount, getSecurityParams } from './keys/AccountClient'

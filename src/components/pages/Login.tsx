@@ -111,8 +111,8 @@ type SecurityParamsResult =
  * Without them, the login can't go ahead unless the request succeeds, so it's retried.
  */
 async function resolveSecurityParams(account: string): Promise<SecurityParamsResult> {
-  const cached = readStoredMetadata()
-  const cachedParams = cached?.salt && cached.account === account
+  const cached = readStoredMetadata(account)
+  const cachedParams = cached?.salt
     ? { salt: cached.salt, iterations: cached.iterations, saltVersion: cached.saltVersion, kdf: cached.kdf }
     : null
   try {

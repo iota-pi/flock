@@ -100,6 +100,20 @@ describe('migration', () => {
     expect(loginVault).not.toHaveBeenCalled()
   })
 
+  it('still refuses PBKDF2 parameters after another account has logged in on this device', async () => {
+    localStorage.setItem('FlockVaultMeta', JSON.stringify({
+      account: 'acct-2',
+      accounts: {
+        'acct-1': { salt: 'salt', saltVersion: 1, kdf: ARGON2ID, keyDerivation: 'argon2id', usedArgon2id: true },
+        'acct-2': { salt: 'salt-2', saltVersion: 1, kdf: ARGON2ID, keyDerivation: 'argon2id', usedArgon2id: true },
+      },
+    }))
+    vi.mocked(getSecurityParams).mockResolvedValue({ salt: 'salt', iterations: 100_000, saltVersion: 1, dataVersion: 1 })
+
+    await expect(startMigration('acct-1', 'password')).rejects.toBeInstanceOf(KeyDerivationDowngradeError)
+    expect(loginVault).not.toHaveBeenCalled()
+  })
+
   it('changes the password with the vault, then starts sync separately', async () => {
     await changeToArgon2id('acct-1', 'new-password')
     expect(upgradeKeyDerivation).toHaveBeenCalledWith('acct-1', 'new-password')
