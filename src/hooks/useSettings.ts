@@ -13,12 +13,11 @@ import { createLogger } from 'src/utils/logger'
 import env from 'src/env'
 import {
   getAutoLockSummary,
-  markManualLock,
   readAutoLockSettings,
   writeAutoLockSettings,
   type AutoLockSettings,
 } from '../app/vault/autoLockStore'
-import { lockVault, removeVaultFromDevice } from '../app/vault/session'
+import { lockVaultEverywhere, removeVaultFromDevice } from '../app/vault/session'
 import { useMetadata } from '../state/selectors'
 import { useAppStore } from '../state/store'
 import type { Frequency } from '../utils/frequencies'
@@ -81,8 +80,7 @@ export default function useSettings(items: Item[]) {
   // Actions
   const handleLock = useCallback(
     async () => {
-      markManualLock()
-      await lockVault()
+      await lockVaultEverywhere()
       setMessage({ message: 'App locked' })
     },
     [setMessage],
@@ -90,8 +88,17 @@ export default function useSettings(items: Item[]) {
 
   const handleRemoveAccountFromDevice = useCallback(
     async () => {
-      await removeVaultFromDevice()
-      setMessage({ message: 'Signed out and removed local data' })
+      try {
+        await removeVaultFromDevice()
+        setMessage({ message: 'Signed out and removed local data' })
+      } catch (error) {
+        log.error('Failed to remove local data', error)
+        setMessage({
+          severity: 'error',
+          message: 'Signed out, but some data could not be removed from this device. Close every Flock tab, '
+            + "then clear this site's data in your browser settings.",
+        })
+      }
     },
     [setMessage],
   )

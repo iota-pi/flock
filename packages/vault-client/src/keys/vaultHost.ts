@@ -1,6 +1,6 @@
 import { deriveVaultKey, type DeriveLegacyKey } from './crypto'
 import { setKdfWorkerFactory } from './kdf'
-import type { VaultBroadcastEvent } from './vaultEvents'
+import { isOwnVaultEvent, type VaultBroadcastEvent } from './vaultEvents'
 import { getVaultStorageNames } from '../shared/storageNames'
 
 export interface VaultHostHooks {
@@ -13,6 +13,17 @@ export interface VaultHostHooks {
    * tab. The app should update itself (fetch the new service worker and reload).
    */
   onClientOutdated?: () => void
+  /**
+   * Called when the user locked the vault in another tab (`announceVaultLocked`). The app should lock
+   * this tab too.
+   */
+  onVaultLockedElsewhere?: (account: string) => void
+  /**
+   * Called when another tab is removing the account from this device (`announceVaultRemoved`). The
+   * app should lock this tab at once, closing its databases so they can be deleted, and forget the
+   * account.
+   */
+  onVaultRemovedElsewhere?: (account: string) => void
   /**
    * Decodes salts from before `saltVersion` 1, so accounts that still use them can log in (and be
    * upgraded). Without it, logging in to such an account fails.
@@ -40,11 +51,17 @@ export function configureVaultHost(hooks: VaultHostHooks): void {
 
   vaultEventsListener?.close()
   vaultEventsListener = null
-  if (hooks.onClientOutdated && typeof BroadcastChannel !== 'undefined') {
+  const listens = hooks.onClientOutdated || hooks.onVaultLockedElsewhere || hooks.onVaultRemovedElsewhere
+  if (listens && typeof BroadcastChannel !== 'undefined') {
     vaultEventsListener = new BroadcastChannel(getVaultStorageNames().vaultEventsChannel)
     vaultEventsListener.onmessage = (event: MessageEvent<VaultBroadcastEvent>) => {
-      if (event.data?.type === 'CLIENT_OUTDATED') {
+      const data = event.data
+      if (data?.type === 'CLIENT_OUTDATED') {
         hostHooks.onClientOutdated?.()
+      } else if (data?.type === 'VAULT_LOCKED' && !isOwnVaultEvent(data)) {
+        hostHooks.onVaultLockedElsewhere?.(data.account)
+      } else if (data?.type === 'VAULT_REMOVED' && !isOwnVaultEvent(data)) {
+        hostHooks.onVaultRemovedElsewhere?.(data.account)
       }
     }
   }

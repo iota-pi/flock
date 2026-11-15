@@ -330,19 +330,32 @@ export async function storeVault(account: string, activeVersionOverride?: string
  * older build left, manual recovery entries and any interrupted re-encryption marker. Shut the sync
  * worker down (clearing its local data) before calling this.
  */
+/**
+ * Forgets the account's keys, session and local stores on this device. Tries every step even when
+ * one fails (so the keyring cache is always cleared), then rethrows the first failure.
+ */
 export async function clearVaultDeviceData(account?: string) {
-  if (account) {
-    await clearSyncLogStorage(account)
-    await clearWriteAheadLog(account)
-    await clearManualRecoveryEntries(account)
-    clearPendingReencryption(account)
+  let firstError: unknown = null
+  const attempt = async (step: () => unknown) => {
+    try {
+      await step()
+    } catch (error) {
+      firstError ??= error
+    }
   }
-  clearKeyData()
-  clearBiometricData()
-  clearCachedKeyring()
-  clearDeviceToken()
-  deleteStoredSessionToken()
-  clearStoredMetadata()
+  if (account) {
+    await attempt(() => clearSyncLogStorage(account))
+    await attempt(() => clearWriteAheadLog(account))
+    await attempt(() => clearManualRecoveryEntries(account))
+    await attempt(() => clearPendingReencryption(account))
+  }
+  await attempt(clearKeyData)
+  await attempt(clearBiometricData)
+  await attempt(clearCachedKeyring)
+  await attempt(clearDeviceToken)
+  await attempt(deleteStoredSessionToken)
+  await attempt(clearStoredMetadata)
+  if (firstError) throw firstError
 }
 
 export function exportData<T>(payload: T): Promise<CryptoResult> {

@@ -8,6 +8,7 @@ import { handleClientOutdated } from './clientOutdated'
 import { MIGRATION_CHANNEL, type MigrationChannelMessage } from '../../migrate/detection'
 import { handleMigrationMessage } from './migrationTakeover'
 import { forceAppUpdate } from '../appUpdate'
+import { handleVaultLockedElsewhere, handleVaultRemovedElsewhere } from './session'
 import { isCypress } from './cypress'
 
 // Configures the vault on the main thread. Imported first by src/index.tsx so it runs before any vault code.
@@ -25,6 +26,12 @@ configureVaultHost({
       showWarning: message => useAppStore.getState().setSyncWarning(message),
       applyUpdate: forceAppUpdate,
     })
+  },
+  onVaultLockedElsewhere: account => {
+    void handleVaultLockedElsewhere(account)
+  },
+  onVaultRemovedElsewhere: account => {
+    void handleVaultRemovedElsewhere(account)
   },
   createKdfWorker: typeof Worker === 'undefined'
     ? undefined
