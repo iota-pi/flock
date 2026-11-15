@@ -120,7 +120,11 @@ const establishSession = () => {
   })
 }
 
+/** Top-level suites that only make HTTP requests, so they need no account or page */
+const SESSIONLESS_SUITES = new Set(['Security headers'])
+
 beforeEach(() => {
+  if (SESSIONLESS_SUITES.has(Cypress.currentTest.titlePath[0])) return
   establishSession()
   cy.injectAxe()
 })
