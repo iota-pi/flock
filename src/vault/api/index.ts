@@ -1,5 +1,6 @@
 import { createHmac } from 'crypto'
-import Fastify from 'fastify'
+import { awsLambdaFastify } from '@fastify/aws-lambda'
+import Fastify, { type FastifyInstance } from 'fastify'
 import cors from '@fastify/cors'
 import * as Sentry from '@sentry/node'
 import { TRPCError } from '@trpc/server'
@@ -50,9 +51,10 @@ const SIGNUP_THROTTLE_KEY_LABEL = 'flock-signup-throttle'
 /**
  * Limits sign-ups per network, keyed by an HMAC derived from UNKNOWN_ACCOUNT_SECRET, so it needs no
  * secret of its own. A local server has no secret, and isn't limited, so e2e runs can create as many
- * accounts as they like. `request.ip` is the Function URL's `sourceIp`, which AWS sets and clients
- * can't forge. Behind a CDN or proxy it would be the proxy's address, so every sign-up would share
- * one limit: read the client's address from the proxy's header (with `trustProxy`) before adding one.
+ * accounts as they like. `request.ip` is the event's `sourceIp` (`createLambdaProxy`): the address
+ * that connected to API Gateway, or to the Function URL older builds call, which AWS sets and clients
+ * can't forge. Behind a CDN or proxy (including Cloudflare's, on the API's DNS record) it would be the
+ * proxy's address, so every sign-up would share one limit (see sst.config.ts).
  */
 export function getSignupThrottle(): SignupThrottleOptions | undefined {
   const secret = readSecret('UNKNOWN_ACCOUNT_SECRET')
@@ -119,6 +121,19 @@ async function createServer(devMode = false) {
   })
 
   return server
+}
+
+/**
+ * Answers Lambda events from API Gateway (payload format 2.0) and the Function URL, which share a
+ * shape. The adapter gives Fastify `requestContext.http.sourceIp` as the client's address, ignoring
+ * any X-Forwarded-For the client sent, and the sign-up limit relies on that.
+ */
+export function createLambdaProxy(server: FastifyInstance) {
+  return awsLambdaFastify(server, {
+    decorateRequest: true,
+    serializeLambdaArguments: true,
+    parseCommaSeparatedQueryParams: false,
+  })
 }
 
 export default createServer
