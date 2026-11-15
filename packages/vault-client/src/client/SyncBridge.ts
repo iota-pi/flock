@@ -121,6 +121,9 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
           onVisibilityChange: (visible, returned) => {
             this.withSyncApi(api => fireAndForget(api.setVisibility(visible, returned), 'SyncBridge:setVisibility'))
           },
+          onUserActivity: () => {
+            this.withSyncApi(api => fireAndForget(api.reportActivity(), 'SyncBridge:reportActivity'))
+          },
           onKeyringChange: () => {
             fireAndForget(this.handleKeyringUpdate(), 'SyncBridge:handleKeyringUpdate')
           },

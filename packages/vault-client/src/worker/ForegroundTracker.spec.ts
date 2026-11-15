@@ -5,16 +5,18 @@ import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 describe('ForegroundTracker', () => {
   let fakeBus: FakeRealtimeBus
   let onPeerReturned: ReturnType<typeof vi.fn<() => void>>
+  let onActivity: ReturnType<typeof vi.fn<() => void>>
   let tracker: ForegroundTracker
 
   function createTracker(isVisible: boolean): ForegroundTracker {
-    return new ForegroundTracker({ bus: fakeBus.bus, isVisible, onPeerReturned })
+    return new ForegroundTracker({ bus: fakeBus.bus, isVisible, onPeerReturned, onActivity })
   }
 
   beforeEach(() => {
     vi.useFakeTimers()
     fakeBus = createFakeRealtimeBus()
     onPeerReturned = vi.fn<() => void>()
+    onActivity = vi.fn<() => void>()
   })
 
   afterEach(() => {
@@ -96,6 +98,69 @@ describe('ForegroundTracker', () => {
 
     fakeBus.receiveTabVisibility({ tabId: 'peer', visible: true, returned: true })
     expect(onPeerReturned).toHaveBeenCalledTimes(2)
+  })
+
+  describe('activity', () => {
+    it('is active for the activity window after input in this tab, and tells the other tabs', () => {
+      tracker = createTracker(true)
+      tracker.start()
+      expect(tracker.isActive).toBe(false)
+
+      tracker.recordActivity()
+      expect(tracker.isActive).toBe(true)
+      expect(onActivity).toHaveBeenCalledTimes(1)
+      expect(fakeBus.publishTabVisibility).toHaveBeenLastCalledWith(
+        expect.objectContaining({ visible: true, returned: false, active: true }),
+      )
+
+      vi.advanceTimersByTime(SYNC_TIMEOUTS.activityWindow - 1)
+      expect(tracker.isActive).toBe(true)
+      vi.advanceTimersByTime(1)
+      expect(tracker.isActive).toBe(false)
+    })
+
+    it('does not mark regular pings as activity', () => {
+      tracker = createTracker(true)
+      tracker.start()
+      vi.advanceTimersByTime(SYNC_TIMEOUTS.foregroundPingInterval)
+      expect(fakeBus.publishTabVisibility).toHaveBeenLastCalledWith(expect.objectContaining({ active: false }))
+    })
+
+    it('counts activity a visible peer reports', () => {
+      tracker = createTracker(false)
+      tracker.start()
+
+      fakeBus.receiveTabVisibility({ tabId: 'peer', visible: true, returned: false })
+      expect(tracker.isActive).toBe(false)
+
+      fakeBus.receiveTabVisibility({ tabId: 'peer', visible: true, returned: false, active: true })
+      expect(tracker.isActive).toBe(true)
+      expect(onActivity).toHaveBeenCalledTimes(1)
+    })
+
+    it('is never active while no tab is visible', () => {
+      tracker = createTracker(false)
+      tracker.start()
+
+      tracker.noteActivity()
+      expect(onActivity).toHaveBeenCalledTimes(1)
+      expect(tracker.isActive).toBe(false)
+
+      tracker.setVisible(true, true)
+      expect(tracker.isActive).toBe(true)
+    })
+
+    it('tells the other tabs of input only while visible, and not of noted activity', () => {
+      tracker = createTracker(false)
+      tracker.start()
+      tracker.recordActivity()
+      expect(fakeBus.publishTabVisibility).not.toHaveBeenCalled()
+
+      tracker.setVisible(true, true)
+      const published = fakeBus.publishTabVisibility.mock.calls.length
+      tracker.noteActivity()
+      expect(fakeBus.publishTabVisibility).toHaveBeenCalledTimes(published)
+    })
   })
 
   it('tells the other tabs it is hidden when it stops, and stops listening', () => {

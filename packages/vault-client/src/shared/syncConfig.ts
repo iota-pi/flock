@@ -22,8 +22,18 @@ export const SYNC_TIMEOUTS = {
   recoveryCooldown: 60_000,
   /** Timeout for deleting IndexedDB databases during account data wipe */
   localDataCleanup: 5000,
-  /** Interval between polls while none of the account's tabs on this device is visible */
-  hiddenPollInterval: 5 * 60 * 1000,
+  /** Least interval between polls while the user is active (`activityWindow`) in a visible tab */
+  activePollMin: 10_000,
+  /** Most interval between polls while the user is active. Each poll picks at random in between. */
+  activePollMax: 15_000,
+  /** Least interval between polls while none of the account's tabs on this device is visible */
+  hiddenPollMin: 5 * 60 * 1000,
+  /** Most interval between polls while no tab is visible. Each poll picks at random in between. */
+  hiddenPollMax: 10 * 60 * 1000,
+  /** How long input in a tab, or changes pulled from another device, keep polls at the active rate */
+  activityWindow: 2 * 60 * 1000,
+  /** The most often a tab reports the user's input, to the worker and to the account's other tabs */
+  activityReportThrottle: 5000,
   /** A tab coming back into view polls only if the last poll finished at least this long ago */
   foregroundPollMinGap: 10_000,
   /** How often a visible tab tells the account's other tabs that it's still visible */

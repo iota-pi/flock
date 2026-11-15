@@ -130,7 +130,12 @@ Two devices can upload an `awaitingSnapshot` item at once. S2 can't help, becaus
 - When offline, the orchestrator stops polling and `SnapshotManager` halts retries. On reconnect, backoff resets and a poll runs immediately.
 - **The sync indicator counts pending marks only** (`countUnpushedChanges`). A dirty item's changes are already in the log, so showing it would report edits as waiting for the whole debounce. `getUnsyncedChanges`, for removing an account or exporting a backup, counts dirty items too: a device that hydrates after the TTL has only snapshots to go on.
 - **Stuck items.** Marks older than `stuckPendingAge` (a day) are reported as `stuckItems` by reason: the item's first-start state, else the mark's `blocked`, else `unknown`. The indicator shows them as delayed, with what holds each up, rather than as syncing shortly.
-- **Poll cadence follows visibility.** The leader polls every 30s while any of the account's tabs on the device is visible, and every `hiddenPollInterval` (5 min) while none is. Failure backoff overrides both, and local edits still flush at once. When the user comes back to a tab (it becomes visible or gets focus), `SyncOrchestrator.onForeground` polls now and resets backoff, unless a poll is running or one finished in the last `foregroundPollMinGap` (10s). There's no server push: Web Push would show a notification for every nudge.
+- **Poll cadence follows visibility and activity.** The leader polls at one of three rates, which `SyncOrchestrator` picks each time it schedules a poll:
+  - **Active (10–15s).** A tab is visible and there was activity in the last `activityWindow` (2 min). Activity is input in any of the account's tabs (`SyncDOMListeners` reports it at most every 5s, and the tab-visibility message carries it to the other tabs), or a pull that applied changes from another device.
+  - **Idle (30s).** A tab is visible but nothing happened lately.
+  - **Hidden (5–10 min).** None of the account's tabs on the device is visible.
+
+  The active and hidden delays are drawn afresh at random from their ranges, which is their jitter. When activity starts while the next poll is more than 15s away, `onActivity` brings it forward. Failure backoff overrides all three, and local edits still flush at once. When the user comes back to a tab (it becomes visible or gets focus), `SyncOrchestrator.onForeground` polls now and resets backoff, unless a poll is running or one finished in the last `foregroundPollMinGap` (10s). There's no server push: Web Push would show a notification for every nudge.
 
 ### Monotonic versions (no clock-based reconciliation)
 

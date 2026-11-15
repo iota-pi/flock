@@ -71,6 +71,8 @@ export interface SyncApi<TDoc extends VaultDoc = VaultDoc, TMeta extends VaultMe
    * polls now if its last poll is stale or polling is backing off.
    */
   setVisibility: (visible: boolean, returned?: boolean) => Promise<void>
+  /** Records that the user is using the page, so the leader polls at the active rate for a while */
+  reportActivity: () => Promise<void>
   /**
    * Reports this device's data level and asks the server to raise the account's, which it does only
    * once the account's data has none of the app's blockers. For an app's migration app.

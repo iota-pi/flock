@@ -160,6 +160,7 @@ beforeEach(() => {
       claimLeader = vi.fn()
       flush = vi.fn()
       onForeground = vi.fn()
+      onActivity = vi.fn()
     },
   })
   spyOnExports(lastModifiedStoreModule, {
@@ -325,20 +326,35 @@ describe('SyncWorkerContext', () => {
   it('tells the other tabs its visibility, and polls when the user comes back', () => {
     context.setVisibility(false)
     expect(realtimeBus.publishTabVisibility).toHaveBeenLastCalledWith(expect.objectContaining({ visible: false }))
-    expect(depsOf<SyncOrchestratorDeps>(context.services.orchestrator).isForeground!()).toBe(false)
+    expect(depsOf<SyncOrchestratorDeps>(context.services.orchestrator).getCadence!()).toBe('hidden')
     expect(context.services.orchestrator.onForeground).not.toHaveBeenCalled()
 
     context.setVisibility(true, true)
     expect(realtimeBus.publishTabVisibility).toHaveBeenLastCalledWith(expect.objectContaining({ visible: true, returned: true }))
-    expect(depsOf<SyncOrchestratorDeps>(context.services.orchestrator).isForeground!()).toBe(true)
+    expect(depsOf<SyncOrchestratorDeps>(context.services.orchestrator).getCadence!()).toBe('idle')
     expect(context.services.orchestrator.onForeground).toHaveBeenCalledTimes(1)
   })
 
   it('polls when another tab of the account comes into view', () => {
     context.setVisibility(false)
     realtimeBus.receiveTabVisibility({ tabId: 'other-tab', visible: true, returned: true })
-    expect(depsOf<SyncOrchestratorDeps>(context.services.orchestrator).isForeground!()).toBe(true)
+    expect(depsOf<SyncOrchestratorDeps>(context.services.orchestrator).getCadence!()).toBe('idle')
     expect(context.services.orchestrator.onForeground).toHaveBeenCalledTimes(1)
+  })
+
+  it('polls at the active rate after input here, tells the other tabs, and tells the orchestrator', () => {
+    context.setVisibility(true)
+    context.reportActivity()
+    expect(realtimeBus.publishTabVisibility).toHaveBeenLastCalledWith(expect.objectContaining({ active: true }))
+    expect(depsOf<SyncOrchestratorDeps>(context.services.orchestrator).getCadence!()).toBe('active')
+    expect(context.services.orchestrator.onActivity).toHaveBeenCalledTimes(1)
+  })
+
+  it('polls at the active rate after input in another tab', () => {
+    context.setVisibility(false)
+    realtimeBus.receiveTabVisibility({ tabId: 'other-tab', visible: true, returned: false, active: true })
+    expect(depsOf<SyncOrchestratorDeps>(context.services.orchestrator).getCadence!()).toBe('active')
+    expect(context.services.orchestrator.onActivity).toHaveBeenCalledTimes(1)
   })
 
   describe('manual recovery event handling', () => {

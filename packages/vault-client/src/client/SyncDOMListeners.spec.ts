@@ -1,5 +1,6 @@
 import { SyncDOMListeners, type SyncDOMListenersCallbacks } from './SyncDOMListeners'
 import { getVaultStorageNames } from '../shared/storageNames'
+import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 
 describe('SyncDOMListeners', () => {
   let listeners: SyncDOMListeners
@@ -89,6 +90,54 @@ describe('SyncDOMListeners', () => {
     expect(onVisibilityChange).toHaveBeenCalledTimes(1)
   })
 
+  describe('user activity', () => {
+    let onUserActivity: ReturnType<typeof vi.fn<() => void>>
+
+    beforeEach(() => {
+      vi.useFakeTimers()
+      onUserActivity = vi.fn<() => void>()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('reports input on the visible page at most once per throttle window', () => {
+      vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+      listeners.start({ ...callbacks, onUserActivity })
+
+      window.dispatchEvent(new Event('pointerdown'))
+      window.dispatchEvent(new Event('keydown'))
+      document.body.dispatchEvent(new Event('wheel', { bubbles: true }))
+      expect(onUserActivity).toHaveBeenCalledTimes(1)
+
+      vi.advanceTimersByTime(SYNC_TIMEOUTS.activityReportThrottle - 1)
+      window.dispatchEvent(new Event('touchstart'))
+      expect(onUserActivity).toHaveBeenCalledTimes(1)
+
+      vi.advanceTimersByTime(1)
+      window.dispatchEvent(new Event('touchstart'))
+      expect(onUserActivity).toHaveBeenCalledTimes(2)
+    })
+
+    it('ignores input while the page is hidden', () => {
+      vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+      listeners.start({ ...callbacks, onUserActivity })
+
+      window.dispatchEvent(new Event('keydown'))
+      expect(onUserActivity).not.toHaveBeenCalled()
+    })
+
+    it('stops reporting input once stopped', () => {
+      vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+      listeners.start({ ...callbacks, onUserActivity })
+      listeners.stop()
+
+      window.dispatchEvent(new Event('pointerdown'))
+      expect(onUserActivity).not.toHaveBeenCalled()
+    })
+  })
+
   it('handles storage events for the keyring cache key', () => {
     listeners.start(callbacks)
 
@@ -130,6 +179,7 @@ describe('SyncDOMListeners', () => {
     expect(windowRemoveSpy).toHaveBeenCalledWith('offline', expect.any(Function))
     expect(windowRemoveSpy).toHaveBeenCalledWith('pagehide', expect.any(Function))
     expect(windowRemoveSpy).toHaveBeenCalledWith('storage', expect.any(Function))
+    expect(windowRemoveSpy).toHaveBeenCalledWith('pointerdown', expect.any(Function), expect.objectContaining({ capture: true }))
     expect(documentRemoveSpy).toHaveBeenCalledWith('visibilitychange', expect.any(Function))
 
     // Dispatched events after stop should not trigger callbacks

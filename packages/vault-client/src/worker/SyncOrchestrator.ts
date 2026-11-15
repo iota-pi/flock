@@ -34,11 +34,28 @@ export interface SyncOrchestratorDeps {
   onLeaderOverlapChange?: (hasMultipleLeaders: boolean) => void
   /** Receives each poll's outcome */
   onPollResult?: (outcome: PollOutcome) => void
-  /** Whether any of the account's tabs is visible. Polls slow to `hiddenPollInterval` while none is. */
-  isForeground?: () => boolean
+  /**
+   * How often to poll while nothing is failing: `active` (10–15s) while the user is using one of the
+   * account's visible tabs or changes just came from another device, `idle` (30s) while a tab is
+   * visible, and `hidden` (5–10 min) while none is. Defaults to `idle`.
+   */
+  getCadence?: () => PollCadence
 }
 
+export type PollCadence = 'active' | 'idle' | 'hidden'
+
 const DEFAULT_MANIFEST_SYNC_INTERVAL_MS = SYNC_TIMEOUTS.manifestSyncInterval
+
+/** A whole number of milliseconds picked uniformly from `min` to `max` */
+function randomBetween(min: number, max: number): number {
+  return Math.floor(min + Math.random() * (max - min + 1))
+}
+
+interface PollDelay {
+  delayMs: number
+  /** Whether the delay was picked from a range, which spreads polls out already, so no jitter is added */
+  isSpread: boolean
+}
 
 export class SyncOrchestrator {
   private leaderElection: LeaderElectionLike | null = null
@@ -46,6 +63,8 @@ export class SyncOrchestrator {
 
   private pendingFlush = false
   private lastPollFinishedAt = 0
+  /** When the pending poll timer fires. Only meaningful while `pollTimer.isPending`. */
+  private nextPollAt = 0
   private readonly pollGuard = new SingleFlightGuard<void>()
   private readonly cursorReloadGuard = new SingleFlightGuard<void>()
   private readonly pollRun = new AbortableRun(() => this.isOperational)
@@ -172,6 +191,19 @@ export class SyncOrchestrator {
     this.startPolling()
   }
 
+  /**
+   * Brings the next poll forward to the active rate when activity starts while it's further off,
+   * so the user doesn't wait out the rest of an idle interval. Never polls at once, and leaves
+   * failure backoff alone.
+   */
+  onActivity(): void {
+    if (this.isShutdown || !this.deps.session.isOnline || !this.deps.session.isLeader) return
+    if (this.pollingPausedForAuth || this.pollBackoff.attempt > 0 || !this.pollTimer.isPending) return
+    if (this.cadence !== 'active') return
+    if (this.nextPollAt - Date.now() <= SYNC_TIMEOUTS.activePollMax) return
+    this.schedulePollTimer(randomBetween(SYNC_TIMEOUTS.activePollMin, SYNC_TIMEOUTS.activePollMax), { jitter: false })
+  }
+
   flush(): void {
     if (this.isShutdown) return
     this.pollingPausedForAuth = false
@@ -228,22 +260,35 @@ export class SyncOrchestrator {
     }
   }
 
-  private schedulePollTimer(delayMs: number): void {
+  private schedulePollTimer(delayMs: number, options?: { jitter?: boolean }): void {
     if (!this.canPoll()) {
       return
     }
 
-    this.pollTimer.schedule(this.pollBackoff.applyJitter(delayMs), () => {
+    const scheduledDelay = options?.jitter === false ? delayMs : this.pollBackoff.applyJitter(delayMs)
+    this.nextPollAt = Date.now() + scheduledDelay
+    this.pollTimer.schedule(scheduledDelay, () => {
       fireAndForget(this.executeWrappedPoll(), 'SyncOrchestrator:executeWrappedPoll')
     })
   }
 
-  /** The backoff delay after failures, otherwise the foreground or hidden interval */
-  private get nextPollDelay(): number {
-    if (this.pollBackoff.attempt > 0 || (this.deps.isForeground?.() ?? true)) {
-      return this.pollBackoff.currentBaseDelay
+  private get cadence(): PollCadence {
+    return this.deps.getCadence?.() ?? 'idle'
+  }
+
+  /** The backoff delay after failures, otherwise the interval for the current cadence */
+  private get nextPollDelay(): PollDelay {
+    if (this.pollBackoff.attempt > 0) {
+      return { delayMs: this.pollBackoff.currentBaseDelay, isSpread: false }
     }
-    return SYNC_TIMEOUTS.hiddenPollInterval
+    switch (this.cadence) {
+      case 'active':
+        return { delayMs: randomBetween(SYNC_TIMEOUTS.activePollMin, SYNC_TIMEOUTS.activePollMax), isSpread: true }
+      case 'hidden':
+        return { delayMs: randomBetween(SYNC_TIMEOUTS.hiddenPollMin, SYNC_TIMEOUTS.hiddenPollMax), isSpread: true }
+      case 'idle':
+        return { delayMs: this.pollBackoff.currentBaseDelay, isSpread: false }
+    }
   }
 
   private scheduleNextPoll(outcome: PollOutcome): void {
@@ -263,7 +308,14 @@ export class SyncOrchestrator {
       || (outcome === 'success' && this.deps.puller.hasImmediatePendingPulls())
     )
     const gapDelay = outcome === 'success' ? this.deps.puller.gapRepollDelay : undefined
-    this.schedulePollTimer(pollNow ? 0 : Math.min(this.nextPollDelay, gapDelay ?? Infinity))
+    const next = this.nextPollDelay
+    if (pollNow) {
+      this.schedulePollTimer(0)
+    } else if (gapDelay !== undefined && gapDelay < next.delayMs) {
+      this.schedulePollTimer(gapDelay)
+    } else {
+      this.schedulePollTimer(next.delayMs, { jitter: !next.isSpread })
+    }
     // Reported once the next poll is scheduled, so a failing receiver can't stop polling
     this.deps.onPollResult?.(outcome)
   }

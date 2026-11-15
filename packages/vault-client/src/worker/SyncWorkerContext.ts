@@ -228,6 +228,7 @@ export class SyncWorkerContext {
       bus: realtimeBus,
       isVisible: this.isVisible,
       onPeerReturned: () => this._services?.orchestrator.onForeground(),
+      onActivity: () => this._services?.orchestrator.onActivity(),
     })
     const cipherOptions = local.cipher ? { cipher: local.cipher } : undefined
     const indexStore = new IndexStore(accountId, cipherOptions)
@@ -344,10 +345,14 @@ export class SyncWorkerContext {
       coverage: snapshotCoverage,
       bus: realtimeBus,
       onKeyVersionMissing: this.emitKeyVersionMissing,
-      onRemoteChangesApplied: itemId => fireAndForget(
-        recoveryManager.resolveQuarantines([itemId], INBOUND_MESSAGE_RESOLVABLE_KINDS),
-        'SyncWorkerContext:resolveQuarantines',
-      ),
+      onRemoteChangesApplied: itemId => {
+        // Someone is using another device, so poll at the active rate while a tab is visible
+        foregroundTracker.noteActivity()
+        fireAndForget(
+          recoveryManager.resolveQuarantines([itemId], INBOUND_MESSAGE_RESOLVABLE_KINDS),
+          'SyncWorkerContext:resolveQuarantines',
+        )
+      },
       onLoad: async () => {
         await Promise.all([serverHeads.load(), firstStart.load(), snapshotCoverage.load(), gapHealer.load()])
       },
@@ -520,7 +525,10 @@ export class SyncWorkerContext {
         this.statusManager.handlePollResult(outcome)
         syncProgress.onPollResult(outcome)
       },
-      isForeground: () => foregroundTracker.isAnyVisible,
+      getCadence: () => {
+        if (!foregroundTracker.isAnyVisible) return 'hidden'
+        return foregroundTracker.isActive ? 'active' : 'idle'
+      },
     })
 
     const storageRecoveryService = new StorageRecoveryService({
@@ -894,6 +902,11 @@ export class SyncWorkerContext {
     if (returned) {
       this._services.orchestrator.onForeground()
     }
+  }
+
+  /** Records that the user is using this tab, and tells the account's other tabs */
+  reportActivity(): void {
+    this._services?.foregroundTracker.recordActivity()
   }
 
   /**

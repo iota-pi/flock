@@ -10,18 +10,23 @@ export interface ForegroundTrackerDeps {
   isVisible: boolean
   /** Another tab of the account came into view, or one we didn't know was visible reported in */
   onPeerReturned: () => void
+  /** Activity was recorded: input in this tab or another visible one, or changes from another device */
+  onActivity?: () => void
 }
 
 /**
  * Tracks whether any of the account's tabs on this device is visible, so the leader polls at the
  * foreground rate while someone is looking, even when the leader's own tab is hidden. Every tab runs
  * one: a visible tab tells the others when it changes and every `foregroundPingInterval` after that.
+ * It also tracks recent activity, which a visible tab reports with its visibility, so the leader
+ * polls at the active rate while the user is using any of the tabs.
  */
 export class ForegroundTracker {
   private readonly tabId = crypto.randomUUID()
   private visible: boolean
   /** The other visible tabs, with when each last reported */
   private readonly visiblePeers = new Map<string, number>()
+  private lastActivityAt = -Infinity
   private pingTimer: ReturnType<typeof setInterval> | null = null
   private unsubscribe: (() => void) | null = null
 
@@ -34,6 +39,11 @@ export class ForegroundTracker {
     if (this.visible) return true
     this.pruneStalePeers()
     return this.visiblePeers.size > 0
+  }
+
+  /** Whether a tab is visible and there was activity in the last `activityWindow` */
+  get isActive(): boolean {
+    return this.isAnyVisible && Date.now() - this.lastActivityAt < SYNC_TIMEOUTS.activityWindow
   }
 
   start(): void {
@@ -60,6 +70,20 @@ export class ForegroundTracker {
     }
   }
 
+  /** Records that the user is using this tab, and tells the account's other tabs if it's visible */
+  recordActivity(): void {
+    this.noteActivity()
+    if (this.unsubscribe && this.visible) {
+      this.publish(false, true)
+    }
+  }
+
+  /** Records activity this tab alone needs to know of, such as changes pulled from another device */
+  noteActivity(): void {
+    this.lastActivityAt = Date.now()
+    this.deps.onActivity?.()
+  }
+
   stop(): void {
     if (!this.unsubscribe) return
     this.stopPinging()
@@ -69,9 +93,10 @@ export class ForegroundTracker {
     this.unsubscribe()
     this.unsubscribe = null
     this.visiblePeers.clear()
+    this.lastActivityAt = -Infinity
   }
 
-  private handlePeer({ tabId, visible, returned }: TabVisibility): void {
+  private handlePeer({ tabId, visible, returned, active }: TabVisibility): void {
     if (!visible) {
       this.visiblePeers.delete(tabId)
       return
@@ -82,10 +107,13 @@ export class ForegroundTracker {
     if (returned || isNew) {
       this.deps.onPeerReturned()
     }
+    if (active) {
+      this.noteActivity()
+    }
   }
 
-  private publish(returned: boolean): void {
-    this.deps.bus.publishTabVisibility({ tabId: this.tabId, visible: this.visible, returned })
+  private publish(returned: boolean, active = false): void {
+    this.deps.bus.publishTabVisibility({ tabId: this.tabId, visible: this.visible, returned, active })
   }
 
   private startPinging(): void {
