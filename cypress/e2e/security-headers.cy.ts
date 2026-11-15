@@ -3,7 +3,11 @@
  * tests only read the file, so a deploy that stopped shipping it (or a host that ignored it) would
  * otherwise go unnoticed. The Vite dev server doesn't serve _headers, so this only runs over HTTPS,
  * which in CI means staging.
+ *
+ * The deploy sets each site's own connect-src (withConnectSources in src/deployments.ts), so the
+ * file is rewritten the same way for the site under test before comparing.
  */
+import { DEPLOYMENTS, withConnectSources } from '../../src/deployments'
 
 const CHECKED_HEADERS = [
   'Strict-Transport-Security',
@@ -37,7 +41,10 @@ describe('Security headers', () => {
 
   it('serves the CSP and HSTS headers from public/_headers on every path', () => {
     cy.readFile('public/_headers').then((file: string) => {
-      const expected = headersForEveryPath(file)
+      const hostname = new URL(Cypress.config('baseUrl')!).hostname
+      const deployment = DEPLOYMENTS[hostname]
+      if (!deployment) throw new Error(`src/deployments.ts has no deployment for ${hostname}`)
+      const expected = headersForEveryPath(withConnectSources(file, deployment))
       for (const name of CHECKED_HEADERS) {
         expect(expected, `public/_headers sets ${name}`).to.have.property(name.toLowerCase())
       }
