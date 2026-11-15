@@ -45,7 +45,8 @@ async function runServer(port = 4000) {
     process.on('SIGUSR2', exitHandler)
 
     try {
-      await server.listen({ port, host: '0.0.0.0' })
+      // Loopback only: dev mode has a fixed secret and no sign-up throttle. Set HOST to expose it.
+      await server.listen({ port, host: process.env.HOST || '127.0.0.1' })
       server.log.info(`Vault API server running on port ${port}`)
       return // Success!
     } catch (err) {
