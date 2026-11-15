@@ -1,5 +1,7 @@
 // TODO: enable StrictMode
 // import { StrictMode } from 'react'
+// Registers the Trusted Types policy before any module reaches a sink
+import './app/trustedTypes'
 // Configures the vault before any other module can use it
 import './app/vault/setup'
 import './fonts'
