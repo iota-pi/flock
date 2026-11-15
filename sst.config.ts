@@ -55,6 +55,8 @@ export default $config({
       transform: {
         table: (args) => {
           args.name = `FlockAccounts_${stage}`;
+          // SST turns this on by default; pinned so the table keeps it whatever that default becomes
+          args.pointInTimeRecovery = { enabled: true };
         },
       },
     });
@@ -75,6 +77,7 @@ export default $config({
       transform: {
         table: (args) => {
           args.name = `FlockItems_${stage}`;
+          args.pointInTimeRecovery = { enabled: true };
         },
       },
     });
@@ -131,6 +134,8 @@ export default $config({
             attributeName: "expiresAt",
             enabled: true,
           };
+          // SST enables point-in-time recovery by default, which would keep expired rows for 35 days
+          args.pointInTimeRecovery = { enabled: false };
         },
       },
     });
@@ -308,18 +313,33 @@ export default $config({
       const backupVault = new aws.backup.Vault("FlockBackupVault", {
         name: `flock_dynamo_backup_vault_${stage}`,
       });
+      // Nobody, whatever their IAM permissions, can delete a backup or shorten how long it's kept.
+      // Backups still expire on their lifecycle. To delete one by hand, remove this policy first.
+      new aws.backup.VaultPolicy("FlockBackupVaultPolicy", {
+        backupVaultName: backupVault.name,
+        policy: $jsonStringify({
+          Version: "2012-10-17",
+          Statement: [
+            {
+              Sid: "DenyBackupDeletion",
+              Effect: "Deny",
+              Principal: { AWS: "*" },
+              Action: [
+                "backup:DeleteRecoveryPoint",
+                "backup:UpdateRecoveryPointLifecycle",
+                "backup:DeleteBackupVault",
+              ],
+              // A vault policy only applies to its own vault, so this means every backup in it
+              Resource: "*",
+            },
+          ],
+        }),
+      });
       const backupPlan = new aws.backup.Plan("FlockBackupPlan", {
         name: `flock_dynamo_backup_plan_${stage}`,
+        // Point-in-time recovery (35 days) covers the recent past, so this only keeps a monthly
+        // backup for the year before it
         rules: [
-          {
-            ruleName: `flock_dynamo_weekly_backup_plan_${stage}`,
-            targetVaultName: backupVault.name,
-            // Backup at ~2am (AEST) on Sunday morning each week (UTC)
-            schedule: "cron(0 4 ? * SAT *)",
-            lifecycle: {
-              deleteAfter: 30,
-            },
-          },
           {
             ruleName: `flock_dynamo_monthly_backup_${stage}`,
             targetVaultName: backupVault.name,
