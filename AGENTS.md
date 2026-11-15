@@ -69,4 +69,5 @@ Read [docs/sync-design.md](docs/sync-design.md) before changing or reviewing any
 - The cross-tab adapter waits inline for a missing key version, buffering after 5s.
 - Password change invalidates all other sessions.
 - Oversized deleted items upload a payload-less tombstone snapshot.
+- The server drops a deleted item's snapshot, legacy `cipher` and heads on every tombstone write, keeping only its metadata, `version` and `modifiedAt`.
 - Lambda runs in UTC. The client converts with `date-fns-tz`.

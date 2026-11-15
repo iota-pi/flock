@@ -60,7 +60,7 @@ describe('storage usage', () => {
     await write(account, first, Buffer.alloc(500).toString('base64'))
     await write(account, second, Buffer.alloc(2000).toString('base64'))
     await write(account, first, Buffer.alloc(50).toString('base64'))
-    // A payload-less tombstone keeps the previous snapshot
+    // A tombstone drops the item's snapshot, freeing its storage
     await write(account, second, undefined, true)
     const kept = await storageBytes(account)
 

@@ -64,7 +64,7 @@ describe('DynamoDriver', function () {
     expect(result.snapshot).toMatchObject({ iv: 'snap-iv', format: 2 })
   })
 
-  it('keeps the legacy cipher for a tombstone without a snapshot', async () => {
+  it('drops the legacy cipher for a tombstone without a snapshot', async () => {
     const account = generateTestAccountId()
     const item = generateItemId()
     const modified = Date.now()
@@ -73,7 +73,7 @@ describe('DynamoDriver', function () {
     await driver.set({ account, item, metadata: { iv: '', modified: modified + 100, deleted: true } })
 
     const [result] = await driver.fetchByIds({ account, itemIds: [item] })
-    expect(result.cipher).toBe('legacy')
+    expect(result.cipher).toBeUndefined()
     expect(result.metadata.deleted).toBe(true)
   })
 
@@ -98,6 +98,9 @@ describe('DynamoDriver', function () {
 
     const manifest = await driver.fetchManifest({ account })
     expect(manifest).toEqual([expect.objectContaining({ itemId: item, isDeleted: true, version: 1 })])
+    // The row records the deletion but not the content it was sent with
+    const [result] = await driver.fetchByIds({ account, itemIds: [item] })
+    expect(result.snapshot).toBeUndefined()
   })
 
   it('keeps an item deleted when a snapshot without the deletion is written after it', async () => {
@@ -114,7 +117,8 @@ describe('DynamoDriver', function () {
 
     const [result] = await driver.fetchByIds({ account, itemIds: [item] })
     expect(result.metadata).toEqual({ iv: '', deleted: true })
-    expect(result.snapshot).toMatchObject({ iv: 'snap-iv' })
+    // The late snapshot doesn't bring the deleted content back
+    expect(result.snapshot).toBeUndefined()
     const manifest = await driver.fetchManifest({ account })
     expect(manifest).toEqual([expect.objectContaining({ itemId: item, isDeleted: true, version: 3 })])
   })
@@ -322,7 +326,7 @@ describe('DynamoDriver', function () {
     await driver.set({ account, item: unbound, metadata: { iv: '', modified }, snapshot: { cipher: payload, iv: 'iv', kver: '1' } })
     await driver.set({ account, item: bound, metadata: { iv: '', modified }, snapshot: { cipher: payload, iv: 'iv', kver: '1', format: 2 } })
     await driver.set({ account, item: rotated, metadata: { iv: '', modified }, snapshot: { cipher: payload, iv: 'iv', kver: '2', format: 2 } })
-    // A payload-less tombstone only deletes an item the server already has, and keeps its snapshot
+    // A tombstone drops the item's content
     await driver.set({ account, item: deleted, cipher: 'legacy-cipher', metadata: { iv: 'iv', modified } })
     await driver.set({ account, item: deleted, metadata: { iv: '', modified, deleted: true } })
 
@@ -332,7 +336,7 @@ describe('DynamoDriver', function () {
       [unbound, { itemId: unbound, deleted: false, hasSnapshot: true, snapshotKver: '1', hasCipher: false }],
       [bound, { itemId: bound, deleted: false, hasSnapshot: true, snapshotFormat: 2, snapshotKver: '1', hasCipher: false }],
       [rotated, { itemId: rotated, deleted: false, hasSnapshot: true, snapshotFormat: 2, snapshotKver: '2', hasCipher: false }],
-      [deleted, { itemId: deleted, deleted: true, hasSnapshot: false, hasCipher: true }],
+      [deleted, { itemId: deleted, deleted: true, hasSnapshot: false, hasCipher: false }],
     ]))
   })
 
@@ -609,7 +613,7 @@ describe('DynamoDriver', function () {
     expect(entry.heads).toBeUndefined()
   })
 
-  it('payload-less tombstone keeps the previous snapshot and marks the item deleted', async () => {
+  it('payload-less tombstone drops the previous snapshot and heads and marks the item deleted', async () => {
     const account = generateTestAccountId()
     const item = generateItemId()
     const payload = Buffer.from('last-real-snapshot').toString('base64')
@@ -620,17 +624,23 @@ describe('DynamoDriver', function () {
       item,
       metadata: { iv: 'iv', modified },
       snapshot: { cipher: payload, iv: 'snapshot-iv', kver: '1' },
+      heads: { cipher: 'heads-cipher', iv: 'heads-iv', kver: '1' },
     })
     const before = (await driver.fetchByIds({ account, itemIds: [item] }))[0]
 
-    await driver.set({
+    const result = await driver.set({
       account,
       item,
       metadata: { iv: '', modified: modified + 1, deleted: true },
     })
 
     const after = (await driver.fetchByIds({ account, itemIds: [item] }))[0]
-    expect(after.snapshot?.cipher).toBe(payload)
+    expect(after.snapshot).toBeUndefined()
+    const { Item: row } = await driver.client.send(new GetCommand({ TableName: driver.tables.items, Key: { account, item } }))
+    expect(row).not.toHaveProperty('heads')
+    expect(row).not.toHaveProperty('snapshot')
+    // Dropping the content frees the storage it took up
+    expect(result.storageDelta).toBeLessThan(-payload.length / 2)
     expect(after.metadata.deleted).toBe(true)
     expect(after.version).toBe((before.version ?? 0) + 1)
 
