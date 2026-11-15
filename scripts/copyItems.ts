@@ -8,13 +8,23 @@ import {
 import { chunk } from 'lodash-es'
 import { getConnectionParams } from '@vault/server/dynamo'
 
-const SOURCE_TABLE = process.env.SOURCE_TABLE || 'FlockItems_production'
-const DEST_TABLE = process.env.DEST_TABLE || 'FlockItems_staging'
-const SOURCE_ACCOUNT = process.env.SOURCE_ACCOUNT
+// No defaults: a mistaken run must not read production or overwrite another stage's rows
+function requireEnv(name: string): string {
+  const value = process.env[name]
+  if (!value) {
+    console.error(`${name} environment variable is required.`)
+    process.exit(1)
+  }
+  return value
+}
+
+const SOURCE_TABLE = requireEnv('SOURCE_TABLE')
+const DEST_TABLE = requireEnv('DEST_TABLE')
+const SOURCE_ACCOUNT = requireEnv('SOURCE_ACCOUNT')
 const DEST_ACCOUNT = process.env.DEST_ACCOUNT || SOURCE_ACCOUNT
 
-if (!SOURCE_ACCOUNT) {
-  console.error('SOURCE_ACCOUNT environment variable is required.')
+if (SOURCE_TABLE === DEST_TABLE) {
+  console.error('SOURCE_TABLE and DEST_TABLE must be different tables.')
   process.exit(1)
 }
 
@@ -30,7 +40,8 @@ async function copyAccountItems() {
   let lastEvaluatedKey: Record<string, any> | undefined = undefined
   let totalCopied = 0
 
-  console.log(`Starting copy for account ${SOURCE_ACCOUNT} -> ${DEST_ACCOUNT}...`)
+  const target = process.env.DYNAMODB_ENDPOINT || `AWS (${process.env.AWS_REGION || 'ap-southeast-2'})`
+  console.log(`Starting copy on ${target}: ${SOURCE_TABLE}/${SOURCE_ACCOUNT} -> ${DEST_TABLE}/${DEST_ACCOUNT}...`)
 
   do {
     // Query is much faster than Scan because it targets the Partition Key directly
