@@ -42,19 +42,20 @@ describe('dropDeletedItemPayloads', () => {
   })
 
   it('strips deleted items\' content and keeps what the manifest reads', async () => {
+    // Deleted rows as the server wrote them before tombstones dropped their content
+    const put = (item: Record<string, unknown>) => driver.client.send(new PutCommand({
+      TableName: tables.items,
+      Item: { account, modifiedAt: modified, ...item },
+    }))
     const deleted = generateItemId()
-    await driver.set({ account, item: deleted, metadata: { iv: '', modified }, snapshot })
-    await driver.set({ account, item: deleted, metadata: { iv: '', modified: modified + 1, deleted: true }, snapshot })
+    await put({ item: deleted, metadata: { iv: '', deleted: true }, snapshot: { ...snapshot, cipher: Buffer.from(snapshot.cipher, 'base64') }, version: 2 })
     const active = generateItemId()
     await driver.set({ account, item: active, metadata: { iv: '', modified }, snapshot })
     const legacyDeleted = generateItemId()
-    await driver.set({ account, item: legacyDeleted, cipher: 'legacy', metadata: { iv: 'iv-1', modified, deleted: true } })
+    await put({ item: legacyDeleted, cipher: 'legacy', metadata: { iv: 'iv-1', deleted: true }, version: 1 })
     // Rows from before `metadata.deleted` mark deletion at the top level
     const topLevelDeleted = generateItemId()
-    await driver.client.send(new PutCommand({
-      TableName: tables.items,
-      Item: { account, item: topLevelDeleted, deleted: true, cipher: 'old', metadata: { iv: 'iv-2', modified }, version: 3 },
-    }))
+    await put({ item: topLevelDeleted, deleted: true, cipher: 'old', metadata: { iv: 'iv-2', modified }, version: 3 })
     const manifestBefore = await driver.fetchManifest({ account })
 
     await expect(dropDeletedItemPayloads(driver.client, tables.items, { dryRun: true }))

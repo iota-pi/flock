@@ -32,11 +32,18 @@ export async function setItem({ client, tables }: DynamoContext, item: VaultItem
       return writeResult(itemToPersist, update, written)
     }
   }
-  const tombstone = { ...itemToPersist, metadata: { ...itemToPersist.metadata, deleted: true } }
-  const update = itemUpdate(tombstone)
-  // A tombstone without a payload only marks an existing item deleted. Creating rows for IDs the
-  // server has never seen would get round the storage quota and grow the manifest without limit.
-  const payloadless = !tombstone.snapshot && !tombstone.cipher
+  // Nothing reads a deleted item's content (clients learn of the delete from the manifest), so a
+  // tombstone keeps only the item's metadata, dropping any payload it was sent and the one stored.
+  const tombstone: VaultItem = {
+    account: itemToPersist.account,
+    item: itemToPersist.item,
+    metadata: { ...itemToPersist.metadata, deleted: true },
+  }
+  const update = tombstoneUpdate(tombstone)
+  // A tombstone sent without a payload only marks an existing item deleted. Creating rows for IDs
+  // the server has never seen would get round the storage quota, which only batches carrying a
+  // snapshot are checked against, and grow the manifest without limit.
+  const payloadless = !itemToPersist.snapshot && !itemToPersist.cipher
   if (!payloadless) {
     return writeResult(tombstone, update, await client.send(updateItemCommand(tables, tombstone, update)))
   }
@@ -70,6 +77,12 @@ function itemUpdate(item: VaultItem): ItemUpdate {
     },
     remove,
   }
+}
+
+/** Marks an item deleted and removes its content: the snapshot, any legacy cipher and the heads */
+function tombstoneUpdate(tombstone: VaultItem): ItemUpdate {
+  const { set, remove } = itemUpdate(tombstone)
+  return { set, remove: [...new Set([...remove, 'snapshot', 'cipher', 'heads'])] }
 }
 
 /**

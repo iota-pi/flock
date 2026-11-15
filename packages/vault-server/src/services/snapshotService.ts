@@ -48,8 +48,8 @@ export async function persistSnapshots(
           iv: '',
           ...(snapshot.deleted ? { deleted: true } : {}),
         },
-        // Payload-less tombstones intentionally omit the snapshot so the previous one is kept. The
-        // driver writes them only to items it has, answering version 0 for any other.
+        // The driver drops a tombstone's content, whether sent or stored. It writes payload-less
+        // tombstones only to items it has, answering version 0 for any other.
         ...(snapshot.snapshot ? { snapshot: snapshot.snapshot } : {}),
         // Without heads, the driver removes any stored ones, which belonged to an older snapshot
         ...(snapshot.snapshot && snapshot.heads ? { heads: snapshot.heads } : {}),
