@@ -61,7 +61,7 @@ export class SnapshotTracker {
   )
 
   constructor(private readonly deps: SnapshotTrackerOptions) {
-    this.debounceDelayMs = deps.debounceDelayMs ?? 30_000
+    this.debounceDelayMs = deps.debounceDelayMs ?? 60_000
     this.maxWaitMs = deps.maxWaitMs ?? 5 * 60 * 1000
   }
 
