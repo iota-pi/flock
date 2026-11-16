@@ -30,6 +30,7 @@ export type ManualRecoveryDetail =
   | { code: 'snapshotFailed'; stage: ManualRecoveryStage }
   | { code: 'reencryptionFailed'; stage: ManualRecoveryStage }
   | { code: 'waitingForChanges' }
+  | { code: 'changesWontApply' }
   | { code: 'snapshotNeverStored' }
   | { code: 'keyVersionMissing' }
   | { code: 'changesNeverArrived' }
@@ -120,6 +121,7 @@ export function sanitizeManualRecoveryDetail(value: unknown): ManualRecoveryDeta
     case 'decryptionFailed':
     case 'hydrationFailed':
     case 'waitingForChanges':
+    case 'changesWontApply':
     case 'snapshotNeverStored':
     case 'keyVersionMissing':
     case 'changesNeverArrived':
@@ -150,6 +152,8 @@ export function describeManualRecoveryDetail(detail: ManualRecoveryDetail): stri
       return detail.stage === 'build' ? 'Re-encryption snapshot build failed' : 'Re-encryption upload failed'
     case 'waitingForChanges':
       return 'Waiting for changes from another device'
+    case 'changesWontApply':
+      return 'Changes from another device repeatedly failed to apply'
     case 'snapshotNeverStored':
       return 'This device\'s snapshot of the item was never stored'
     case 'keyVersionMissing':
