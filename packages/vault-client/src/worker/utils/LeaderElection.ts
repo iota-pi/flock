@@ -77,6 +77,20 @@ export class LeaderElection {
     return this.isFallback
   }
 
+  /**
+   * Whether the leader lock is held while this tab doesn't lead, so another tab leads. Just after the
+   * lock is granted to this tab, before it learns of that, it also says so.
+   */
+  async isLockHeldElsewhere(): Promise<boolean> {
+    if (this.isLeader || typeof navigator === 'undefined' || !navigator.locks?.query) return false
+    const { held } = await navigator.locks.query()
+    return !this.isLeader && (held ?? []).some(lock => lock.name === this.lockName)
+  }
+
+  private get lockName(): string {
+    return `${getVaultStorageNames().accountPrefixes.leaderLock}${this.accountId}`
+  }
+
   private grantLeadership(isFallback = false): void {
     if (!this.isLeader) {
       this.isLeader = true
@@ -313,7 +327,7 @@ export class LeaderElection {
       return
     }
 
-    const lockName = `${getVaultStorageNames().accountPrefixes.leaderLock}${this.accountId}`
+    const lockName = this.lockName
     const abortController = new AbortController()
     this.abortController = abortController
 

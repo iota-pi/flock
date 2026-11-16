@@ -38,6 +38,11 @@ export const SYNC_TIMEOUTS = {
   foregroundPollMinGap: 10_000,
   /** How often a visible tab tells the account's other tabs that it's still visible */
   foregroundPingInterval: 30_000,
+  /**
+   * How long a starting tab waits to learn whether it leads, while no other tab holds the leader lock
+   * (its own request is about to be granted, or is retrying after a lock error)
+   */
+  leadershipSettle: 5000,
   /** Default interval between periodic server manifest reconciliations */
   manifestSyncInterval: 60 * 60 * 1000,
   /**

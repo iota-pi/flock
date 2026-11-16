@@ -12,6 +12,7 @@ describe('ItemRecoveryService', () => {
   let mockManifestSyncManager: any
   let mockItemOperations: any
   let onLocalCopyDiscarded: Mock<(documentId: DocumentId) => void>
+  let becomeLeader: Mock<() => void>
   let service: ItemRecoveryService
 
   beforeEach(() => {
@@ -39,6 +40,7 @@ describe('ItemRecoveryService', () => {
       recreateOversizedItem: vi.fn().mockResolvedValue('item-new'),
     }
     onLocalCopyDiscarded = vi.fn()
+    becomeLeader = vi.fn()
     service = new ItemRecoveryService({
       repoManager: mockRepoManager,
       docStore: mockDocStore,
@@ -46,6 +48,7 @@ describe('ItemRecoveryService', () => {
       snapshotManager: mockSnapshotManager,
       manifestSyncManager: mockManifestSyncManager,
       itemOperations: mockItemOperations,
+      becomeLeader,
       onLocalCopyDiscarded,
     })
   })
@@ -62,6 +65,25 @@ describe('ItemRecoveryService', () => {
       expect(onLocalCopyDiscarded).toHaveBeenCalledWith(documentId)
       expect(mockManifestSyncManager.sync).toHaveBeenCalledWith(true)
       expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith(itemId)
+    })
+
+    it('takes over syncing before it drops the local copy', async () => {
+      await service.replaceFromServer('item-1' as ItemId)
+
+      expect(becomeLeader.mock.invocationCallOrder[0])
+        .toBeLessThan(mockRepoManager.repo.delete.mock.invocationCallOrder[0])
+    })
+
+    it('keeps the local copy when this tab cannot take over syncing', async () => {
+      becomeLeader.mockImplementation(() => {
+        throw new Error('This tab could not take over syncing')
+      })
+
+      await expect(service.replaceFromServer('item-1' as ItemId)).rejects.toThrow(/could not take over/)
+
+      expect(mockRepoManager.repo.delete).not.toHaveBeenCalled()
+      expect(mockRepoManager.storage.removeRange).not.toHaveBeenCalled()
+      expect(mockManifestSyncManager.sync).not.toHaveBeenCalled()
     })
 
     it('keeps the item quarantined when the server has no copy to replace it with', async () => {
