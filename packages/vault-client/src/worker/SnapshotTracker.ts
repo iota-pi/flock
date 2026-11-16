@@ -7,6 +7,7 @@ import { checkAlive, isAbortError } from '../utils/abort'
 import type { RecoveryManager } from './RecoveryManager'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
+import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import type { SyncSessionState } from './SyncSessionState'
 
 const log = createLogger('SnapshotTracker')
@@ -56,13 +57,13 @@ export class SnapshotTracker {
   // to re-queue an edit whose snapshot never went up.
   private readonly saveLastModifiedDebounced = debounce(
     () => fireAndForget(this.persistLastModified(), 'SnapshotTracker:persistLastModified'),
-    1000,
-    { maxWait: 5000 },
+    SYNC_TIMEOUTS.snapshotTimestampsSave,
+    { maxWait: SYNC_TIMEOUTS.snapshotTimestampsSaveMaxWait },
   )
 
   constructor(private readonly deps: SnapshotTrackerOptions) {
-    this.debounceDelayMs = deps.debounceDelayMs ?? 60_000
-    this.maxWaitMs = deps.maxWaitMs ?? 5 * 60 * 1000
+    this.debounceDelayMs = deps.debounceDelayMs ?? SYNC_TIMEOUTS.snapshotDebounce
+    this.maxWaitMs = deps.maxWaitMs ?? SYNC_TIMEOUTS.snapshotMaxWait
   }
 
   private now(): number {

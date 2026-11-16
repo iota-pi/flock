@@ -6,6 +6,7 @@ import { passthroughCodec, type DocCodec } from './domain'
 import { SnapshotBuilder } from './SnapshotBuilder'
 import type { Repo } from '@automerge/automerge-repo/slim'
 import { SyncApiClient } from './SyncApiClient'
+import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 import { setApiAuthToken } from '../keys/runtime'
 import { createMockKeyProvider, createMockVault, noLogCoverage, spyOnVaultTrpc } from './__test__/testUtils'
@@ -185,7 +186,7 @@ describe('SnapshotManager', () => {
   })
 
   /** Moves the clock on, past the snapshot debounce by default */
-  function elapse(ms = 30_000): void {
+  function elapse(ms: number = SYNC_TIMEOUTS.snapshotDebounce): void {
     vi.setSystemTime(Date.now() + ms)
   }
 
@@ -324,7 +325,7 @@ describe('SnapshotManager', () => {
     it('does not upload from a follower however long its items have been dirty', async () => {
       followerManager.tracker.markItemDirty('follower-item-1' as ItemId)
 
-      elapse(10 * 60 * 1000)
+      elapse(2 * SYNC_TIMEOUTS.snapshotMaxWait)
       await poll(followerManager)
 
       expect(mockPutSnapshots).not.toHaveBeenCalled()
@@ -357,7 +358,7 @@ describe('SnapshotManager', () => {
       expect(isLeader(manager)).toBe(false)
 
       expect(manager.tracker.nextDueAt).toBeUndefined()
-      elapse(10 * 60 * 1000)
+      elapse(2 * SYNC_TIMEOUTS.snapshotMaxWait)
       await poll(manager)
       expect(mockPutSnapshots).not.toHaveBeenCalled()
     })
