@@ -3,6 +3,7 @@ import { getTimestamps, setTimestamps } from './__test__/testUtils'
 import { type ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import type { LastModifiedStore } from './stores/LastModifiedStore'
 import { SyncSessionState } from './SyncSessionState'
+import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 
 describe('SnapshotTracker', () => {
   let tracker: SnapshotTracker
@@ -199,28 +200,29 @@ describe('SnapshotTracker', () => {
       })
     })
 
-    it('is due 30 seconds after an item is marked dirty', () => {
+    it('is due a debounce after an item is marked dirty', () => {
       tracker.markItemDirty('item-1' as ItemId)
 
-      expect(tracker.nextDueAt).toBe(30_000)
+      expect(tracker.nextDueAt).toBe(SYNC_TIMEOUTS.snapshotDebounce)
     })
 
-    it('puts the 30-second debounce off when another item is marked dirty before it ends', () => {
+    it('puts the debounce off when another item is marked dirty before it ends', () => {
+      const secondEditAt = SYNC_TIMEOUTS.snapshotDebounce / 2
       tracker.markItemDirty('item-1' as ItemId)
-      vi.setSystemTime(20_000)
+      vi.setSystemTime(secondEditAt)
       tracker.markItemDirty('item-2' as ItemId)
 
-      expect(tracker.nextDueAt).toBe(50_000)
+      expect(tracker.nextDueAt).toBe(secondEditAt + SYNC_TIMEOUTS.snapshotDebounce)
     })
 
-    it('is due after maxWait (5 minutes) even if continuous changes keep putting the debounce off', () => {
-      // Simulate typing every 10 seconds for 5 minutes
-      for (let second = 0; second < 300; second += 10) {
-        vi.setSystemTime(second * 1000)
+    it('is due after the max wait even if continuous changes keep putting the debounce off', () => {
+      const editInterval = SYNC_TIMEOUTS.snapshotDebounce / 2
+      for (let editAt = 0; editAt < SYNC_TIMEOUTS.snapshotMaxWait; editAt += editInterval) {
+        vi.setSystemTime(editAt)
         tracker.markItemDirty('item-1' as ItemId)
       }
 
-      expect(tracker.nextDueAt).toBe(300_000)
+      expect(tracker.nextDueAt).toBe(SYNC_TIMEOUTS.snapshotMaxWait)
     })
 
     it('markItemDirty respects custom debounce delay (e.g. 2000ms)', () => {

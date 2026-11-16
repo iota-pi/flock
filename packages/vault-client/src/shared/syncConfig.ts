@@ -62,6 +62,14 @@ export const SYNC_TIMEOUTS = {
   syncProgressInterval: 15000,
   /** How long snapshot uploads wait after the server turns them away for the account's storage quota */
   snapshotQuotaRetry: 10 * 60 * 1000,
+  /** How long after the last edit an item's snapshot is due, unless the tracker is given its own delay */
+  snapshotDebounce: 60_000,
+  /** The longest steady editing can put dirty items' snapshots off, unless the tracker is given its own */
+  snapshotMaxWait: 5 * 60 * 1000,
+  /** Debounce before saving the snapshot tracker's timestamps, which the startup audit reads */
+  snapshotTimestampsSave: 1000,
+  /** The longest steady editing can put off saving the snapshot tracker's timestamps */
+  snapshotTimestampsSaveMaxWait: 5000,
   /** Debounce before uploading a snapshot that manifest sync found missing or newer on this device */
   upstreamSnapshotDebounce: 2000,
   /** How long a seq may stay missing from the log before the row counts as lost */

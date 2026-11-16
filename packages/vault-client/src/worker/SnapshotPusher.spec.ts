@@ -656,19 +656,6 @@ describe('SnapshotPusher', () => {
         expect(tracker.isDue()).toBe(false)
       })
 
-      it('uploads once the debounce has passed, at the next poll', async () => {
-        mockPutSnapshots.mockResolvedValue({ success: true, persisted: 1 })
-        vi.setSystemTime(1000)
-        tracker.markItemDirty('item-1' as ItemId)
-
-        await push()
-        expect(mockPutSnapshots).not.toHaveBeenCalled()
-
-        vi.setSystemTime(31_000)
-        await push()
-        expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-      })
-
       it('updates lastSnapshotAt on successful snapshot push', async () => {
         mockPutSnapshots.mockResolvedValue({
           success: true,
@@ -1277,12 +1264,23 @@ describe('SnapshotPusher', () => {
     })
 
     describe('Snapshot Push Timestamp Parity (H4 fix)', () => {
-      it('advances localModifiedAt to match snapshot.modified on successful push', async () => {
-        vi.setSystemTime(1000)
-        tracker.markItemDirty('item-1' as ItemId)
-        await vi.advanceTimersByTimeAsync(1000)
+      const editedAt = 1000
+      /** The first poll after the edit's debounce, which builds and uploads its snapshot */
+      const uploadedAt = editedAt + SYNC_TIMEOUTS.snapshotDebounce
+      const editedAgainAt = uploadedAt + 1000
+      const encryptedAt = editedAgainAt + 1000
 
-        expect(getTimestamps(tracker, 'item-1').localModifiedAt).toBe(1000)
+      /** Lets the tracker's debounced save of its timestamps run */
+      async function saveTimestamps(): Promise<void> {
+        await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.snapshotTimestampsSave)
+      }
+
+      it('advances localModifiedAt to match snapshot.modified on successful push', async () => {
+        vi.setSystemTime(editedAt)
+        tracker.markItemDirty('item-1' as ItemId)
+        await saveTimestamps()
+
+        expect(getTimestamps(tracker, 'item-1').localModifiedAt).toBe(editedAt)
         expect(getTimestamps(tracker, 'item-1').lastSnapshotAt).toBeUndefined()
 
         mockPutSnapshots.mockResolvedValue({
@@ -1290,26 +1288,26 @@ describe('SnapshotPusher', () => {
           persisted: 1,
         })
 
-        // The poll after the debounce runs at 31000
-        vi.setSystemTime(31_000)
+        // The poll after the debounce
+        vi.setSystemTime(uploadedAt)
         await push()
 
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
         const pushedSnapshot = mockPutSnapshots.mock.calls[0][0].snapshots[0]
-        expect(pushedSnapshot.modified).toBe(31000)
+        expect(pushedSnapshot.modified).toBe(uploadedAt)
 
         // Both timestamps must be in parity with the pushed snapshot
-        expect(getTimestamps(tracker, 'item-1').lastSnapshotAt).toBe(31000)
-        expect(getTimestamps(tracker, 'item-1').localModifiedAt).toBe(31000)
+        expect(getTimestamps(tracker, 'item-1').lastSnapshotAt).toBe(uploadedAt)
+        expect(getTimestamps(tracker, 'item-1').localModifiedAt).toBe(uploadedAt)
 
-        // exportLastModified must export 31000 so ManifestSyncManager matches serverTime
-        expect(tracker.exportLastModified()).toEqual([['item-1', 31000]])
+        // exportLastModified must export the upload time so ManifestSyncManager matches serverTime
+        expect(tracker.exportLastModified()).toEqual([['item-1', uploadedAt]])
       })
 
       it('preserves newer localModifiedAt if modified again while upload is in flight', async () => {
-        vi.setSystemTime(1000)
+        vi.setSystemTime(editedAt)
         tracker.markItemDirty('item-1' as ItemId)
-        await vi.advanceTimersByTimeAsync(1000)
+        await saveTimestamps()
 
         let resolveUpload: (val: any) => void
         const uploadPromise = new Promise(resolve => {
@@ -1317,44 +1315,44 @@ describe('SnapshotPusher', () => {
         })
         mockPutSnapshots.mockImplementation(() => uploadPromise)
 
-        // The poll after the debounce starts at 31000
-        vi.setSystemTime(31_000)
+        // The poll after the debounce starts
+        vi.setSystemTime(uploadedAt)
         const run = push()
         await vi.advanceTimersByTimeAsync(0)
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
 
-        // While upload is in flight, user modifies item-1 again at 32000
-        vi.setSystemTime(32000)
+        // While upload is in flight, user modifies item-1 again
+        vi.setSystemTime(editedAgainAt)
         tracker.markItemDirty('item-1' as ItemId)
-        await vi.advanceTimersByTimeAsync(1000)
-        expect(getTimestamps(tracker, 'item-1').localModifiedAt).toBe(32000)
+        await saveTimestamps()
+        expect(getTimestamps(tracker, 'item-1').localModifiedAt).toBe(editedAgainAt)
 
-        // Upload completes for the snapshot built at 31000
+        // Upload completes for the snapshot built at uploadedAt
         resolveUpload!({
           success: true,
           persisted: 1,
         })
         await run
 
-        // lastSnapshotAt is 31000, but localModifiedAt must retain 32000
-        expect(getTimestamps(tracker, 'item-1').lastSnapshotAt).toBe(31000)
-        expect(getTimestamps(tracker, 'item-1').localModifiedAt).toBe(32000)
+        // lastSnapshotAt is uploadedAt, but localModifiedAt must keep the later edit
+        expect(getTimestamps(tracker, 'item-1').lastSnapshotAt).toBe(uploadedAt)
+        expect(getTimestamps(tracker, 'item-1').localModifiedAt).toBe(editedAgainAt)
         expect(tracker.getDirtyItemIds()).toContain('item-1')
-        expect(tracker.exportLastModified()).toEqual([['item-1', 32000]])
+        expect(tracker.exportLastModified()).toEqual([['item-1', editedAgainAt]])
       })
 
       it('retains newer localModifiedAt and re-enqueues item if a local edit occurs during snapshot encryption (C3 fix)', async () => {
-        vi.setSystemTime(1000)
+        vi.setSystemTime(editedAt)
         tracker.markItemDirty('item-1' as ItemId)
-        await vi.advanceTimersByTimeAsync(1000)
+        await saveTimestamps()
 
         const { encryptBytes } = vault
         vi.mocked(encryptBytes).mockImplementationOnce(async () => {
-          // Local edit arrives at T2 (32000) while encryption is in-flight
-          vi.setSystemTime(32000)
+          // Local edit arrives while encryption is in-flight
+          vi.setSystemTime(editedAgainAt)
           tracker.markItemDirty('item-1' as ItemId)
-          // Encryption completes at T3 (33000)
-          vi.setSystemTime(33000)
+          // Encryption completes after it
+          vi.setSystemTime(encryptedAt)
           return { iv: 'mock-iv', cipher: 'mock-cipher', kver: '1' }
         })
 
@@ -1363,18 +1361,18 @@ describe('SnapshotPusher', () => {
           persisted: 1,
         })
 
-        // The poll after the debounce runs at T1 (31000)
-        vi.setSystemTime(31_000)
+        // The poll after the debounce
+        vi.setSystemTime(uploadedAt)
         await push()
 
-        // Snapshot timestamp was captured at T1, so lastSnapshotAt must be 31000
-        expect(getTimestamps(tracker, 'item-1').lastSnapshotAt).toBe(31000)
+        // Snapshot timestamp was captured when the poll started, so lastSnapshotAt must be uploadedAt
+        expect(getTimestamps(tracker, 'item-1').lastSnapshotAt).toBe(uploadedAt)
         // The edit made during encryption keeps the item dirty
         expect(tracker.getDirtyItemIds()).toContain('item-1')
 
-        // Debounced flush records the edit as newer than the uploaded snapshot
-        await vi.advanceTimersByTimeAsync(1000)
-        expect(getTimestamps(tracker, 'item-1').localModifiedAt).toBeGreaterThan(31000)
+        // The debounced save records the edit as newer than the uploaded snapshot
+        await saveTimestamps()
+        expect(getTimestamps(tracker, 'item-1').localModifiedAt).toBeGreaterThan(uploadedAt)
 
         // Persist timestamps and simulate restart / promotion audit
         await tracker.saveLastModified()
@@ -1382,7 +1380,7 @@ describe('SnapshotPusher', () => {
         expect(tracker.getDirtyItemIds()).not.toContain('item-1')
 
         await tracker.loadLastModified()
-        // Startup audit should detect localMod > lastSnap (31000) and re-enqueue item-1
+        // Startup audit should detect localModifiedAt > lastSnapshotAt and re-enqueue item-1
         expect(tracker.getDirtyItemIds()).toContain('item-1')
       })
     })
