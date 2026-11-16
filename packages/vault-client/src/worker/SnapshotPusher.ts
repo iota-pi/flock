@@ -4,18 +4,15 @@ import { classifySyncError } from '../utils/errorClassifier'
 import { type ItemId, MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import type { ClientEventHub } from './SyncEventHub'
 import type { RecoveryManager } from './RecoveryManager'
-import { SingleFlightGuard } from '../utils/SingleFlightGuard'
-import { AbortableRun } from '../utils/AbortableRun'
-import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
-import { RetryTimer } from '../utils/RetryTimer'
 import { ConsecutiveFailureCounter } from '../utils/ConsecutiveFailureCounter'
-import { checkAlive, isAbortError } from '../utils/abort'
+import { checkAlive } from '../utils/abort'
 import { SizeAwareBatchAccumulator } from '../utils/SizeAwareBatchAccumulator'
 import type { SnapshotTracker } from './SnapshotTracker'
 import { estimateSnapshotSize, type SnapshotBuilder, toTombstoneSnapshot, type PreparedSnapshotItem } from './SnapshotBuilder'
 import { fireAndForget } from '../utils/fireAndForget'
 import { uploadSnapshotBatch, type SnapshotBatchResult, type UploadableSnapshot } from './snapshotUpload'
 import { createLogger } from '../utils/logger'
+import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import type { SyncSessionState } from './SyncSessionState'
 import type { StoredSnapshotDetails } from './SnapshotCoverage'
 
@@ -39,7 +36,7 @@ export interface SnapshotPusherOptions {
 }
 
 /** A push's result, and whether every batch in it was sent and accepted */
-interface SnapshotPushOutcome extends SnapshotPushResult {
+export interface SnapshotPushOutcome extends SnapshotPushResult {
   success: boolean
 }
 
@@ -54,63 +51,53 @@ type ItemPreparationResult =
 
 const MAX_CONSECUTIVE_SNAPSHOT_FAILURES = 5
 
+/** The server turned a snapshot upload away (429), most likely for the account's storage quota */
+class SnapshotsRefusedError extends Error {
+  constructor(cause: unknown) {
+    super('The server turned the snapshot upload away', { cause })
+    this.name = 'SnapshotsRefusedError'
+  }
+}
+
 export class SnapshotPusher {
   private readonly maxPayloadBytes: number
 
   private readonly consecutiveFailures = new ConsecutiveFailureCounter<ItemId>(MAX_CONSECUTIVE_SNAPSHOT_FAILURES)
-  private readonly pushGuard = new SingleFlightGuard<SnapshotPushOutcome>()
-  private readonly pushRun = new AbortableRun(() => this.deps.session.isOperational)
-  private pendingPushRequested = false
-  private readonly retryTimer = new RetryTimer()
-  private readonly retryStrategy = new RetryStrategy({ delays: DEFAULT_RETRY_DELAYS })
 
   constructor(private readonly deps: SnapshotPusherOptions) {
     this.maxPayloadBytes = deps.maxPayloadBytes ?? MAX_ITEM_SIZE_BYTES
   }
 
-  get retryAttempt(): number {
-    return this.retryStrategy.attempt
-  }
-
-  get isRetryActive(): boolean {
-    return this.retryTimer.isPending
-  }
-
-  abortPush(): void {
-    this.pushRun.abort()
-  }
-
-  cancelRetry(): void {
-    this.retryTimer.cancel()
-  }
-
-  resetRetry(): void {
-    this.retryStrategy.reset()
-    this.cancelRetry()
-  }
-
-  /** Starts a push, or asks for another to follow the one already running */
-  async triggerSnapshotPush(): Promise<SnapshotPushResult> {
-    const { persisted, total } = await this.startPush()
-    return { persisted, total }
-  }
-
-  scheduleRetry(): void {
-    if (!this.deps.session.isOperational || this.retryTimer.isPending) {
-      return
+  /**
+   * The poll's snapshot phase: uploads every dirty item's snapshot if they're due. Throws if a request
+   * fails, so the poll fails (sync rule 4), except when the server turns snapshots away for the
+   * account's quota (429): that defers them and leaves the poll's result alone, since pulls still work.
+   * Items a push leaves dirty after a failure go up at the next poll.
+   */
+  async pushDue(signal: AbortSignal): Promise<SnapshotPushOutcome> {
+    const { tracker, session } = this.deps
+    if (!session.isOperational || !tracker.isDue()) {
+      return { persisted: 0, total: 0, success: true }
     }
+    tracker.clearDue()
+    const dirtyItemIds = tracker.getDirtyItemIds()
 
-    this.deps.tracker.clearDebounceTimers()
-
-    const delayMs = this.retryStrategy.nextDelay()
-
-    log.warn(`Scheduling snapshot push retry (attempt ${this.retryAttempt}) in ${delayMs}ms`)
-
-    this.retryTimer.schedule(delayMs, () => {
-      if (this.deps.tracker.dirtyCount > 0) {
-        fireAndForget(this.triggerSnapshotPush(), 'SnapshotPusher:scheduleRetry')
+    let result: SnapshotPushOutcome
+    try {
+      result = await this.processSnapshotPush(dirtyItemIds, this.deps.getLatestCursor?.() ?? 0, signal)
+    } catch (error) {
+      if (error instanceof SnapshotsRefusedError) {
+        log.warn('The server turned snapshots away; uploading them later', error.cause)
+        tracker.deferUntil(Date.now() + SYNC_TIMEOUTS.snapshotQuotaRetry)
+        return { persisted: 0, total: 0, success: false }
       }
-    })
+      tracker.retryNextPoll()
+      throw error
+    }
+    if (!result.success) {
+      tracker.retryNextPoll()
+    }
+    return result
   }
 
   private async handleSnapshotFailure(
@@ -250,11 +237,11 @@ export class SnapshotPusher {
     }
   }
 
-  /** Sends a batch. `responded` says whether the server answered. */
+  /** Sends a batch. Throws if the request fails, and `SnapshotsRefusedError` if the server turns it away. */
   private async flushBatch(
     batch: PreparedSnapshotItem[],
     signal?: AbortSignal,
-  ): Promise<{ success: boolean; responded: boolean; persisted: number }> {
+  ): Promise<{ success: boolean; persisted: number }> {
     let result: SnapshotBatchResult<PreparedSnapshotItem>
     try {
       result = await uploadSnapshotBatch(batch, {
@@ -264,36 +251,33 @@ export class SnapshotPusher {
         signal,
       })
     } catch (error) {
-      if (signal?.aborted || isAbortError(error) || classifySyncError(error).isAuth) {
-        throw error
+      if (!signal?.aborted && classifySyncError(error).status === 429) {
+        throw new SnapshotsRefusedError(error)
       }
-      log.error('Failed to put snapshots', error)
-      return { success: false, responded: false, persisted: 0 }
+      throw error
     }
 
     for (const item of result.rejected) {
       await this.handleSnapshotFailure(item.snapshot.itemId, item.tick, 'upload')
     }
-    return { success: result.success, responded: true, persisted: result.persisted }
+    return { success: result.success, persisted: result.persisted }
   }
 
   private async processSnapshotPush(
     dirtyItemIds: ItemId[],
     snapshotCursor: number,
-    signal?: AbortSignal,
+    signal: AbortSignal,
   ): Promise<SnapshotPushOutcome> {
     let persisted = 0
     let total = 0
     let success = true
-    let sendFailed = false
 
-    // Log before snapshot: most items have changes the log lacks, and one push carries them all
+    // The poll has pushed pending marks already. This catches the items marked only for a snapshot.
     await this.deps.pushToLog(dirtyItemIds, signal)
 
     const accumulator = new SizeAwareBatchAccumulator<PreparedSnapshotItem>({ maxBatchBytes: this.maxPayloadBytes })
 
-    /** Sends the accumulated batch, returning whether the server answered */
-    const flushAccumulated = async (): Promise<boolean> => {
+    const flushAccumulated = async (): Promise<void> => {
       const batch = accumulator.drain()
       total += batch.length
       checkAlive(signal, () => this.deps.session.isOperational)
@@ -302,7 +286,6 @@ export class SnapshotPusher {
       if (!result.success) {
         success = false
       }
-      return result.responded
     }
 
     for (const itemId of dirtyItemIds) {
@@ -315,140 +298,22 @@ export class SnapshotPusher {
         continue
       }
 
+      // A batch the server answered can fail for its own items only; later batches still go
       if (accumulator.wouldExceed(prepared.size) && !accumulator.isEmpty) {
-        // A batch the server answered can fail for its own items only; later batches still go
-        if (!await flushAccumulated()) {
-          sendFailed = true
-          break
-        }
+        await flushAccumulated()
       }
 
       accumulator.push(prepared.item, prepared.size)
     }
 
-    // Flush any remaining items in the accumulator
-    if (!sendFailed && !accumulator.isEmpty) {
+    if (!accumulator.isEmpty) {
       await flushAccumulated()
     }
 
     return { persisted, total, success }
   }
 
-  /** Runs a push, or coalesces onto the running one and asks for another to follow it */
-  private async startPush(): Promise<SnapshotPushOutcome> {
-    if (!this.deps.session.isOperational) {
-      return { persisted: 0, total: 0, success: true }
-    }
-    this.cancelRetry()
-
-    // Only set when this call ran the push rather than coalescing onto one
-    let settledSuccess: boolean | null = null
-    const result = await this.pushGuard.run(
-      () => this.executePush(success => {
-        settledSuccess = success
-      }),
-      {
-        onCoalesce: () => {
-          this.pendingPushRequested = true
-        },
-      },
-    )
-    // Scheduled once the guard has cleared, or a follow-up push would coalesce onto the finishing one
-    if (settledSuccess !== null) {
-      this.handlePostPushScheduling(settledSuccess)
-    }
-    return result
-  }
-
-  private async executePush(onSettled: (success: boolean) => void): Promise<SnapshotPushOutcome> {
-    let failed = false
-
-    try {
-      return await this.pushRun.run(async signal => {
-        const dirtyItemIds = this.deps.session.isOperational ? this.deps.tracker.getDirtyItemIds() : []
-        if (dirtyItemIds.length === 0) {
-          failed = this.deps.tracker.dirtyCount > 0
-          return { persisted: 0, total: 0, success: !failed }
-        }
-
-        checkAlive(signal, () => this.deps.session.isOperational)
-        const result = await this.processSnapshotPush(dirtyItemIds, this.deps.getLatestCursor?.() ?? 0, signal)
-        failed = !result.success
-        if (result.success && this.deps.tracker.dirtyCount === 0) {
-          this.retryStrategy.reset()
-        }
-        return result
-      })
-    } catch (error) {
-      const classified = classifySyncError(error)
-      if (classified.isAbort) {
-        return { persisted: 0, total: 0, success: false }
-      }
-      failed = true
-      if (classified.isAuth) {
-        log.warn('Cannot push snapshots: auth failure', error)
-      } else {
-        log.error('Error during pushSnapshots', error)
-      }
-      return { persisted: 0, total: 0, success: false }
-    } finally {
-      onSettled(!failed)
-    }
-  }
-
-  private handlePostPushScheduling(success: boolean): void {
-    const hasDirtyDocs = this.deps.tracker.dirtyCount > 0
-    const wasPending = this.pendingPushRequested
-    this.pendingPushRequested = false
-
-    if (!success && hasDirtyDocs && this.deps.session.isOperational) {
-      this.scheduleRetry()
-    } else if (wasPending && hasDirtyDocs && this.deps.session.isOperational) {
-      fireAndForget(this.triggerSnapshotPush(), 'SnapshotPusher:handlePostPushScheduling')
-    }
-  }
-
-  async flushPendingSnapshots(): Promise<SnapshotPushResult> {
-    this.deps.tracker.clearDebounceTimers()
-    if (!this.deps.session.isOperational) {
-      return { persisted: 0, total: 0 }
-    }
-    if (this.deps.tracker.dirtyCount === 0 && !this.pushGuard.isRunning) {
-      return { persisted: 0, total: 0 }
-    }
-
-    let persisted = 0
-    let total = 0
-
-    while (this.pushGuard.isRunning || this.deps.tracker.dirtyCount > 0) {
-      // Waits on a running push without asking for a follow-up; flushing loops on its own
-      const result = this.pushGuard.isRunning
-        ? await this.pushGuard.waitForRunning()
-        : await this.startPush()
-      if (!result) {
-        break
-      }
-      persisted += result.persisted
-      total += result.total
-      if (!result.success || (result.persisted === 0 && this.deps.tracker.dirtyCount > 0)) {
-        break
-      }
-    }
-
-    return { persisted, total }
-  }
-
   clear(): void {
-    this.cancelRetry()
     this.consecutiveFailures.clear()
-    this.pendingPushRequested = false
-    this.pushGuard.clear()
-    this.retryStrategy.reset()
-  }
-
-  async shutdown(): Promise<void> {
-    this.abortPush()
-    await this.pushGuard.waitForRunning()
-    this.clear()
   }
 }

@@ -40,6 +40,8 @@ export interface SyncOrchestratorDeps {
    * visible, and `hidden` (5–10 min) while none is. Defaults to `idle`.
    */
   getCadence?: () => PollCadence
+  /** When the next snapshot upload is due, which brings a poll forward if it's sooner */
+  getSnapshotDueAt?: () => number | undefined
 }
 
 export type PollCadence = 'active' | 'idle' | 'hidden'
@@ -204,6 +206,37 @@ export class SyncOrchestrator {
     this.schedulePollTimer(randomBetween(SYNC_TIMEOUTS.activePollMin, SYNC_TIMEOUTS.activePollMax), { jitter: false })
   }
 
+  /**
+   * Brings the next poll forward to when snapshots are due, if that's sooner. Leaves failure backoff
+   * and an auth pause alone, and a poll in flight schedules the next one itself.
+   */
+  onSnapshotDue(): void {
+    if (this.isShutdown || !this.deps.session.isOnline || !this.deps.session.isLeader) return
+    if (this.pollingPausedForAuth || this.pollBackoff.attempt > 0 || !this.pollTimer.isPending) return
+    const dueDelay = this.snapshotDueDelay
+    if (dueDelay === undefined || Date.now() + dueDelay >= this.nextPollAt) return
+    this.schedulePollTimer(dueDelay, { jitter: false })
+  }
+
+  /** How long until snapshots are due, if any are */
+  private get snapshotDueDelay(): number | undefined {
+    const dueAt = this.deps.getSnapshotDueAt?.()
+    return dueAt === undefined ? undefined : Math.max(0, dueAt - Date.now())
+  }
+
+  /**
+   * Runs a poll now, after the one in flight if there is one, and resolves once it has finished. Polls
+   * even while backing off or paused for auth, as `flush` does.
+   */
+  async pollNow(): Promise<void> {
+    if (this.isShutdown || !this.deps.session.isLeader) return
+    this.pollingPausedForAuth = false
+    while (this.pollGuard.isRunning) {
+      await this.pollGuard.waitForRunning()
+    }
+    await this.executeWrappedPoll(true)
+  }
+
   flush(): void {
     if (this.isShutdown) return
     this.pollingPausedForAuth = false
@@ -308,11 +341,15 @@ export class SyncOrchestrator {
       || (outcome === 'success' && this.deps.puller.hasImmediatePendingPulls())
     )
     const gapDelay = outcome === 'success' ? this.deps.puller.gapRepollDelay : undefined
+    // Snapshots wait out failure backoff with everything else
+    const snapshotDelay = outcome === 'failure' ? undefined : this.snapshotDueDelay
     const next = this.nextPollDelay
     if (pollNow) {
       this.schedulePollTimer(0)
-    } else if (gapDelay !== undefined && gapDelay < next.delayMs) {
+    } else if (gapDelay !== undefined && gapDelay < next.delayMs && (snapshotDelay === undefined || gapDelay <= snapshotDelay)) {
       this.schedulePollTimer(gapDelay)
+    } else if (snapshotDelay !== undefined && snapshotDelay < next.delayMs) {
+      this.schedulePollTimer(snapshotDelay, { jitter: false })
     } else {
       this.schedulePollTimer(next.delayMs, { jitter: !next.isSpread })
     }

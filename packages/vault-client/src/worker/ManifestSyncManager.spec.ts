@@ -111,7 +111,7 @@ describe('ManifestSyncManager', () => {
       docStore: mockDocStore,
       indexManager: mockIndexManager,
       snapshotManager: {
-        flushPendingSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
+        uploadNow: vi.fn().mockResolvedValue({ persisted: 0, total: 0, success: true }),
         tracker: mockSnapshotTracker,
       },
       keys,
@@ -823,7 +823,7 @@ describe('ManifestSyncManager', () => {
   })
 
   describe('manifest diffing', () => {
-    it('flushes pending snapshots before evaluating manifest diffs', async () => {
+    it('uploads pending snapshots, without a poll, before evaluating manifest diffs', async () => {
       mockListItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
       depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([['item-1', 100]])
@@ -834,15 +834,15 @@ describe('ManifestSyncManager', () => {
 
       await manifestSyncManager.sync()
 
-      expect(depsObj.snapshotManager.flushPendingSnapshots).toHaveBeenCalledTimes(1)
+      expect(depsObj.snapshotManager.uploadNow).toHaveBeenCalledTimes(1)
       // Otherwise the manifest misses the flushed items and they are pushed a second time
-      expect(depsObj.snapshotManager.flushPendingSnapshots.mock.invocationCallOrder[0])
+      expect(depsObj.snapshotManager.uploadNow.mock.invocationCallOrder[0])
         .toBeLessThan(mockFetchManifest.mock.invocationCallOrder[0])
     })
 
-    it('continues gracefully if flushPendingSnapshots throws', async () => {
+    it('continues gracefully if uploading pending snapshots throws', async () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      depsObj.snapshotManager.flushPendingSnapshots.mockRejectedValue(new Error('Flush failed'))
+      depsObj.snapshotManager.uploadNow.mockRejectedValue(new Error('Flush failed'))
 
       mockListItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
