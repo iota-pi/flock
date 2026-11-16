@@ -1,7 +1,8 @@
 import { MAX_INCREMENTAL_MESSAGE_BYTES, type ItemId } from '@vault/shared'
 import type { Keyring } from '../keys/Keyring'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
-import { createAccountKeys, Device, FakeVaultServer, installLocalStorage } from './__test__/syncLogHarness'
+import { FakeVaultServer } from './__test__/FakeVaultServer'
+import { createAccountKeys, Device, installLocalStorage } from './__test__/syncLogHarness'
 
 const DAY = 24 * 60 * 60 * 1000
 
@@ -274,6 +275,222 @@ describe('sync log', () => {
 
     expect((await b.read(itemId))?.title).toBe('from a follower')
     expect(await a.pending()).toEqual([])
+  })
+
+  describe('a leader and a follower on one device', () => {
+    /** Two tabs of device A, sharing its storage and talking over the broadcast adapter, and device B */
+    async function startTabs() {
+      const leader = await startDevice('device-a')
+      const follower = await startDevice('device-a', { isLeader: false })
+      const b = await startDevice('device-b')
+      const itemId = await leader.create('item-1', { title: 'first' })
+      await leader.sync()
+      await b.sync()
+      await vi.waitFor(async () => expect((await follower.read(itemId))?.title).toBe('first'))
+      return { leader, follower, b, itemId }
+    }
+
+    it('pushes a follower\'s edit from the leader, which learns of it over the broadcast adapter', async () => {
+      const { leader, follower, b, itemId } = await startTabs()
+
+      await follower.edit(itemId, { title: 'from the follower' })
+      await follower.settle()
+      await vi.waitFor(async () => expect((await leader.read(itemId))?.title).toBe('from the follower'))
+      await vi.waitFor(() => expect(leader.services.snapshotManager.tracker.isDirty(itemId)).toBe(true))
+      expect(await follower.poll()).toBe('no-poll')
+      expect(server.rows).toHaveLength(1)
+
+      await leader.sync()
+      await b.poll()
+
+      expect((await b.read(itemId))?.title).toBe('from the follower')
+      expect(await leader.pending()).toEqual([])
+      expect(server.items.get(itemId)?.version).toBe(2)
+    })
+
+    it('hands a change the leader pulls to the follower, which never polls', async () => {
+      const { leader, follower, b, itemId } = await startTabs()
+
+      await b.edit(itemId, { title: 'from device b' })
+      await b.poll()
+      await leader.poll()
+
+      await vi.waitFor(async () => expect((await follower.read(itemId))?.title).toBe('from device b'))
+      expect(await leader.pending()).toEqual([])
+      expect(server.rows).toHaveLength(2)
+    })
+  })
+
+  describe('both outbound loops', () => {
+    /** Device A with an edit that the log and a snapshot both still have to carry, and device B */
+    async function editToSend() {
+      const a = await startDevice('device-a')
+      const b = await startDevice('device-b')
+      const itemId = await a.create('item-1', { title: 'first' })
+      await a.sync()
+      await b.sync()
+      await a.edit(itemId, { title: 'second' })
+      await a.settle()
+      return { a, b, itemId, rows: server.rows.length, version: server.items.get(itemId)!.version }
+    }
+
+    async function expectHeld(a: Device, itemId: ItemId, rows: number, version: number) {
+      expect(await a.pending()).toEqual([itemId])
+      expect(a.services.snapshotManager.tracker.isDirty(itemId)).toBe(true)
+      expect(server.rows).toHaveLength(rows)
+      expect(server.items.get(itemId)?.version).toBe(version)
+      expect(await a.services.recoveryManager.listRecoveryItems()).toEqual([])
+    }
+
+    async function expectDelivered(a: Device, b: Device, itemId: ItemId, rows: number, version: number) {
+      expect(await a.poll()).toBe('success')
+      await a.uploadSnapshots()
+      expect(await a.pending()).toEqual([])
+      expect(a.services.snapshotManager.tracker.isDirty(itemId)).toBe(false)
+      expect(server.rows).toHaveLength(rows + 1)
+      expect(server.items.get(itemId)?.version).toBe(version + 1)
+      await b.poll()
+      expect((await b.read(itemId))?.title).toBe('second')
+    }
+
+    it('holds an edit on both while the session is rejected, quarantining nothing, and sends it once it is back', async () => {
+      const { a, b, itemId, rows, version } = await editToSend()
+      server.rejectsSessions = true
+
+      expect(await a.poll()).toBe('auth-failure')
+      expect(await a.uploadSnapshots()).toBeUndefined()
+      await expectHeld(a, itemId, rows, version)
+
+      server.rejectsSessions = false
+      await expectDelivered(a, b, itemId, rows, version)
+    })
+
+    it('holds a push over the log quota as a failed poll, not an auth failure, and the snapshot behind it', async () => {
+      const { a, b, itemId, rows, version } = await editToSend()
+      server.isOverLogQuota = true
+
+      expect(await a.poll()).toBe('failure')
+      await a.uploadSnapshots()
+      await expectHeld(a, itemId, rows, version)
+
+      server.isOverLogQuota = false
+      await expectDelivered(a, b, itemId, rows, version)
+    })
+
+    it('pushes to the log over the storage quota, holding only the snapshot, unquarantined', async () => {
+      const { a, b, itemId, rows, version } = await editToSend()
+      server.isOverStorageQuota = true
+
+      expect(await a.poll()).toBe('success')
+      await a.uploadSnapshots()
+
+      expect(await a.pending()).toEqual([])
+      expect(server.rows).toHaveLength(rows + 1)
+      expect(a.services.snapshotManager.tracker.isDirty(itemId)).toBe(true)
+      expect(server.items.get(itemId)?.version).toBe(version)
+      expect(await a.services.recoveryManager.listRecoveryItems()).toEqual([])
+      await b.poll()
+      expect((await b.read(itemId))?.title).toBe('second')
+
+      server.isOverStorageQuota = false
+      await a.uploadSnapshots()
+      expect(a.services.snapshotManager.tracker.isDirty(itemId)).toBe(false)
+      expect(server.items.get(itemId)?.version).toBe(version + 1)
+    })
+
+    it('holds an edit on both while offline, sending nothing, and sends it once back online', async () => {
+      const { a, b, itemId, rows, version } = await editToSend()
+      // First the server can't be reached, then the device knows it is offline
+      server.isDown = true
+      expect(await a.poll()).toBe('failure')
+      await a.uploadSnapshots()
+      await expectHeld(a, itemId, rows, version)
+      a.context.setOnlineState(false)
+      const pollLog = vi.spyOn(server, 'pollLog')
+      const putSnapshots = vi.spyOn(server, 'putSnapshots')
+
+      expect(await a.poll()).toBe('no-poll')
+      await a.uploadSnapshots()
+      expect(pollLog).not.toHaveBeenCalled()
+      expect(putSnapshots).not.toHaveBeenCalled()
+      await expectHeld(a, itemId, rows, version)
+
+      server.isDown = false
+      a.context.setOnlineState(true)
+      await expectDelivered(a, b, itemId, rows, version)
+    })
+  })
+
+  describe('rule 4: a poll that threw reports failure', () => {
+    // A failed snapshot request is logged and retried later, so these fail reading local storage
+
+    it('when healing throws, and heals on the next poll', async () => {
+      const a = await startDevice('device-a')
+      const b = await startDevice('device-b')
+      const itemId = await a.create('item-1', { title: 'one' })
+      await a.sync()
+      await b.sync()
+      await a.edit(itemId, { title: 'two' })
+      await a.sync()
+      await a.edit(itemId, { title: 'three' })
+      await a.poll()
+      server.loseRow(server.head - 1)
+      const later = server.clock() + SYNC_TIMEOUTS.gapWait
+      server.clock = () => later
+      const heal = vi.spyOn(b.services.gapHealer, 'runDue')
+      vi.spyOn(b.services.manifestSyncManager, 'fetchSnapshots').mockRejectedValueOnce(new Error('IndexedDB read failed'))
+
+      expect(await b.poll()).toBe('failure')
+      expect(heal).toHaveBeenCalled()
+      expect(b.services.puller.cursor).toBe(server.head)
+
+      expect(await b.poll()).toBe('success')
+      expect((await b.read(itemId))?.title).toBe('three')
+    })
+
+    it('when first start\'s fetch throws, and fetches once a manifest sync asks again', async () => {
+      const a = await startDevice('device-a')
+      const b = await startDevice('device-b')
+      const itemId = await a.create('item-1', { title: 'first' })
+      await a.sync()
+      await b.sync()
+      await a.edit(itemId, { title: 'only in the snapshot' })
+      await a.sync()
+      server.rows = []
+      server.head = 0
+      // As if b had merged this snapshot, which it never received, so only first start fetches it
+      await b.services.snapshotManager.tracker.importVersions([[itemId, server.items.get(itemId)!.version]])
+      await b.rewindToOldBuild()
+      await b.start()
+      const runDue = vi.spyOn(b.services.firstStart, 'runDue')
+      vi.spyOn(b.services.manifestSyncManager, 'fetchSnapshots').mockRejectedValueOnce(new Error('IndexedDB read failed'))
+
+      expect(await b.poll()).toBe('failure')
+      expect(runDue).toHaveBeenCalled()
+      expect(b.services.firstStart.stateOf(itemId)).toBe('awaitingHeads')
+
+      // A try that fails is only asked for again once the gap between tries has passed
+      vi.spyOn(Date, 'now').mockReturnValue(Date.now() + SYNC_TIMEOUTS.firstStartRetryGap + 1000)
+      await b.manifestSync()
+      expect(await b.poll()).toBe('success')
+      expect((await b.read(itemId))?.title).toBe('only in the snapshot')
+      expect(b.services.firstStart.has(itemId)).toBe(false)
+    })
+
+    it('when applying a page throws, and leaves the cursor for the next poll to read it again', async () => {
+      const a = await startDevice('device-a')
+      const b = await startDevice('device-b')
+      await b.poll()
+      const itemId = await a.create('item-1', { title: 'first' })
+      await a.poll()
+      vi.spyOn(b.services.snapshotCoverage, 'recordPulledChanges').mockRejectedValueOnce(new Error('IndexedDB write failed'))
+
+      expect(await b.poll()).toBe('failure')
+
+      expect(await b.poll()).toBe('success')
+      expect((await b.read(itemId))?.title).toBe('first')
+      expect(b.services.puller.cursor).toBe(server.head)
+    })
   })
 
   it('splits a change set over the row limit, and another device applies the rows in order', async () => {

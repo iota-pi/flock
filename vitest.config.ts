@@ -69,6 +69,8 @@ export default defineConfig({
         test: {
           name: 'vault-client',
           environment: 'happy-dom',
+          // For the fake server's contract suite, which runs against the real server too
+          globalSetup: ['./vitest.dynamodb.ts'],
           setupFiles: ['./packages/vault-client/test/setup.ts'],
           include: ['packages/vault-client/src/**/*.{test,spec}.ts'],
         },
