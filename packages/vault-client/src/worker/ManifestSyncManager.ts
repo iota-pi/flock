@@ -6,6 +6,7 @@ import type { SyncApiClient } from './SyncApiClient'
 import type { StoreItemsOptions } from './ItemOperations'
 import type { SyncDomain } from './domain'
 import type { RecoveryManager } from './RecoveryManager'
+import type { SyncSessionState } from './SyncSessionState'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { AbortableRun } from '../utils/AbortableRun'
 import { checkAlive, isAbortError } from '../utils/abort'
@@ -28,6 +29,8 @@ const PULLED_CHANGES_GRACE_MS = SYNC_TIMEOUTS.pulledChangesGrace
 
 export interface ManifestSyncManagerDeps {
   accountId: string
+  /** Only the leader talks to the server, so a sync in any other tab does nothing */
+  session: Pick<SyncSessionState, 'isLeader'>
   docStore: AutomergeDocStore
   indexManager: AutomergeIndexManager
   snapshotManager: SnapshotManager
@@ -107,9 +110,21 @@ export class ManifestSyncManager {
     await this.syncGuard.waitForRunning()
   }
 
+  /**
+   * Runs a sync, or shares the one in flight. A forced sync waits for that one instead, because it
+   * may not have been forced. Does nothing outside the leader.
+   */
   async sync(force = false, signal?: AbortSignal): Promise<SyncResult> {
-    if (this.isShutdown) return { added: [], success: false }
+    if (!this.canSync) return { added: [], success: false }
+    if (force) {
+      await this.syncGuard.waitForRunning()
+      if (!this.canSync) return { added: [], success: false }
+    }
     return this.syncGuard.run(() => this.executeSync(force, signal))
+  }
+
+  private get canSync(): boolean {
+    return !this.isShutdown && this.deps.session.isLeader
   }
 
   /**
@@ -118,8 +133,9 @@ export class ManifestSyncManager {
    * in flight rather than sharing it, because that one may have skipped itself.
    */
   async syncNow(signal?: AbortSignal): Promise<boolean> {
-    if (this.isShutdown) return false
+    if (!this.canSync) return false
     await this.syncGuard.waitForRunning()
+    if (!this.canSync) return false
     this.fetchedManifest = false
     await this.syncGuard.run(() => this.executeSync(false, signal, { ignoreMinGap: true }))
     return this.fetchedManifest
@@ -127,7 +143,7 @@ export class ManifestSyncManager {
 
   /** Fetches items' snapshots and merges them into their docs, away from any manifest sync */
   async fetchSnapshots(itemIds: ItemId[], signal?: AbortSignal): Promise<void> {
-    if (this.isShutdown || itemIds.length === 0) return
+    if (!this.canSync || itemIds.length === 0) return
     const [knownItemIds, tombstoneItemIds] = await Promise.all([
       this.deps.indexManager.listItemIds(),
       this.deps.indexManager.listTombstoneIds(),
