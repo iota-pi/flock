@@ -678,7 +678,8 @@ describe('SyncOrchestrator', () => {
 
     it('does not reset or starve backoff timer when multiple flushes occur during backoff', async () => {
       mockPoller.executePoll.mockResolvedValueOnce('failure')
-      mockPoller.executePoll.mockResolvedValueOnce('success')
+      // The retry never finishes, so a jittered poll after it can't land in the window below
+      mockPoller.executePoll.mockImplementationOnce(() => new Promise(() => {}))
 
       orchestrator.setLeader(true)
       setOnline(orchestrator, true)
