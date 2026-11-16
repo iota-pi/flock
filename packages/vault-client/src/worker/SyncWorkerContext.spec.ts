@@ -158,7 +158,11 @@ beforeEach(() => {
       shutdown = vi.fn().mockResolvedValue(undefined)
       onOnlineStateChange = vi.fn()
       constructor(readonly deps: SyncOrchestratorDeps) {}
-      claimLeader = vi.fn()
+      claimLeader = vi.fn(() => {
+        this.deps.session.setLeader(true)
+      })
+
+      settleLeadership = vi.fn(async () => this.deps.session.isLeader)
       flush = vi.fn()
       onForeground = vi.fn()
       onActivity = vi.fn()
@@ -534,6 +538,47 @@ describe('SyncWorkerContext', () => {
   it('delegates claimLeader to orchestrator.claimLeader', () => {
     context.claimLeader()
     expect(context.services.orchestrator.claimLeader).toHaveBeenCalledTimes(1)
+  })
+
+  describe('server I/O stays with the leader', () => {
+    it('loads items at session start in the leader', async () => {
+      context.session.setLeader(true)
+
+      await context.bootstrapItems()
+
+      expect(context.services.manifestSyncManager.sync).toHaveBeenCalledTimes(1)
+    })
+
+    it('leaves loading items to the leader in another tab', async () => {
+      await context.bootstrapItems()
+
+      expect(context.services.orchestrator.settleLeadership).toHaveBeenCalledTimes(1)
+      expect(context.services.manifestSyncManager.sync).not.toHaveBeenCalled()
+    })
+
+    it('takes over syncing before a full resync', async () => {
+      expect(await context.fullResync()).toBe(true)
+
+      expect(context.services.orchestrator.claimLeader).toHaveBeenCalledTimes(1)
+      expect(context.session.isLeader).toBe(true)
+      expect(context.services.manifestSyncManager.sync).toHaveBeenCalledWith(true)
+      expect(context.services.orchestrator.flush).toHaveBeenCalled()
+    })
+
+    it('does not claim leadership it already has', () => {
+      context.session.setLeader(true)
+
+      context.becomeLeader()
+
+      expect(context.services.orchestrator.claimLeader).not.toHaveBeenCalled()
+    })
+
+    it('fails when the claim does not make this tab the leader', async () => {
+      vi.mocked(context.services.orchestrator.claimLeader).mockImplementation(() => {})
+
+      await expect(context.fullResync()).rejects.toThrow(/could not take over/)
+      expect(context.services.manifestSyncManager.sync).not.toHaveBeenCalled()
+    })
   })
 
   it('delegates initialize and shutdown to lifecycle manager', async () => {

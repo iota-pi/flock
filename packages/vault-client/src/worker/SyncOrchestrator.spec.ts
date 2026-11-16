@@ -555,6 +555,73 @@ describe('SyncOrchestrator', () => {
     await shutDown(customOrchestrator)
   })
 
+  describe('settleLeadership', () => {
+    function createWithElection(isLockHeldElsewhere: () => Promise<boolean>) {
+      let callbacks: LeaderElectionCallbacks | null = null
+      const created = createOrchestrator({
+        accountId: 'account-1',
+        poller: mockPoller,
+        clientEventHub,
+        puller: mockPuller,
+        manifestSyncManager: mockManifestSyncManager,
+        createLeaderElection: (_accountId, given) => {
+          callbacks = given
+          return {
+            acquire: vi.fn().mockResolvedValue(undefined),
+            release: vi.fn(),
+            claimLeadership: vi.fn(),
+            isLockHeldElsewhere: vi.fn(isLockHeldElsewhere),
+          }
+        },
+      })
+      return { created, grant: () => callbacks!.onLeaderGranted() }
+    }
+
+    it('says this tab leads once it does', async () => {
+      const { created, grant } = createWithElection(async () => false)
+      await created.start()
+      grant()
+
+      expect(await created.settleLeadership()).toBe(true)
+
+      await shutDown(created)
+    })
+
+    it('says this tab follows while another tab holds the lock', async () => {
+      const { created } = createWithElection(async () => true)
+      await created.start()
+
+      expect(await created.settleLeadership()).toBe(false)
+
+      await shutDown(created)
+    })
+
+    it('waits for a grant while no other tab holds the lock', async () => {
+      const { created, grant } = createWithElection(async () => false)
+      await created.start()
+
+      const settled = created.settleLeadership(5000)
+      await vi.advanceTimersByTimeAsync(250)
+      grant()
+
+      expect(await settled).toBe(true)
+
+      await shutDown(created)
+    })
+
+    it('gives up waiting after the timeout', async () => {
+      const { created } = createWithElection(async () => false)
+      await created.start()
+
+      const settled = created.settleLeadership(300)
+      await vi.advanceTimersByTimeAsync(300)
+
+      expect(await settled).toBe(false)
+
+      await shutDown(created)
+    })
+  })
+
   describe('promoted leader cursor reloading', () => {
     it('reloads cursors via the puller and awaits reload before polling on promotion', async () => {
       let resolveReload: () => void = () => {}

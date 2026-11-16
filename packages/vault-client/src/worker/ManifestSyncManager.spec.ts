@@ -108,6 +108,7 @@ describe('ManifestSyncManager', () => {
 
     depsObj = {
       accountId: 'acc-123',
+      session: { isLeader: true },
       docStore: mockDocStore,
       indexManager: mockIndexManager,
       snapshotManager: {
@@ -139,6 +140,37 @@ describe('ManifestSyncManager', () => {
     mockHasVaultKey.mockReturnValue(true)
     mockWaitForKeyVersion.mockResolvedValue(true)
     mockReadManualRecoveryEntries.mockResolvedValue([])
+  })
+
+  describe('outside the leader', () => {
+    it('never talks to the server', async () => {
+      const manager = new ManifestSyncManager({ ...depsObj, session: { isLeader: false } } as any)
+
+      expect(await manager.sync()).toEqual({ added: [], success: false })
+      expect(await manager.sync(true)).toEqual({ added: [], success: false })
+      expect(await manager.syncNow()).toBe(false)
+      await manager.fetchSnapshots(['item-1' as ItemId])
+
+      expect(mockFetchManifest).not.toHaveBeenCalled()
+      expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
+    })
+  })
+
+  it('runs a forced sync after the one in flight rather than sharing it', async () => {
+    mockListItemIds.mockResolvedValue(['item-1'])
+    const firstManifest = Promise.withResolvers<{ manifest: never[]; serverTime: number }>()
+    mockFetchManifest
+      .mockImplementationOnce(() => firstManifest.promise)
+      .mockResolvedValue({ manifest: [], serverTime: Date.now() })
+
+    const unforced = manifestSyncManager.sync()
+    await vi.waitFor(() => expect(mockFetchManifest).toHaveBeenCalledTimes(1))
+    const forced = manifestSyncManager.sync(true)
+    firstManifest.resolve({ manifest: [], serverTime: Date.now() })
+
+    await unforced
+    expect(await forced).toEqual({ added: [], success: true })
+    expect(mockFetchManifest).toHaveBeenCalledTimes(2)
   })
 
   describe('syncNow', () => {

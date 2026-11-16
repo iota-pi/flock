@@ -8,7 +8,7 @@ import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { AbortableRun } from '../utils/AbortableRun'
 import { RetryStrategy, DEFAULT_POLL_BACKOFF_DELAYS } from '../utils/RetryStrategy'
 import { RetryTimer } from '../utils/RetryTimer'
-import { checkAlive, isAbortError } from '../utils/abort'
+import { checkAlive, isAbortError, withTimeout } from '../utils/abort'
 import { classifySyncError } from '../utils/errorClassifier'
 import { fireAndForget } from '../utils/fireAndForget'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
@@ -16,7 +16,8 @@ import { createLogger } from '../utils/logger'
 
 const log = createLogger('SyncOrchestrator')
 
-type LeaderElectionLike = Pick<LeaderElection, 'acquire' | 'release' | 'claimLeadership'>
+type LeaderElectionLike = Pick<LeaderElection, 'acquire' | 'release' | 'claimLeadership'> &
+  Partial<Pick<LeaderElection, 'isLockHeldElsewhere'>>
 
 export interface SyncOrchestratorDeps {
   accountId: string
@@ -47,6 +48,8 @@ export interface SyncOrchestratorDeps {
 export type PollCadence = 'active' | 'idle' | 'hidden'
 
 const DEFAULT_MANIFEST_SYNC_INTERVAL_MS = SYNC_TIMEOUTS.manifestSyncInterval
+/** How often `settleLeadership` looks at the lock again, in case another tab took it meanwhile */
+const LEADERSHIP_RECHECK_MS = 100
 
 /** A whole number of milliseconds picked uniformly from `min` to `max` */
 function randomBetween(min: number, max: number): number {
@@ -128,6 +131,32 @@ export class SyncOrchestrator {
 
   claimLeader(): void {
     this.leaderElection?.claimLeadership()
+  }
+
+  /**
+   * Resolves whether this tab leads. While its lock request is still pending and no other tab holds
+   * the lock, it waits up to `timeoutMs` for the grant. A tab that only learns it leads later runs its
+   * own manifest sync then.
+   */
+  async settleLeadership(timeoutMs: number = SYNC_TIMEOUTS.leadershipSettle): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      if (this.deps.session.isLeader) return true
+      if (this.isShutdown || !this.leaderElection) return false
+      try {
+        if (await this.leaderElection.isLockHeldElsewhere?.()) return this.deps.session.isLeader
+      } catch (error) {
+        log.warn('Could not check which tab holds the leader lock', error)
+        return this.deps.session.isLeader
+      }
+      const remaining = deadline - Date.now()
+      if (remaining <= 0) return this.deps.session.isLeader
+      try {
+        await withTimeout(Math.min(remaining, LEADERSHIP_RECHECK_MS), signal => this.deps.session.whenLeader(signal))
+      } catch (error) {
+        if (!isAbortError(error)) throw error
+      }
+    }
   }
 
   setLeader(isLeader: boolean): void {

@@ -459,6 +459,7 @@ export class SyncWorkerContext {
 
     const manifestSyncManager = new ManifestSyncManager({
       accountId,
+      session,
       docStore,
       indexManager,
       snapshotManager,
@@ -496,7 +497,7 @@ export class SyncWorkerContext {
       },
       onLocalChangesFound: itemId => fireAndForget(changeOutbox.mark(itemId), 'SyncWorkerContext:markPending'),
       onManifestProcessed: async manifest => {
-        // A follower can run a manifest sync, but the leader owns first start and healing
+        // A sync that began before this tab stopped leading can still finish here
         if (!session.isLeader) return
         await firstStart.onManifestProcessed(manifest)
         gapHealer.onManifestSynced()
@@ -553,6 +554,7 @@ export class SyncWorkerContext {
       snapshotManager,
       manifestSyncManager,
       itemOperations,
+      becomeLeader: () => this.becomeLeader(),
       onLocalCopyDiscarded: documentId => this.unreadableDocuments.delete(documentId),
     })
 
@@ -880,6 +882,39 @@ export class SyncWorkerContext {
 
   claimLeader(): void {
     this.services.orchestrator.claimLeader()
+  }
+
+  /**
+   * Makes this tab the leader, which talks to the server, for a user action that has to. Claiming
+   * takes effect at once, and the other tabs yield.
+   */
+  becomeLeader(): void {
+    if (this.session.isLeader) return
+    this.claimLeader()
+    if (!this.session.isLeader) {
+      throw new Error('This tab could not take over syncing')
+    }
+  }
+
+  /**
+   * Loads the account's items from the server when a session starts. Only the leader talks to the
+   * server, so another tab has nothing to do: the leader's docs reach it through shared storage and
+   * the broadcast channel. A tab that becomes the leader later syncs then.
+   */
+  async bootstrapItems(): Promise<void> {
+    if (!(await this.services.orchestrator.settleLeadership())) return
+    await this.services.manifestSyncManager.sync()
+  }
+
+  /** Fetches every item the server has a newer copy of, quarantined ones too. Returns whether it all merged. */
+  async fullResync(): Promise<boolean> {
+    this.becomeLeader()
+    const { manifestSyncManager, orchestrator } = this.services
+    const result = await manifestSyncManager.sync(true)
+    if (result.success) {
+      orchestrator.flush()
+    }
+    return result.success
   }
 
   /** What this session is waiting on, for a migration app to report when it stalls */
