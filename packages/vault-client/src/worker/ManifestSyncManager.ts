@@ -107,8 +107,16 @@ export class ManifestSyncManager {
     await this.syncGuard.waitForRunning()
   }
 
+  /**
+   * Runs a manifest sync, sharing one in flight. A forced sync waits for that one instead, because
+   * it may have skipped itself as too soon after the last.
+   */
   async sync(force = false, signal?: AbortSignal): Promise<SyncResult> {
     if (this.isShutdown) return { added: [], success: false }
+    if (force) {
+      await this.syncGuard.waitForRunning()
+      if (this.isShutdown) return { added: [], success: false }
+    }
     return this.syncGuard.run(() => this.executeSync(force, signal))
   }
 

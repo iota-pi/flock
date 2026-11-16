@@ -220,6 +220,22 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchManifest).toHaveBeenCalledWith({ account: 'acc-123' }, { signal: expect.any(AbortSignal) })
     })
 
+    it('runs a forced sync after an in-flight sync that skipped itself, rather than sharing it', async () => {
+      let resolveItemIds: (ids: string[]) => void = () => {}
+      mockListItemIds.mockImplementationOnce(() => new Promise(resolve => { resolveItemIds = resolve }))
+      mockListItemIds.mockResolvedValue(['item-1'])
+      mockGetLastManifestSyncTime.mockResolvedValue(Date.now() - 60 * 1000)
+      mockFetchManifest.mockResolvedValue({ manifest: [{ itemId: 'item-1', modifiedAt: 100 }], serverTime: Date.now() })
+
+      const skippedSync = manifestSyncManager.sync(false)
+      const forcedSync = manifestSyncManager.sync(true)
+      resolveItemIds(['item-1'])
+
+      await expect(skippedSync).resolves.toEqual({ added: [], success: true })
+      await forcedSync
+      expect(mockFetchManifest).toHaveBeenCalledTimes(1)
+    })
+
     it('syncs once the minimum gap has passed, so the hourly interval always runs', async () => {
       mockListItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(Date.now() - 51 * 60 * 1000)
