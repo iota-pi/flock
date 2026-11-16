@@ -81,6 +81,8 @@ The Repo has no peer to ask for a doc it can't find, so a find for an indexed it
 
 If any I/O throws and the poll still reports `'success'`, backoff resets while `hasImmediatePendingPulls()` stays true. The result is a 0ms re-poll loop.
 
+The orchestrator's schedule is one state value (`idle`, `waiting`, `polling`, `authPaused`, plus the backoff attempt) moved on by `transitionPoll` in `pollSchedule.ts`, a pure function the orchestrator calls for every event; it only arms timers and runs polls. Its spec states this rule as named rows: a failure never schedules at 0ms, even with a flush pending or more pages to pull, and a gap never counts as immediate.
+
 **A refresh that gets no answer is an outage, not an auth failure.** Nothing restarts paused polling, so a device that paused because it couldn't reach the server would stop contacting it for good. So `handleSessionExpired` reports `unreachable` for a network or server error, leaving the session and telling the host nothing, and `SyncApiClient` rethrows the network error the worker's refresh fails with. The poll returns `'failure'` and keeps retrying until the server answers. The same goes for a refresh the main thread never answers, which is every refresh during startup, because the bridge can't reach the worker until the session is ready. A login during an outage depends on this: it has no token, and `navigator.onLine` may well be true, so no `online` event will come. When a refresh restores a session that had been lost, the bridge runs its reconnect steps, because any request can be the one that gets it back.
 
 ## Snapshot coverage

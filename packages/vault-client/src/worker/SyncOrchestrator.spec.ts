@@ -1,5 +1,6 @@
 import type { Mock, MockInstance } from 'vitest'
-import { SyncOrchestrator, type PollCadence, type SyncOrchestratorDeps } from './SyncOrchestrator'
+import { SyncOrchestrator, type SyncOrchestratorDeps } from './SyncOrchestrator'
+import type { PollCadence } from './pollSchedule'
 import { SyncSessionState } from './SyncSessionState'
 import { ClientEventHub } from './SyncEventHub'
 import type { LeaderElection, LeaderElectionCallbacks } from './utils/LeaderElection'
@@ -1511,6 +1512,26 @@ describe('SyncOrchestrator', () => {
       // Advancing timers should not schedule follower polls
       await vi.advanceTimersByTimeAsync(100000)
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
+    })
+
+    it('keeps polling when leadership comes back before an aborted poll has settled', async () => {
+      let resolvePoll: (val: PollOutcome) => void = () => {}
+      mockPoller.executePoll.mockImplementationOnce(() => new Promise(resolve => { resolvePoll = resolve }))
+
+      orchestrator.setLeader(true)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
+
+      // The poll ignores its abort signal and settles only after this tab leads again
+      orchestrator.setLeader(false)
+      orchestrator.setLeader(true)
+      await vi.advanceTimersByTimeAsync(0)
+      resolvePoll('success')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
+
+      await vi.advanceTimersByTimeAsync(40_000)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(3)
     })
 
     it('aborts in-flight poll when going offline', async () => {
