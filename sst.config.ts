@@ -188,6 +188,10 @@ export default $config({
       cors: false,
       transform: {
         api: (args) => {
+          // SST turns `cors: false` into an empty CORS configuration, not none. With any
+          // configuration, API Gateway drops the server's CORS headers and answers with its own,
+          // and an empty one allows no origins, so browsers couldn't call the API at all.
+          args.corsConfiguration = undefined;
           // Only apiDomain serves the API (and the Function URL, until it goes)
           args.disableExecuteApiEndpoint = !isDev;
         },
