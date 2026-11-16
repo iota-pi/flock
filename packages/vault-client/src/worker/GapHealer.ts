@@ -162,6 +162,7 @@ export class GapHealer {
   private async healItem(itemId: ItemId, item: HealingItem, entries: ParkedEntry[]): Promise<void> {
     const applied: number[] = []
     let isMissingDeps = false
+    let applyFailed = false
 
     for (const entry of entries) {
       const bytes = await this.decrypt(entry)
@@ -174,6 +175,7 @@ export class GapHealer {
         }
       } catch (error) {
         log.warn(`Couldn't apply parked row ${entry.seq} to ${itemId}`, error)
+        applyFailed = true
       }
     }
 
@@ -195,8 +197,11 @@ export class GapHealer {
 
     item.attempts += 1
     item.nextAttemptAt = Date.now() + GAP_HEAL_DELAYS[Math.min(item.attempts - 1, GAP_HEAL_DELAYS.length - 1)]
-    if (isMissingDeps && Date.now() - item.since >= SYNC_TIMEOUTS.missingChangesQuarantine) {
-      await this.deps.recoveryManager.quarantine(itemId, 'missingChanges', { code: 'waitingForChanges' })
+    // A row that won't apply (say, to a doc in storage that won't load) is kept like a missing dependency,
+    // since nothing is reset without the user, and gets the same day before the user is told
+    if ((isMissingDeps || applyFailed) && Date.now() - item.since >= SYNC_TIMEOUTS.missingChangesQuarantine) {
+      const code = applyFailed ? 'changesWontApply' : 'waitingForChanges'
+      await this.deps.recoveryManager.quarantine(itemId, 'missingChanges', { code })
     }
   }
 

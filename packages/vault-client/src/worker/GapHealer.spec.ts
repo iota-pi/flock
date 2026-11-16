@@ -194,6 +194,34 @@ describe('GapHealer', () => {
     }
   })
 
+  it('tells the user after a day of a row that won\'t apply, keeps the row, and clears it on a heal', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      incoming.apply.mockRejectedValue(new Error('Refusing to overwrite'))
+      await healer.park(entry(1), 'apply')
+      await healer.runDue()
+      expect(recoveryManager.quarantine).not.toHaveBeenCalled()
+      expect(await parked()).toHaveLength(1)
+
+      vi.advanceTimersByTime(SYNC_TIMEOUTS.missingChangesQuarantine)
+      await healer.runDue()
+      expect(recoveryManager.quarantine).toHaveBeenCalledWith(
+        ITEM,
+        'missingChanges',
+        { code: 'changesWontApply' },
+      )
+      expect(await parked()).toHaveLength(1)
+
+      incoming.apply.mockResolvedValue(true)
+      healer.onManifestSynced()
+      await healer.runDue()
+      expect(recoveryManager.resolveQuarantines).toHaveBeenCalledWith([ITEM], new Set(['missingChanges']))
+      expect(await parked()).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('quarantines a row that never decrypts after the retry limit, and drops it', async () => {
     keys.decryptBytes.mockRejectedValue(new Error('bad tag'))
     await healer.park(entry(1), 'decryption')
