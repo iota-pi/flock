@@ -361,6 +361,15 @@ export default $config({
     // -----------------------------------------------------------------
     // Frontend (Cloudflare Workers static assets)
     // -----------------------------------------------------------------
+    // Every stage ships the same build, whose _headers lets pages connect to production's API.
+    // Narrow it to this stage's API and Sentry before the upload (withConnectSources in
+    // src/deployments.ts). Commands that upload nothing, such as `sst remove`, may have no build.
+    const headersPath = "dist/app/_headers";
+    const { existsSync, readFileSync, writeFileSync } = await import("node:fs");
+    if (!isDev && existsSync("dist/app")) {
+      const { withConnectSources } = await import("./src/deployments");
+      writeFileSync(headersPath, withConnectSources(readFileSync(headersPath, "utf8"), deployment!));
+    }
     const app = isDev
       ? undefined
       : new sst.cloudflare.StaticSiteV2("FlockApp", {

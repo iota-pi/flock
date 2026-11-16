@@ -14,9 +14,10 @@
   Cache-Control: public, max-age=31536000, immutable
 
 # Every path. The CSP is enforced, and violations go to Sentry's security endpoint. Workers get it
-# from their script's response, so it covers every path. connect-src must list every API in
-# src/deployments.ts (deployments.spec.ts checks). Installed apps keep the headers their service
-# worker cached until it updates, so the policy can't be loosened quickly.
+# from their script's response, so it covers every path. connect-src lists production's API and
+# Sentry, and the deploy sets each stage's own from src/deployments.ts (withConnectSources). Installed
+# apps keep the headers their service worker cached until it updates, so the policy can't be
+# loosened quickly.
 #
 # Trusted Types only report for now, in a policy of their own. src/app/trustedTypes.ts is the default
 # policy that every script-URL and HTML sink goes through. Once Sentry shows no violations, move the
@@ -30,7 +31,7 @@
 # hosts aren't this app's to commit to HTTPS.
 /*
   Strict-Transport-Security: max-age=63072000
-  Content-Security-Policy: default-src 'self'; object-src 'none'; frame-src 'none'; media-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; manifest-src 'self'; worker-src 'self'; connect-src 'self' https://api.flock.cross-code.org https://api.flock-staging.cross-code.org https://o4511115810832384.ingest.us.sentry.io; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; report-uri https://o4511115810832384.ingest.us.sentry.io/api/4511115818762240/security/?sentry_key=9165ee7e30058dda2ee3529b97cf1ae3; report-to csp
+  Content-Security-Policy: default-src 'self'; object-src 'none'; frame-src 'none'; media-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; manifest-src 'self'; worker-src 'self'; connect-src 'self' https://api.flock.cross-code.org https://o4511115810832384.ingest.us.sentry.io; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; report-uri https://o4511115810832384.ingest.us.sentry.io/api/4511115818762240/security/?sentry_key=9165ee7e30058dda2ee3529b97cf1ae3; report-to csp
   Content-Security-Policy-Report-Only: require-trusted-types-for 'script'; report-uri https://o4511115810832384.ingest.us.sentry.io/api/4511115818762240/security/?sentry_key=9165ee7e30058dda2ee3529b97cf1ae3; report-to csp
   Reporting-Endpoints: csp="https://o4511115810832384.ingest.us.sentry.io/api/4511115818762240/security/?sentry_key=9165ee7e30058dda2ee3529b97cf1ae3"
   X-Content-Type-Options: nosniff

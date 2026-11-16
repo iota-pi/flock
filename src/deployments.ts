@@ -26,3 +26,31 @@ export const DEPLOYMENTS: Partial<Record<string, Deployment>> = {
     vaultEndpoint: 'https://api.flock-staging.cross-code.org',
   },
 }
+
+/** What a deployment's pages may connect to: their own site, their API and their Sentry project */
+export function connectSources(deployment: Deployment): string[] {
+  const origins = [deployment.vaultEndpoint, deployment.sentryDsn]
+    .filter((url): url is string => Boolean(url))
+    .map(url => new URL(url).origin)
+  return ["'self'", ...origins]
+}
+
+const CONNECT_SRC = /^(\s*Content-Security-Policy(?:-Report-Only)?:(?:[^;\r\n]*;)*?\s*)connect-src\b[^;\r\n]*/gm
+
+/**
+ * Sets the `connect-src` of every CSP in a `_headers` file to the deployment's sources, leaving the
+ * rest alone. public/_headers lists production's, and since every stage ships the same build, the
+ * deploy (sst.config.ts) narrows it to the stage's own, so no site may reach another stage's API.
+ * Running it again gives the same file, so a build can be deployed more than once.
+ */
+export function withConnectSources(headers: string, deployment: Deployment): string {
+  let rewritten = 0
+  const result = headers.replace(CONNECT_SRC, (_, prefix: string) => {
+    rewritten += 1
+    return `${prefix}connect-src ${connectSources(deployment).join(' ')}`
+  })
+  if (rewritten === 0) {
+    throw new Error('_headers has no CSP with a connect-src to set')
+  }
+  return result
+}
