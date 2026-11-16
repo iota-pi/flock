@@ -66,6 +66,48 @@ describe('LeaderElection', () => {
     election.release()
   })
 
+  describe('isLockHeldElsewhere', () => {
+    function stubLocks(held: Array<{ name: string }>, grant: boolean) {
+      Object.defineProperty(global, 'navigator', {
+        value: {
+          locks: {
+            request: vi.fn().mockImplementation((_name, _options, callback) => (grant ? callback() : new Promise(() => {}))),
+            query: vi.fn().mockResolvedValue({ held, pending: [] }),
+          },
+        },
+        writable: true,
+        configurable: true,
+      })
+    }
+
+    it('says so while another tab holds the lock', async () => {
+      stubLocks([{ name: 'test-vault-leader-acc-1' }], false)
+      const election = new LeaderElection('acc-1', { onLeaderGranted: vi.fn(), onLeaderRevoked: vi.fn() })
+      await election.acquire()
+
+      expect(await election.isLockHeldElsewhere()).toBe(true)
+      election.release()
+    })
+
+    it("ignores other accounts' locks", async () => {
+      stubLocks([{ name: 'test-vault-leader-acc-2' }], false)
+      const election = new LeaderElection('acc-1', { onLeaderGranted: vi.fn(), onLeaderRevoked: vi.fn() })
+      await election.acquire()
+
+      expect(await election.isLockHeldElsewhere()).toBe(false)
+      election.release()
+    })
+
+    it('says no once this tab leads', async () => {
+      stubLocks([{ name: 'test-vault-leader-acc-1' }], true)
+      const election = new LeaderElection('acc-1', { onLeaderGranted: vi.fn(), onLeaderRevoked: vi.fn() })
+      await election.acquire()
+
+      expect(await election.isLockHeldElsewhere()).toBe(false)
+      election.release()
+    })
+  })
+
   it('grants leadership when lock is acquired and revokes on release', async () => {
     const requestMock = vi.fn().mockImplementation((name, options, callback) => {
       return callback()

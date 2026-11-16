@@ -128,8 +128,4 @@ export class SnapshotCoverage {
   async confirmPulledChanges(itemIds: ItemId[]): Promise<void> {
     await this.deps.db.delete(SYNC_LOG_STORES.unconfirmedPulls, ...itemIds)
   }
-
-  clear(): void {
-    this.rechecks.clear()
-  }
 }

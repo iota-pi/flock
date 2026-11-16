@@ -10,7 +10,6 @@ const MANUAL_RECOVERY_KINDS = [
   'snapshotDecryption',
   'oversized',
   'snapshotFailure',
-  'pushFailure',
   'localDecryption',
   'missingChanges',
   'unknown',
@@ -83,7 +82,6 @@ function isManualRecoveryKind(value: unknown): value is ManualRecoveryKind {
 function inferLegacyManualRecoveryKind(reason: string): ManualRecoveryKind {
   const text = reason.toLowerCase()
   if (text.includes('exceeds') && text.includes('kb limit')) return 'oversized'
-  if (text.includes('push failed after')) return 'pushFailure'
   if (text.includes('snapshot failure:') || text.includes('re-encryption')) return 'snapshotFailure'
   if (
     text.includes('corrupted branches:')

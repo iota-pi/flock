@@ -108,10 +108,11 @@ describe('ManifestSyncManager', () => {
 
     depsObj = {
       accountId: 'acc-123',
+      session: { isLeader: true },
       docStore: mockDocStore,
       indexManager: mockIndexManager,
       snapshotManager: {
-        flushPendingSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
+        uploadNow: vi.fn().mockResolvedValue({ persisted: 0, total: 0, success: true }),
         tracker: mockSnapshotTracker,
       },
       keys,
@@ -139,6 +140,37 @@ describe('ManifestSyncManager', () => {
     mockHasVaultKey.mockReturnValue(true)
     mockWaitForKeyVersion.mockResolvedValue(true)
     mockReadManualRecoveryEntries.mockResolvedValue([])
+  })
+
+  describe('outside the leader', () => {
+    it('never talks to the server', async () => {
+      const manager = new ManifestSyncManager({ ...depsObj, session: { isLeader: false } } as any)
+
+      expect(await manager.sync()).toEqual({ added: [], success: false })
+      expect(await manager.sync(true)).toEqual({ added: [], success: false })
+      expect(await manager.syncNow()).toBe(false)
+      await manager.fetchSnapshots(['item-1' as ItemId])
+
+      expect(mockFetchManifest).not.toHaveBeenCalled()
+      expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
+    })
+  })
+
+  it('runs a forced sync after the one in flight rather than sharing it', async () => {
+    mockListItemIds.mockResolvedValue(['item-1'])
+    const firstManifest = Promise.withResolvers<{ manifest: never[]; serverTime: number }>()
+    mockFetchManifest
+      .mockImplementationOnce(() => firstManifest.promise)
+      .mockResolvedValue({ manifest: [], serverTime: Date.now() })
+
+    const unforced = manifestSyncManager.sync()
+    await vi.waitFor(() => expect(mockFetchManifest).toHaveBeenCalledTimes(1))
+    const forced = manifestSyncManager.sync(true)
+    firstManifest.resolve({ manifest: [], serverTime: Date.now() })
+
+    await unforced
+    expect(await forced).toEqual({ added: [], success: true })
+    expect(mockFetchManifest).toHaveBeenCalledTimes(2)
   })
 
   describe('syncNow', () => {
@@ -218,6 +250,22 @@ describe('ManifestSyncManager', () => {
       await manifestSyncManager.sync(true)
 
       expect(mockFetchManifest).toHaveBeenCalledWith({ account: 'acc-123' }, { signal: expect.any(AbortSignal) })
+    })
+
+    it('runs a forced sync after an in-flight sync that skipped itself, rather than sharing it', async () => {
+      let resolveItemIds: (ids: string[]) => void = () => {}
+      mockListItemIds.mockImplementationOnce(() => new Promise(resolve => { resolveItemIds = resolve }))
+      mockListItemIds.mockResolvedValue(['item-1'])
+      mockGetLastManifestSyncTime.mockResolvedValue(Date.now() - 60 * 1000)
+      mockFetchManifest.mockResolvedValue({ manifest: [{ itemId: 'item-1', modifiedAt: 100 }], serverTime: Date.now() })
+
+      const skippedSync = manifestSyncManager.sync(false)
+      const forcedSync = manifestSyncManager.sync(true)
+      resolveItemIds(['item-1'])
+
+      await expect(skippedSync).resolves.toEqual({ added: [], success: true })
+      await forcedSync
+      expect(mockFetchManifest).toHaveBeenCalledTimes(1)
     })
 
     it('syncs once the minimum gap has passed, so the hourly interval always runs', async () => {
@@ -807,7 +855,7 @@ describe('ManifestSyncManager', () => {
   })
 
   describe('manifest diffing', () => {
-    it('flushes pending snapshots before evaluating manifest diffs', async () => {
+    it('uploads pending snapshots, without a poll, before evaluating manifest diffs', async () => {
       mockListItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
       depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([['item-1', 100]])
@@ -818,15 +866,15 @@ describe('ManifestSyncManager', () => {
 
       await manifestSyncManager.sync()
 
-      expect(depsObj.snapshotManager.flushPendingSnapshots).toHaveBeenCalledTimes(1)
+      expect(depsObj.snapshotManager.uploadNow).toHaveBeenCalledTimes(1)
       // Otherwise the manifest misses the flushed items and they are pushed a second time
-      expect(depsObj.snapshotManager.flushPendingSnapshots.mock.invocationCallOrder[0])
+      expect(depsObj.snapshotManager.uploadNow.mock.invocationCallOrder[0])
         .toBeLessThan(mockFetchManifest.mock.invocationCallOrder[0])
     })
 
-    it('continues gracefully if flushPendingSnapshots throws', async () => {
+    it('continues gracefully if uploading pending snapshots throws', async () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      depsObj.snapshotManager.flushPendingSnapshots.mockRejectedValue(new Error('Flush failed'))
+      depsObj.snapshotManager.uploadNow.mockRejectedValue(new Error('Flush failed'))
 
       mockListItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(0)

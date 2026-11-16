@@ -35,8 +35,6 @@ function getRecoveryTitle(kind: ManualRecoveryKind): string {
       return 'Decryption failure requires manual recovery'
     case 'snapshotFailure':
       return 'Snapshot upload failed'
-    case 'pushFailure':
-      return 'Changes failed to upload'
     case 'localDecryption':
       return "This device's copy can't be read"
     case 'missingChanges':

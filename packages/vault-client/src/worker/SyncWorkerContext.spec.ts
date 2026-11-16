@@ -19,6 +19,7 @@ import type { ChangeOutboxDeps } from './ChangeOutbox'
 import type { GapHealerDeps } from './GapHealer'
 import type { SyncLogPullerDeps } from './SyncLogPuller'
 import type { SyncOrchestratorDeps } from './SyncOrchestrator'
+import type { SyncPollerDeps } from './SyncPoller'
 import type { ItemRecoveryServiceDeps } from './ItemRecoveryService'
 import { Keyring } from '../keys/Keyring'
 import { generateVaultKey } from '../keys/crypto'
@@ -148,7 +149,7 @@ beforeEach(() => {
       shutdown = vi.fn().mockResolvedValue(undefined)
       flushPendingSnapshots = vi.fn().mockResolvedValue({ persisted: 0, total: 0 })
       onLeaderChange = vi.fn().mockResolvedValue(undefined)
-      onOnlineStateChange = vi.fn()
+      pushDue = vi.fn().mockResolvedValue({ persisted: 0, total: 0, success: true })
     },
   })
   spyOnExports(syncOrchestrator, {
@@ -157,10 +158,16 @@ beforeEach(() => {
       shutdown = vi.fn().mockResolvedValue(undefined)
       onOnlineStateChange = vi.fn()
       constructor(readonly deps: SyncOrchestratorDeps) {}
-      claimLeader = vi.fn()
+      claimLeader = vi.fn(() => {
+        this.deps.session.setLeader(true)
+      })
+
+      settleLeadership = vi.fn(async () => this.deps.session.isLeader)
       flush = vi.fn()
       onForeground = vi.fn()
       onActivity = vi.fn()
+      onSnapshotDue = vi.fn()
+      pollNow = vi.fn().mockResolvedValue(undefined)
     },
   })
   spyOnExports(lastModifiedStoreModule, {
@@ -313,14 +320,32 @@ describe('SyncWorkerContext', () => {
     infoSpy.mockRestore()
   })
 
-  it('tells the orchestrator and snapshot manager when the online state changes', () => {
+  it('tells the orchestrator when the online state changes', () => {
     context.setOnlineState(true)
     expect(context.services.orchestrator.onOnlineStateChange).not.toHaveBeenCalled()
 
     context.setOnlineState(false)
     expect(context.session.isOnline).toBe(false)
     expect(context.services.orchestrator.onOnlineStateChange).toHaveBeenCalledTimes(1)
-    expect(context.services.snapshotManager.onOnlineStateChange).toHaveBeenCalledTimes(1)
+  })
+
+  it('uploads snapshots as a phase of the poll, scheduled by the orchestrator', async () => {
+    const managerDeps = depsOf<ConstructorParameters<typeof snapshotManagerModule.SnapshotManager>[0]>(
+      context.services.snapshotManager,
+    )
+    const orchestratorDeps = depsOf<SyncOrchestratorDeps>(context.services.orchestrator)
+    const pollerDeps = depsOf<SyncPollerDeps>(context.services.poller)
+
+    expect(pollerDeps.getSnapshots()).toBe(context.services.snapshotManager)
+
+    managerDeps.onDueChanged!()
+    expect(context.services.orchestrator.onSnapshotDue).toHaveBeenCalledTimes(1)
+
+    await managerDeps.runPollNow()
+    expect(context.services.orchestrator.pollNow).toHaveBeenCalledTimes(1)
+
+    Object.assign(context.services.snapshotManager.tracker, { nextDueAt: 1234 })
+    expect(orchestratorDeps.getSnapshotDueAt!()).toBe(1234)
   })
 
   it('tells the other tabs its visibility, and polls when the user comes back', () => {
@@ -513,6 +538,47 @@ describe('SyncWorkerContext', () => {
   it('delegates claimLeader to orchestrator.claimLeader', () => {
     context.claimLeader()
     expect(context.services.orchestrator.claimLeader).toHaveBeenCalledTimes(1)
+  })
+
+  describe('server I/O stays with the leader', () => {
+    it('loads items at session start in the leader', async () => {
+      context.session.setLeader(true)
+
+      await context.bootstrapItems()
+
+      expect(context.services.manifestSyncManager.sync).toHaveBeenCalledTimes(1)
+    })
+
+    it('leaves loading items to the leader in another tab', async () => {
+      await context.bootstrapItems()
+
+      expect(context.services.orchestrator.settleLeadership).toHaveBeenCalledTimes(1)
+      expect(context.services.manifestSyncManager.sync).not.toHaveBeenCalled()
+    })
+
+    it('takes over syncing before a full resync', async () => {
+      expect(await context.fullResync()).toBe(true)
+
+      expect(context.services.orchestrator.claimLeader).toHaveBeenCalledTimes(1)
+      expect(context.session.isLeader).toBe(true)
+      expect(context.services.manifestSyncManager.sync).toHaveBeenCalledWith(true)
+      expect(context.services.orchestrator.flush).toHaveBeenCalled()
+    })
+
+    it('does not claim leadership it already has', () => {
+      context.session.setLeader(true)
+
+      context.becomeLeader()
+
+      expect(context.services.orchestrator.claimLeader).not.toHaveBeenCalled()
+    })
+
+    it('fails when the claim does not make this tab the leader', async () => {
+      vi.mocked(context.services.orchestrator.claimLeader).mockImplementation(() => {})
+
+      await expect(context.fullResync()).rejects.toThrow(/could not take over/)
+      expect(context.services.manifestSyncManager.sync).not.toHaveBeenCalled()
+    })
   })
 
   it('delegates initialize and shutdown to lifecycle manager', async () => {

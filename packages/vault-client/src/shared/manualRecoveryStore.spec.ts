@@ -76,7 +76,8 @@ describe('manualRecoveryStore', () => {
   describe('legacy kind inference', () => {
     const cases: Array<[string, string, string?]> = [
       ['Snapshot size (400 KB) exceeds 350 KB limit. Recreating the item.', 'oversized'],
-      ['Push failed after 5 consecutive attempts: Rate limit exceeded', 'pushFailure'],
+      ['Push failed after 5 consecutive attempts: Rate limit exceeded', 'unknown'],
+      ['Push failed after 5 consecutive attempts: Rate limit exceeded', 'unknown', 'pushFailure'],
       ['Snapshot failure: x', 'snapshotFailure'],
       ['Re-encryption upload failed: x', 'snapshotFailure'],
       ['Automated recovery is unavailable for this revision', 'pullDecryption'],
@@ -206,7 +207,7 @@ describe('manualRecoveryStore', () => {
       await upsertManualRecoveryEntry(accountId, {
         itemId: 'item-1', detail: { code: 'decryptionFailed' }, kind: 'snapshotDecryption', serverVersion: 4,
       })
-      await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', detail: { code: 'unspecified' }, kind: 'pushFailure' })
+      await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', detail: { code: 'unspecified' }, kind: 'unknown' })
       await upsertManualRecoveryEntry(accountId, {
         itemId: 'item-1', detail: { code: 'hydrationFailed' }, kind: 'snapshotDecryption', serverVersion: 3,
       })
@@ -229,7 +230,7 @@ describe('manualRecoveryStore', () => {
   describe('upsert precedence', () => {
     it.each([
       ['pullDecryption'],
-      ['pushFailure'],
+      ['unknown'],
       ['snapshotFailure'],
     ])('does not replace an oversized entry with %s', async weaker => {
       const dateSpy = vi.spyOn(Date, 'now').mockReturnValue(1000)
@@ -246,16 +247,16 @@ describe('manualRecoveryStore', () => {
       }))
     })
 
-    it('replaces pullDecryption with pushFailure', async () => {
+    it('replaces pullDecryption with unknown', async () => {
       await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', detail: { code: 'decryptionFailed' }, kind: 'pullDecryption' })
-      await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', detail: { code: 'unspecified' }, kind: 'pushFailure' })
+      await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', detail: { code: 'unspecified' }, kind: 'unknown' })
 
       const entries = await readManualRecoveryEntries(accountId)
-      expect(entries[0]).toEqual(expect.objectContaining({ kind: 'pushFailure', detail: { code: 'unspecified' } }))
+      expect(entries[0]).toEqual(expect.objectContaining({ kind: 'unknown', detail: { code: 'unspecified' } }))
     })
 
-    it('replaces pushFailure with snapshotFailure', async () => {
-      await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', detail: { code: 'unspecified' }, kind: 'pushFailure' })
+    it('replaces unknown with snapshotFailure', async () => {
+      await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', detail: { code: 'unspecified' }, kind: 'unknown' })
       await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', detail: { code: 'snapshotFailed', stage: 'upload' }, kind: 'snapshotFailure' })
 
       const entries = await readManualRecoveryEntries(accountId)

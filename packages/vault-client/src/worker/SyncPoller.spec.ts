@@ -27,6 +27,7 @@ describe('SyncPoller', () => {
   let healer: { runDue: AnyMock }
   let apiClient: { pollLog: AnyMock }
   let syncManifest: AnyMock
+  let snapshots: { pushDue: AnyMock }
   let poller: SyncPoller
 
   beforeEach(() => {
@@ -44,6 +45,7 @@ describe('SyncPoller', () => {
     healer = { runDue: vi.fn().mockResolvedValue(undefined) }
     apiClient = { pollLog: vi.fn().mockResolvedValue(response()) }
     syncManifest = vi.fn().mockResolvedValue(true)
+    snapshots = { pushDue: vi.fn().mockResolvedValue({ persisted: 0, total: 0, success: true }) }
     poller = new SyncPoller({
       accountId: 'account-1',
       session,
@@ -53,6 +55,7 @@ describe('SyncPoller', () => {
       healer,
       apiClient,
       syncManifest,
+      getSnapshots: () => snapshots,
     })
   })
 
@@ -63,7 +66,7 @@ describe('SyncPoller', () => {
     expect(apiClient.pollLog).not.toHaveBeenCalled()
   })
 
-  it('finishes first start, pushes, reads the log after the cursor, heals, then fetches what first start waits for', async () => {
+  it('finishes first start, pushes, reads the log after the cursor, heals, fetches what first start waits for, then uploads snapshots', async () => {
     const order: string[] = []
     firstStart.ensureSynced.mockImplementation(async () => { order.push('firstStart') })
     outbox.pushPending.mockImplementation(async () => { order.push('push') })
@@ -73,14 +76,23 @@ describe('SyncPoller', () => {
     })
     healer.runDue.mockImplementation(async () => { order.push('heal') })
     firstStart.runDue.mockImplementation(async () => { order.push('firstStartFetch') })
+    snapshots.pushDue.mockImplementation(async () => { order.push('snapshots') })
 
     expect(await poller.executePoll()).toBe('success')
 
-    expect(order).toEqual(['firstStart', 'push', 'pollLog', 'heal', 'firstStartFetch'])
+    expect(order).toEqual(['firstStart', 'push', 'pollLog', 'heal', 'firstStartFetch', 'snapshots'])
     expect(apiClient.pollLog).toHaveBeenCalledWith(
       { account: 'account-1', push: [], after: 7 },
       { signal: expect.any(AbortSignal) },
     )
+  })
+
+  it('uploads snapshots with the poll\'s signal, so aborting the poll aborts them', async () => {
+    const controller = new AbortController()
+
+    await poller.executePoll(controller.signal)
+
+    expect(snapshots.pushDue).toHaveBeenCalledWith(controller.signal)
   })
 
   it('reads the log only once when a push already did', async () => {
@@ -133,6 +145,7 @@ describe('SyncPoller', () => {
       ['processing the page', () => puller.process],
       ['healing', () => healer.runDue],
       ['first start\'s fetches', () => firstStart.runDue],
+      ['uploading snapshots', () => snapshots.pushDue],
     ])('%s failing', async (_name, getStep) => {
       getStep().mockRejectedValue(new Error('failed'))
 
@@ -141,6 +154,13 @@ describe('SyncPoller', () => {
 
     it('reports an auth failure apart', async () => {
       apiClient.pollLog.mockRejectedValue({ data: { httpStatus: 401, code: 'UNAUTHORIZED' }, message: 'UNAUTHORIZED' })
+
+      expect(await poller.executePoll()).toBe('auth-failure')
+    })
+
+    // So an expired session pauses snapshot uploads with polling, rather than leaving them to retry alone
+    it('reports an auth failure while uploading snapshots apart', async () => {
+      snapshots.pushDue.mockRejectedValue({ data: { httpStatus: 401, code: 'UNAUTHORIZED' }, message: 'UNAUTHORIZED' })
 
       expect(await poller.executePoll()).toBe('auth-failure')
     })

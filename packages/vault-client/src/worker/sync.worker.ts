@@ -345,9 +345,7 @@ export class SyncWorker implements SyncApi {
 
   // Sync API Pass-through Delegation
   bootstrapItems = () =>
-    this.withContext(async ctx => {
-      await ctx.services.manifestSyncManager.sync()
-    })
+    this.withContext(ctx => ctx.bootstrapItems())
 
   mutateItem = (id: ItemId, changes: Partial<VaultDoc>) =>
     this.withContext(ctx => ctx.services.itemOperations.mutateItem(id, changes))
@@ -375,13 +373,7 @@ export class SyncWorker implements SyncApi {
     this.withContext(ctx => ctx.services.orchestrator.flush())
 
   fullResync = () =>
-    this.withContext(async ctx => {
-      const result = await ctx.services.manifestSyncManager.sync(true)
-      if (result.success) {
-        ctx.services.orchestrator.flush()
-      }
-      return result.success
-    })
+    this.withContext(ctx => ctx.fullResync())
 
   pushSnapshots = () =>
     this.withContext(ctx => ctx.services.snapshotManager.flushPendingSnapshots())

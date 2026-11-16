@@ -8,7 +8,7 @@ import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { AbortableRun } from '../utils/AbortableRun'
 import { RetryStrategy, DEFAULT_POLL_BACKOFF_DELAYS } from '../utils/RetryStrategy'
 import { RetryTimer } from '../utils/RetryTimer'
-import { checkAlive, isAbortError } from '../utils/abort'
+import { checkAlive, isAbortError, withTimeout } from '../utils/abort'
 import { classifySyncError } from '../utils/errorClassifier'
 import { fireAndForget } from '../utils/fireAndForget'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
@@ -16,7 +16,8 @@ import { createLogger } from '../utils/logger'
 
 const log = createLogger('SyncOrchestrator')
 
-type LeaderElectionLike = Pick<LeaderElection, 'acquire' | 'release' | 'claimLeadership'>
+type LeaderElectionLike = Pick<LeaderElection, 'acquire' | 'release' | 'claimLeadership'> &
+  Partial<Pick<LeaderElection, 'isLockHeldElsewhere'>>
 
 export interface SyncOrchestratorDeps {
   accountId: string
@@ -40,11 +41,15 @@ export interface SyncOrchestratorDeps {
    * visible, and `hidden` (5–10 min) while none is. Defaults to `idle`.
    */
   getCadence?: () => PollCadence
+  /** When the next snapshot upload is due, which brings a poll forward if it's sooner */
+  getSnapshotDueAt?: () => number | undefined
 }
 
 export type PollCadence = 'active' | 'idle' | 'hidden'
 
 const DEFAULT_MANIFEST_SYNC_INTERVAL_MS = SYNC_TIMEOUTS.manifestSyncInterval
+/** How often `settleLeadership` looks at the lock again, in case another tab took it meanwhile */
+const LEADERSHIP_RECHECK_MS = 100
 
 /** A whole number of milliseconds picked uniformly from `min` to `max` */
 function randomBetween(min: number, max: number): number {
@@ -128,6 +133,32 @@ export class SyncOrchestrator {
     this.leaderElection?.claimLeadership()
   }
 
+  /**
+   * Resolves whether this tab leads. While its lock request is still pending and no other tab holds
+   * the lock, it waits up to `timeoutMs` for the grant. A tab that only learns it leads later runs its
+   * own manifest sync then.
+   */
+  async settleLeadership(timeoutMs: number = SYNC_TIMEOUTS.leadershipSettle): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      if (this.deps.session.isLeader) return true
+      if (this.isShutdown || !this.leaderElection) return false
+      try {
+        if (await this.leaderElection.isLockHeldElsewhere?.()) return this.deps.session.isLeader
+      } catch (error) {
+        log.warn('Could not check which tab holds the leader lock', error)
+        return this.deps.session.isLeader
+      }
+      const remaining = deadline - Date.now()
+      if (remaining <= 0) return this.deps.session.isLeader
+      try {
+        await withTimeout(Math.min(remaining, LEADERSHIP_RECHECK_MS), signal => this.deps.session.whenLeader(signal))
+      } catch (error) {
+        if (!isAbortError(error)) throw error
+      }
+    }
+  }
+
   setLeader(isLeader: boolean): void {
     if (!this.deps.session.setLeader(isLeader)) {
       return
@@ -202,6 +233,37 @@ export class SyncOrchestrator {
     if (this.cadence !== 'active') return
     if (this.nextPollAt - Date.now() <= SYNC_TIMEOUTS.activePollMax) return
     this.schedulePollTimer(randomBetween(SYNC_TIMEOUTS.activePollMin, SYNC_TIMEOUTS.activePollMax), { jitter: false })
+  }
+
+  /**
+   * Brings the next poll forward to when snapshots are due, if that's sooner. Leaves failure backoff
+   * and an auth pause alone, and a poll in flight schedules the next one itself.
+   */
+  onSnapshotDue(): void {
+    if (this.isShutdown || !this.deps.session.isOnline || !this.deps.session.isLeader) return
+    if (this.pollingPausedForAuth || this.pollBackoff.attempt > 0 || !this.pollTimer.isPending) return
+    const dueDelay = this.snapshotDueDelay
+    if (dueDelay === undefined || Date.now() + dueDelay >= this.nextPollAt) return
+    this.schedulePollTimer(dueDelay, { jitter: false })
+  }
+
+  /** How long until snapshots are due, if any are */
+  private get snapshotDueDelay(): number | undefined {
+    const dueAt = this.deps.getSnapshotDueAt?.()
+    return dueAt === undefined ? undefined : Math.max(0, dueAt - Date.now())
+  }
+
+  /**
+   * Runs a poll now, after the one in flight if there is one, and resolves once it has finished. Polls
+   * even while backing off or paused for auth, as `flush` does.
+   */
+  async pollNow(): Promise<void> {
+    if (this.isShutdown || !this.deps.session.isLeader) return
+    this.pollingPausedForAuth = false
+    while (this.pollGuard.isRunning) {
+      await this.pollGuard.waitForRunning()
+    }
+    await this.executeWrappedPoll(true)
   }
 
   flush(): void {
@@ -308,11 +370,15 @@ export class SyncOrchestrator {
       || (outcome === 'success' && this.deps.puller.hasImmediatePendingPulls())
     )
     const gapDelay = outcome === 'success' ? this.deps.puller.gapRepollDelay : undefined
+    // Snapshots wait out failure backoff with everything else
+    const snapshotDelay = outcome === 'failure' ? undefined : this.snapshotDueDelay
     const next = this.nextPollDelay
     if (pollNow) {
       this.schedulePollTimer(0)
-    } else if (gapDelay !== undefined && gapDelay < next.delayMs) {
+    } else if (gapDelay !== undefined && gapDelay < next.delayMs && (snapshotDelay === undefined || gapDelay <= snapshotDelay)) {
       this.schedulePollTimer(gapDelay)
+    } else if (snapshotDelay !== undefined && snapshotDelay < next.delayMs) {
+      this.schedulePollTimer(snapshotDelay, { jitter: false })
     } else {
       this.schedulePollTimer(next.delayMs, { jitter: !next.isSpread })
     }

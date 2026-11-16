@@ -32,10 +32,27 @@ const vault = {
 const keys = createMockKeyProvider(vault)
 
 const sessions = new WeakMap<SnapshotManager, SyncSessionState>()
+const pollControllers = new WeakMap<SnapshotManager, AbortController>()
+
+/** Runs one poll's snapshot phase, as the orchestrator does, swallowing its failure as a poll would */
+async function poll(target: SnapshotManager): Promise<void> {
+  const controller = new AbortController()
+  pollControllers.set(target, controller)
+  try {
+    await target.pushDue(controller.signal)
+  } catch {
+    // The poll reports a failure
+  }
+}
+
+/** Aborts the poll in flight, as the orchestrator does when leadership or the connection goes */
+function abortPoll(target: SnapshotManager): void {
+  pollControllers.get(target)?.abort()
+}
 
 /** A manager with its own session state, a leader's when `isLeader` is set */
 function createManager(
-  context: Omit<ConstructorParameters<typeof SnapshotManager>[0], 'session' | 'lastModifiedStore' | 'builder'> & {
+  context: Omit<ConstructorParameters<typeof SnapshotManager>[0], 'session' | 'lastModifiedStore' | 'builder' | 'runPollNow'> & {
     repo: Repo
     keys: KeyProvider
     codec?: DocCodec
@@ -47,7 +64,10 @@ function createManager(
   const { repo, keys, codec = passthroughCodec, ...deps } = context
   const session = new SyncSessionState({ isLeader })
   const builder = new SnapshotBuilder(repo, keys, codec, noLogCoverage)
-  const created = new SnapshotManager({ ...deps, session, lastModifiedStore, builder }, managerOptions)
+  const created: SnapshotManager = new SnapshotManager(
+    { ...deps, session, lastModifiedStore, builder, runPollNow: () => poll(created) },
+    managerOptions,
+  )
   sessions.set(created, session)
   return created
 }
@@ -56,13 +76,6 @@ function createManager(
 async function setLeader(target: SnapshotManager, isLeader: boolean): Promise<void> {
   if (sessions.get(target)!.setLeader(isLeader)) {
     await target.onLeaderChange()
-  }
-}
-
-/** Changes the session's online state and tells the manager, as the context does */
-function setOnline(target: SnapshotManager, isOnline: boolean): void {
-  if (sessions.get(target)!.setOnline(isOnline)) {
-    target.onOnlineStateChange()
   }
 }
 
@@ -115,6 +128,7 @@ describe('SnapshotManager', () => {
   let mockRepo: any
   let mockHandle: any
   let mockEventHub: { emit: ReturnType<typeof vi.fn> }
+  let onDueChanged: ReturnType<typeof vi.fn<() => void>>
   let context: {
     accountId: string | null
     repo: any
@@ -124,6 +138,7 @@ describe('SnapshotManager', () => {
     recoveryManager: RecoveryManager
     apiClient: SyncApiClient
     keys: KeyProvider
+    onDueChanged: () => void
   }
   let lastModifiedStore: LastModifiedStore
 
@@ -131,6 +146,7 @@ describe('SnapshotManager', () => {
     // The store persists between tests, and saves merge into it
     await new LastModifiedStore('test-account').clear()
     vi.useFakeTimers()
+    vi.setSystemTime(1_000_000)
     vi.clearAllMocks()
     setApiAuthToken('mock-auth-token')
 
@@ -146,6 +162,7 @@ describe('SnapshotManager', () => {
     mockEventHub = {
       emit: vi.fn(),
     }
+    onDueChanged = vi.fn()
 
     context = {
       accountId: 'test-account',
@@ -156,6 +173,7 @@ describe('SnapshotManager', () => {
       recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: mockEventHub as any }),
       apiClient: new SyncApiClient(),
       keys,
+      onDueChanged: () => onDueChanged(),
     }
 
     lastModifiedStore = new LastModifiedStore('test-account')
@@ -166,54 +184,106 @@ describe('SnapshotManager', () => {
     vi.useRealTimers()
   })
 
-  it('pauses and clears retry timers when going offline', async () => {
-    mockPutSnapshots.mockResolvedValue({
-      success: false,
-      persisted: 0,
-    })
+  /** Moves the clock on, past the snapshot debounce by default */
+  function elapse(ms = 30_000): void {
+    vi.setSystemTime(Date.now() + ms)
+  }
 
+  it('tells the orchestrator when an edit makes snapshots due', () => {
     manager.tracker.markItemDirty('item-1' as ItemId)
-    await manager.flushPendingSnapshots()
-    expect(manager['pusher'].retryAttempt).toBe(1)
-    expect(manager['pusher'].isRetryActive).toBe(true)
 
-    // Go offline
-    setOnline(manager, false)
-    expect(manager['pusher'].isRetryActive).toBe(false)
+    expect(onDueChanged).toHaveBeenCalledTimes(1)
+  })
 
-    // Advance time, no additional retry should occur
-    await vi.advanceTimersByTimeAsync(10000)
+  it('uploads at a poll once the debounce has passed, and not before', async () => {
+    mockPutSnapshots.mockResolvedValue({ success: true, persisted: 1 })
+    manager.tracker.markItemDirty('item-1' as ItemId)
+
+    await poll(manager)
+    expect(mockPutSnapshots).not.toHaveBeenCalled()
+
+    elapse()
+    await poll(manager)
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
   })
 
-  it('triggers immediate push when coming online with pending snapshots', async () => {
-    // 1. Set up failed push and verify it schedules a retry
-    mockPutSnapshots.mockResolvedValue({
-      success: false,
-      persisted: 0,
-    })
-
+  it('flushes by running a poll with every snapshot due now, and reports what it uploaded', async () => {
+    mockPutSnapshots.mockResolvedValue({ success: true, persisted: 1 })
     manager.tracker.markItemDirty('item-1' as ItemId)
-    await manager.flushPendingSnapshots()
-    expect(manager['pusher'].retryAttempt).toBe(1)
 
-    // 2. Go offline (clears retry timer)
-    setOnline(manager, false)
-    expect(manager['pusher'].isRetryActive).toBe(false)
+    const result = await manager.flushPendingSnapshots()
 
-    // 3. Make next call succeed
-    mockPutSnapshots.mockResolvedValue({
-      success: true,
-      persisted: 1,
+    expect(result).toEqual({ persisted: 1, total: 1 })
+    expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
+    expect(manager.tracker.dirtyCount).toBe(0)
+  })
+
+  it('reports nothing uploaded when the flush poll failed', async () => {
+    mockPutSnapshots.mockRejectedValue(new Error('Network disconnected'))
+    manager.tracker.markItemDirty('item-1' as ItemId)
+
+    const result = await manager.flushPendingSnapshots()
+
+    expect(result).toEqual({ persisted: 0, total: 0 })
+    expect(manager.tracker.getDirtyItemIds()).toContain('item-1')
+  })
+
+  // A manifest sync often runs inside a poll, which waiting for a poll would deadlock
+  it('uploads now without a poll, for a manifest sync', async () => {
+    mockPutSnapshots.mockResolvedValue({ success: true, persisted: 1 })
+    const runPollNow = vi.fn().mockResolvedValue(undefined)
+    const direct = new SnapshotManager({
+      ...context as any,
+      session: new SyncSessionState({ isLeader: true }),
+      lastModifiedStore,
+      builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec, noLogCoverage),
+      runPollNow,
+    })
+    direct.tracker.markItemDirty('item-1' as ItemId)
+
+    await expect(direct.uploadNow(new AbortController().signal)).resolves.toEqual({ persisted: 1, total: 1, success: true })
+
+    expect(runPollNow).not.toHaveBeenCalled()
+    expect(direct.tracker.dirtyCount).toBe(0)
+  })
+
+  it('uploads now only after the poll phase in flight, never alongside it', async () => {
+    let releaseFirst!: () => void
+    mockPutSnapshots
+      .mockImplementationOnce(() => new Promise(resolve => {
+        releaseFirst = () => resolve({ success: true, persisted: 1 })
+      }))
+      .mockResolvedValue({ success: true, persisted: 1 })
+    manager.tracker.markItemDirty('item-1' as ItemId, 0)
+    const phase = poll(manager)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
+
+    manager.tracker.markItemDirty('item-2' as ItemId)
+    const direct = manager.uploadNow(new AbortController().signal)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
+
+    releaseFirst()
+    await phase
+    await direct
+
+    expect(mockPutSnapshots).toHaveBeenCalledTimes(2)
+    expect(mockPutSnapshots.mock.calls[1][0].snapshots.map((s: any) => s.itemId)).toEqual(['item-2'])
+  })
+
+  it('does not run a poll to flush when nothing is dirty', async () => {
+    const runPollNow = vi.fn().mockResolvedValue(undefined)
+    const idle = new SnapshotManager({
+      ...context as any,
+      session: new SyncSessionState({ isLeader: true }),
+      lastModifiedStore,
+      builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec, noLogCoverage),
+      runPollNow,
     })
 
-    // 4. Come back online
-    setOnline(manager, true)
-    await vi.advanceTimersByTimeAsync(0)
-
-    // Immediate push should have happened and succeeded
-    expect(mockPutSnapshots).toHaveBeenCalledTimes(2)
-    expect(manager['pusher'].retryAttempt).toBe(0)
+    await expect(idle.flushPendingSnapshots()).resolves.toEqual({ persisted: 0, total: 0 })
+    expect(runPollNow).not.toHaveBeenCalled()
   })
 
   it('saves pending timestamps at once when flushed, even in a follower tab', async () => {
@@ -251,24 +321,16 @@ describe('SnapshotManager', () => {
       expect(mockPutSnapshots).not.toHaveBeenCalled()
     })
 
-    it('does not schedule debounced push timers when marked dirty as follower', async () => {
+    it('does not upload from a follower however long its items have been dirty', async () => {
       followerManager.tracker.markItemDirty('follower-item-1' as ItemId)
 
-      // Advance timers beyond debounce and max wait
-      await vi.advanceTimersByTimeAsync(10 * 60 * 1000)
+      elapse(10 * 60 * 1000)
+      await poll(followerManager)
 
       expect(mockPutSnapshots).not.toHaveBeenCalled()
     })
 
-    it('does not trigger push on online state change when not leader', async () => {
-      followerManager.tracker.markItemDirty('follower-item-1' as ItemId)
-      setOnline(followerManager, true)
-
-      await vi.advanceTimersByTimeAsync(1000)
-      expect(mockPutSnapshots).not.toHaveBeenCalled()
-    })
-
-    it('schedules debounced snapshot push when promoted to leader with dirty items', async () => {
+    it('uploads after the debounce when promoted to leader with dirty items', async () => {
       mockPutSnapshots.mockResolvedValue({
         success: true,
         persisted: 1,
@@ -278,35 +340,25 @@ describe('SnapshotManager', () => {
       expect(mockPutSnapshots).not.toHaveBeenCalled()
 
       // Promoted to leader
-      setLeader(followerManager, true)
+      await setLeader(followerManager, true)
       expect(isLeader(followerManager)).toBe(true)
 
-      // Debounced push runs
-      await vi.advanceTimersByTimeAsync(30_000)
+      elapse()
+      await poll(followerManager)
 
       expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
       expect(mockPutSnapshots.mock.calls[0][0].snapshots[0].itemId).toBe('follower-item-1')
     })
 
-    it('clears active debounce and retry timers when leadership is revoked', async () => {
+    it('drops the due time when leadership is revoked', async () => {
       manager.tracker.markItemDirty('leader-item-1' as ItemId)
 
-      // Leadership revoked before debounce timer fires
-      setLeader(manager, false)
+      await setLeader(manager, false)
       expect(isLeader(manager)).toBe(false)
 
-      await vi.advanceTimersByTimeAsync(10 * 60 * 1000)
-      expect(mockPutSnapshots).not.toHaveBeenCalled()
-    })
-
-    it('safely no-ops during simulated visibilitychange pushSnapshots on follower tab', async () => {
-      // Simulate user editing in follower tab
-      followerManager.tracker.markItemDirty('doc-edit-1' as ItemId)
-
-      // Simulate tab visibility changing to hidden -> flushPendingSnapshots called
-      const flushResult = await followerManager.flushPendingSnapshots()
-
-      expect(flushResult).toEqual({ persisted: 0, total: 0 })
+      expect(manager.tracker.nextDueAt).toBeUndefined()
+      elapse(10 * 60 * 1000)
+      await poll(manager)
       expect(mockPutSnapshots).not.toHaveBeenCalled()
     })
 
@@ -337,7 +389,8 @@ describe('SnapshotManager', () => {
 
       await setLeader(followerManager, true)
 
-      await vi.advanceTimersByTimeAsync(30_000)
+      elapse()
+      await poll(followerManager)
 
       expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
       expect(mockPutSnapshots.mock.calls[0][0].snapshots[0].itemId).toBe('item-from-previous-leader')
@@ -361,7 +414,8 @@ describe('SnapshotManager', () => {
       expect(followerManager.tracker.getDirtyItemIds()).toContain('follower-local-item')
       expect(followerManager.tracker.getDirtyItemIds()).toContain('item-from-previous-leader')
 
-      await vi.advanceTimersByTimeAsync(30_000)
+      elapse()
+      await poll(followerManager)
 
       expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
       const sentIds = mockPutSnapshots.mock.calls[0][0].snapshots.map((s: any) => s.itemId)
@@ -369,7 +423,7 @@ describe('SnapshotManager', () => {
       expect(sentIds).toContain('item-from-previous-leader')
     })
 
-    it('does not schedule snapshot push upon promotion if all stored items are clean', async () => {
+    it('has nothing due upon promotion if all stored items are clean', async () => {
       vi.spyOn(lastModifiedStore, 'loadTimestamps').mockResolvedValue([
         ['item-clean' as ItemId, { localModifiedAt: 4000, lastSnapshotAt: 4000 }],
       ])
@@ -377,12 +431,10 @@ describe('SnapshotManager', () => {
       await setLeader(followerManager, true)
 
       expect(followerManager.tracker.getDirtyItemIds()).toHaveLength(0)
-
-      await vi.advanceTimersByTimeAsync(30_000)
-      expect(mockPutSnapshots).not.toHaveBeenCalled()
+      expect(followerManager.tracker.nextDueAt).toBeUndefined()
     })
 
-    it('does not schedule snapshot push if leadership is revoked while promotion audit is in flight', async () => {
+    it('does not upload if leadership is revoked while promotion audit is in flight', async () => {
       let resolveTimestamps: (val: any) => void
       const pendingLoad = new Promise(resolve => {
         resolveTimestamps = resolve
@@ -400,13 +452,14 @@ describe('SnapshotManager', () => {
       ])
       await promotionPromise
 
-      await vi.advanceTimersByTimeAsync(30_000)
+      elapse()
+      await poll(followerManager)
       expect(mockPutSnapshots).not.toHaveBeenCalled()
     })
   })
 
   describe('In-flight push cancellation', () => {
-    it('aborts in-flight snapshot push when leadership is revoked', async () => {
+    it('aborts the upload in flight with the poll, leaving the item dirty', async () => {
       let capturedSignal: AbortSignal | undefined
       mockPutSnapshots.mockImplementationOnce((_input, options) => {
         capturedSignal = options?.signal
@@ -420,70 +473,26 @@ describe('SnapshotManager', () => {
       })
 
       manager.tracker.markItemDirty('item-1' as ItemId)
-      const pushPromise = manager.flushPendingSnapshots()
+      const flush = manager.flushPendingSnapshots()
 
       await vi.advanceTimersByTimeAsync(0)
       expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-      expect(capturedSignal).toBeDefined()
       expect(capturedSignal?.aborted).toBe(false)
 
-      await setLeader(manager, false)
+      abortPoll(manager)
 
       expect(capturedSignal?.aborted).toBe(true)
-      const result = await pushPromise
-      expect(result.persisted).toBe(0)
+      await expect(flush).resolves.toEqual({ persisted: 0, total: 0 })
+      expect(manager.tracker.getDirtyItemIds()).toContain('item-1')
     })
 
-    it('aborts in-flight snapshot push when going offline', async () => {
-      let capturedSignal: AbortSignal | undefined
-      mockPutSnapshots.mockImplementationOnce((_input, options) => {
-        capturedSignal = options?.signal
-        return new Promise((_resolve, reject) => {
-          options?.signal?.addEventListener('abort', () => {
-            const err = new Error('aborted')
-            err.name = 'AbortError'
-            reject(err)
-          })
-        })
-      })
-
+    it('stops cleanly once polling has stopped', async () => {
       manager.tracker.markItemDirty('item-1' as ItemId)
-      const pushPromise = manager.flushPendingSnapshots()
-
-      await vi.advanceTimersByTimeAsync(0)
-      expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-      expect(capturedSignal?.aborted).toBe(false)
-
-      setOnline(manager, false)
-
-      expect(capturedSignal?.aborted).toBe(true)
-      const result = await pushPromise
-      expect(result.persisted).toBe(0)
-    })
-
-    it('aborts in-flight snapshot push when shutdown occurs', async () => {
-      let capturedSignal: AbortSignal | undefined
-      mockPutSnapshots.mockImplementationOnce((_input, options) => {
-        capturedSignal = options?.signal
-        return new Promise(resolve => {
-          options?.signal?.addEventListener('abort', () => {
-            resolve({ success: false, persisted: 0, total: 1 })
-          })
-        })
-      })
-
-      manager.tracker.markItemDirty('item-1' as ItemId)
-      const pushPromise = manager.flushPendingSnapshots()
-
-      await vi.advanceTimersByTimeAsync(0)
-      expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-      expect(capturedSignal?.aborted).toBe(false)
 
       await shutDown(manager)
 
-      expect(capturedSignal?.aborted).toBe(true)
-      const result = await pushPromise
-      expect(result.persisted).toBe(0)
+      expect(manager.tracker.dirtyCount).toBe(0)
+      expect(vi.getTimerCount()).toBe(0)
     })
   })
 })

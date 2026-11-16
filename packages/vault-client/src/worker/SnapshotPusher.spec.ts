@@ -8,7 +8,6 @@ import { AuthError, SyncApiClient } from './SyncApiClient'
 import { RecoveryManager } from './RecoveryManager'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 import { getApiAuthToken, setApiAuthToken } from '../keys/runtime'
-import { fireAndForget } from '../utils/fireAndForget'
 import { createMockKeyProvider, createMockVault, getTimestamps, noLogCoverage, spyOnVaultTrpc } from './__test__/testUtils'
 import { spyOnExports } from '../../test/moduleMocks'
 import { passthroughCodec } from './domain'
@@ -20,6 +19,10 @@ import * as Automerge from '@automerge/automerge/slim'
 /** Estimates well above the pusher's `maxPayloadBytes` of 1000 */
 const OVERSIZED_CIPHER = 'x'.repeat(5000)
 
+const quotaError = () => Object.assign(new Error('QUOTA_EXCEEDED'), {
+  data: { code: 'TOO_MANY_REQUESTS', httpStatus: 429 },
+})
+
 describe('SnapshotPusher', () => {
   let pusher: SnapshotPusher
   let mockTracker: any
@@ -30,19 +33,25 @@ describe('SnapshotPusher', () => {
   let mockRecoveryManager: any
   let mockEventHub: any
 
+  /** Runs the poll's snapshot phase */
+  const push = (signal: AbortSignal = new AbortController().signal) => pusher.pushDue(signal)
+
   beforeEach(() => {
     vi.useFakeTimers()
     vi.clearAllMocks()
 
     mockTracker = {
       dirtyCount: 1,
+      isDue: vi.fn().mockReturnValue(true),
+      clearDue: vi.fn(),
+      retryNextPoll: vi.fn(),
+      deferUntil: vi.fn(),
       getDirtyItemIds: vi.fn().mockReturnValue(['item-1' as ItemId]),
       getDirtyTick: vi.fn().mockReturnValue(1),
       recordSnapshotSuccess: vi.fn(),
       recordOversized: vi.fn().mockReturnValue(true),
       clearOversized: vi.fn(),
       removeDirtyItemIfTickMatches: vi.fn(),
-      clearDebounceTimers: vi.fn(),
       getBaseVersion: vi.fn().mockReturnValue(1),
     }
 
@@ -108,6 +117,42 @@ describe('SnapshotPusher', () => {
     heads: ['head-1'],
   })
 
+
+  it('does nothing until snapshots are due', async () => {
+    mockTracker.isDue.mockReturnValue(false)
+
+    await expect(push()).resolves.toEqual({ persisted: 0, total: 0, success: true })
+
+    expect(mockTracker.clearDue).not.toHaveBeenCalled()
+    expect(mockBuilder.build).not.toHaveBeenCalled()
+    expect(mockApiClient.putSnapshots).not.toHaveBeenCalled()
+  })
+
+  it('does nothing in a tab that is not the leader', async () => {
+    pusher = new SnapshotPusher({
+      accountId: 'test-acc',
+      session: new SyncSessionState({ isLeader: false }),
+      tracker: mockTracker as unknown as SnapshotTracker,
+      builder: mockBuilder as unknown as SnapshotBuilder,
+      pushToLog: mockPushToLog,
+      onSnapshotStored: mockOnSnapshotStored,
+      apiClient: mockApiClient,
+      recoveryManager: mockRecoveryManager,
+      eventHub: mockEventHub,
+    })
+
+    await push()
+
+    expect(mockBuilder.build).not.toHaveBeenCalled()
+  })
+
+  it('clears the due time as it takes the dirty items', async () => {
+    await push()
+
+    expect(mockTracker.clearDue).toHaveBeenCalledTimes(1)
+    expect(mockTracker.retryNextPoll).not.toHaveBeenCalled()
+  })
+
   it('pushes dirty items to the log before it builds their snapshots', async () => {
     const order: string[] = []
     mockPushToLog.mockImplementation(async () => { order.push('log') })
@@ -117,7 +162,7 @@ describe('SnapshotPusher', () => {
       return built
     })
 
-    await pusher.triggerSnapshotPush()
+    await push()
 
     expect(mockPushToLog).toHaveBeenCalledWith(['item-1'], expect.any(AbortSignal))
     expect(order).toEqual(['log', 'build'])
@@ -128,30 +173,29 @@ describe('SnapshotPusher', () => {
     mockBuilder.build.mockReset()
     mockBuilder.build.mockResolvedValueOnce({ type: 'deferred', reason: 'unpushed' }).mockResolvedValueOnce(built)
 
-    await pusher.triggerSnapshotPush()
+    await push()
 
     expect(mockPushToLog).toHaveBeenCalledTimes(2)
     expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
   })
 
-  it('retries an item still deferred after the push, counting no failure', async () => {
+  it('leaves an item still deferred after the push to the next poll, counting no failure', async () => {
     mockBuilder.build.mockResolvedValue({ type: 'deferred', reason: 'unpushed' })
 
-    await pusher.triggerSnapshotPush()
+    await expect(push()).resolves.toEqual({ persisted: 0, total: 0, success: false })
 
     expect(mockApiClient.putSnapshots).not.toHaveBeenCalled()
     expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
-    expect(pusher.isRetryActive).toBe(true)
-    pusher.cancelRetry()
+    expect(mockTracker.retryNextPoll).toHaveBeenCalledTimes(1)
   })
 
   it('skips an item waiting for its server heads, without retrying', async () => {
     mockBuilder.build.mockResolvedValue({ type: 'deferred', reason: 'awaitingHeads' })
 
-    await pusher.triggerSnapshotPush()
+    await push()
 
     expect(mockApiClient.putSnapshots).not.toHaveBeenCalled()
-    expect(pusher.isRetryActive).toBe(false)
+    expect(mockTracker.retryNextPoll).not.toHaveBeenCalled()
   })
 
   it('reports the version the snapshot jumped from, and the log head, for rechecking', async () => {
@@ -162,7 +206,7 @@ describe('SnapshotPusher', () => {
       logSeq: 42,
     })
 
-    await pusher.triggerSnapshotPush()
+    await push()
 
     expect(mockOnSnapshotStored).toHaveBeenCalledWith({
       itemId: 'item-1',
@@ -174,9 +218,9 @@ describe('SnapshotPusher', () => {
   })
 
   it('pushes snapshots successfully and reports each stored snapshot', async () => {
-    const result = await pusher.triggerSnapshotPush()
+    const result = await push()
 
-    expect(result).toEqual({ persisted: 1, total: 1 })
+    expect(result).toEqual({ persisted: 1, total: 1, success: true })
     expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
     expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1000, 1, 2)
     expect(mockOnSnapshotStored).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'item-1', heads: ['head-1'] }))
@@ -186,9 +230,9 @@ describe('SnapshotPusher', () => {
   it('handles oversized item by quarantining and reporting a snapshot failure', async () => {
     mockBuilder.build.mockResolvedValue(oversizedSnapshot())
 
-    const result = await pusher.triggerSnapshotPush()
+    const result = await push()
 
-    expect(result).toEqual({ persisted: 0, total: 0 })
+    expect(result).toEqual({ persisted: 0, total: 0, success: true })
     expect(mockTracker.recordOversized).toHaveBeenCalledWith('item-1', 1000)
     expect(mockEventHub.emit).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'snapshotFailed', itemId: 'item-1' }),
@@ -205,7 +249,7 @@ describe('SnapshotPusher', () => {
     mockBuilder.build.mockResolvedValue(oversizedSnapshot())
     mockTracker.recordOversized.mockReturnValue(false)
 
-    await pusher.triggerSnapshotPush()
+    await push()
 
     expect(mockTracker.recordOversized).toHaveBeenCalledWith('item-1', 1000)
     expect(mockEventHub.emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'snapshotFailed' }))
@@ -230,9 +274,9 @@ describe('SnapshotPusher', () => {
     })
 
     it('uploads a metadata-only tombstone for a deleted oversized item instead of quarantining', async () => {
-      const result = await pusher.triggerSnapshotPush()
+      const result = await push()
 
-      expect(result).toEqual({ persisted: 1, total: 1 })
+      expect(result).toEqual({ persisted: 1, total: 1, success: true })
       const payload = mockApiClient.putSnapshots.mock.calls[0][0]
       expect(payload.snapshots).toHaveLength(1)
       expect(payload.snapshots[0]).toEqual({
@@ -272,9 +316,9 @@ describe('SnapshotPusher', () => {
         results: [{ itemId: 'item-1', version: 3 }, { itemId: 'item-2', version: 4 }],
       })
 
-      const result = await pusher.triggerSnapshotPush()
+      const result = await push()
 
-      expect(result).toEqual({ persisted: 2, total: 2 })
+      expect(result).toEqual({ persisted: 2, total: 2, success: true })
       expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
       expect(mockApiClient.putSnapshots.mock.calls[0][0].snapshots).toHaveLength(2)
       expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1000, 1, 3)
@@ -293,13 +337,13 @@ describe('SnapshotPusher', () => {
 
     // 4 failures
     for (let i = 0; i < 4; i++) {
-      await pusher.triggerSnapshotPush()
+      await push()
       expect(pusher['consecutiveFailures']['count']('item-1' as ItemId)).toBe(i + 1)
       expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
     }
 
     // 5th failure triggers quarantine
-    await pusher.triggerSnapshotPush()
+    await push()
 
     expect(pusher['consecutiveFailures']['count']('item-1' as ItemId)).toBe(0)
     expect(mockTracker.removeDirtyItemIfTickMatches).toHaveBeenCalledWith('item-1', 1)
@@ -313,60 +357,76 @@ describe('SnapshotPusher', () => {
     )
   })
 
-  it('schedules retry on push failure when items remain dirty', async () => {
+
+  it('leaves items the server did not store to the next poll', async () => {
     mockApiClient.putSnapshots.mockResolvedValue({ success: false, persisted: 0, results: [] })
 
-    await pusher.triggerSnapshotPush()
+    await expect(push()).resolves.toEqual({ persisted: 0, total: 1, success: false })
 
-    expect(pusher.retryAttempt).toBe(1)
-    expect(pusher.isRetryActive).toBe(true)
-
-    // Cancel retry
-    pusher.cancelRetry()
-    expect(pusher.isRetryActive).toBe(false)
+    expect(mockTracker.retryNextPoll).toHaveBeenCalledTimes(1)
   })
 
-  // Over the storage quota the whole request is refused, and nothing is wrong with its items
-  it('retries later without counting an item failure when the account is over its quota', async () => {
-    mockApiClient.putSnapshots.mockRejectedValue(Object.assign(new Error('QUOTA_EXCEEDED'), {
-      data: { code: 'TOO_MANY_REQUESTS', httpStatus: 429 },
-    }))
+  // Sync rule 4: a request that fails fails the poll, which backs off
+  it('throws when the upload request fails, leaving the items to the next poll', async () => {
+    const error = new Error('Network disconnected')
+    mockApiClient.putSnapshots.mockRejectedValue(error)
+
+    await expect(push()).rejects.toBe(error)
+
+    expect(mockTracker.retryNextPoll).toHaveBeenCalledTimes(1)
+    expect(pusher['consecutiveFailures']['count']('item-1' as ItemId)).toBe(0)
+    expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
+  })
+
+  it('throws when pushing to the log fails, before building anything', async () => {
+    const error = new Error('Network disconnected')
+    mockPushToLog.mockRejectedValue(error)
+
+    await expect(push()).rejects.toBe(error)
+
+    expect(mockBuilder.build).not.toHaveBeenCalled()
+  })
+
+  // So the poll pauses for auth, rather than the device retrying alone with an expired session
+  it('throws an auth failure', async () => {
+    mockApiClient.putSnapshots.mockRejectedValue(new AuthError('No active session token available'))
+
+    await expect(push()).rejects.toBeInstanceOf(AuthError)
+  })
+
+  // Over the storage quota the whole request is refused, and nothing is wrong with its items or with pulls
+  it('defers snapshots without failing the poll or counting an item failure when the account is over its quota', async () => {
+    vi.setSystemTime(10_000)
+    mockApiClient.putSnapshots.mockRejectedValue(quotaError())
 
     // More attempts than it takes to quarantine an item that keeps failing
     for (let i = 0; i < 6; i += 1) {
-      await pusher.triggerSnapshotPush()
+      await expect(push()).resolves.toEqual({ persisted: 0, total: 0, success: false })
     }
 
+    expect(mockTracker.deferUntil).toHaveBeenCalledWith(10_000 + SYNC_TIMEOUTS.snapshotQuotaRetry)
+    expect(mockTracker.retryNextPoll).not.toHaveBeenCalled()
     expect(pusher['consecutiveFailures']['count']('item-1' as ItemId)).toBe(0)
     expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
     expect(mockTracker.removeDirtyItemIfTickMatches).not.toHaveBeenCalled()
-    expect(pusher.isRetryActive).toBe(true)
-    pusher.cancelRetry()
   })
 
-  it('runs a follow-up push requested while a push was in flight', async () => {
-    let releaseFirstPut!: () => void
-    mockApiClient.putSnapshots.mockImplementationOnce(() => new Promise(resolve => {
-      releaseFirstPut = () => resolve({ success: true, persisted: 1, results: [{ itemId: 'item-1', version: 2 }] })
+  it('keeps what an earlier batch stored when the server refuses a later one for the quota', async () => {
+    mockTracker.getDirtyItemIds.mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId])
+    mockBuilder.build.mockImplementation(async (itemId: string) => ({
+      type: 'success',
+      snapshot: { itemId, snapshot: { cipher: 'c'.repeat(600), iv: '1', kver: '1' }, snapshotCursor: 0, modified: 1000 },
+      heads: ['h'],
     }))
+    mockApiClient.putSnapshots
+      .mockResolvedValueOnce({ success: true, persisted: 1, results: [{ itemId: 'item-1', version: 2 }] })
+      .mockRejectedValueOnce(quotaError())
 
-    const firstPush = pusher.triggerSnapshotPush()
-    await vi.waitFor(() => expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1))
-    const coalesced = pusher.triggerSnapshotPush()
-    releaseFirstPut()
-    await firstPush
-    await coalesced
+    await expect(push()).resolves.toEqual({ persisted: 0, total: 0, success: false })
 
-    await vi.waitFor(() => expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(2))
-    expect(pusher['pendingPushRequested']).toBe(false)
-  })
-
-  it('does not schedule a retry when a push is aborted', async () => {
-    mockApiClient.putSnapshots.mockImplementationOnce(() => Promise.reject(new DOMException('Aborted', 'AbortError')))
-
-    await pusher.triggerSnapshotPush()
-
-    expect(pusher.isRetryActive).toBe(false)
+    expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(2)
+    expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1000, 1, 2)
+    expect(mockTracker.deferUntil).toHaveBeenCalledTimes(1)
   })
 
   describe('a document lookup that never settles', () => {
@@ -423,9 +483,10 @@ describe('SnapshotPusher', () => {
       })
     })
 
+
     it('fails that item after the lookup timeout and still uploads the later items', async () => {
       let settled = false
-      const push = pusher.triggerSnapshotPush().then(result => {
+      const run = push().then(result => {
         settled = true
         return result
       })
@@ -434,20 +495,19 @@ describe('SnapshotPusher', () => {
       expect(settled).toBe(false)
       await vi.advanceTimersByTimeAsync(1)
 
-      await expect(push).resolves.toEqual({ persisted: 1, total: 1 })
+      await expect(run).resolves.toEqual({ persisted: 1, total: 1, success: false })
       expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
       expect(mockApiClient.putSnapshots.mock.calls[0][0].snapshots.map((s: any) => s.itemId)).toEqual(['item-2'])
       expect(pusher['consecutiveFailures']['count']('item-1' as ItemId)).toBe(1)
-      // A failed item leaves the push unsuccessful, so it's retried with backoff
-      expect(pusher.isRetryActive).toBe(true)
+      // A failed item leaves the push unsuccessful, so the next poll tries again
+      expect(mockTracker.retryNextPoll).toHaveBeenCalledTimes(1)
     })
 
     it('quarantines the item once its lookups have timed out too many times', async () => {
       for (let attempt = 0; attempt < 5; attempt += 1) {
-        const push = pusher.triggerSnapshotPush()
+        const run = push()
         await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.snapshotDocLookup)
-        await push
-        pusher.cancelRetry()
+        await run
       }
 
       expect(mockTracker.removeDirtyItemIfTickMatches).toHaveBeenCalledWith('item-1', 1)
@@ -458,38 +518,21 @@ describe('SnapshotPusher', () => {
       )
     })
 
-    it('stops at once when the push is aborted, without counting a failure', async () => {
-      const push = pusher.triggerSnapshotPush()
+    it('stops at once when the poll is aborted, without counting a failure', async () => {
+      const controller = new AbortController()
+      const run = push(controller.signal)
       await vi.waitFor(() => expect(findSignals.has('automerge:item-1')).toBe(true))
 
-      pusher.abortPush()
+      controller.abort()
 
-      await expect(push).resolves.toEqual({ persisted: 0, total: 0 })
+      await expect(run).rejects.toThrow()
       expect(findSignals.get('automerge:item-1')?.aborted).toBe(true)
       expect(mockRepo.find).toHaveBeenCalledTimes(1)
       expect(mockApiClient.putSnapshots).not.toHaveBeenCalled()
       expect(pusher['consecutiveFailures']['counts'].size).toBe(0)
       expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
-      expect(pusher.isRetryActive).toBe(false)
-    })
-
-    it('lets shutdown finish while the lookup is pending', async () => {
-      const push = pusher.triggerSnapshotPush()
-      await vi.waitFor(() => expect(mockRepo.find).toHaveBeenCalledWith('automerge:item-1', expect.anything()))
-
-      await pusher.shutdown()
-
-      await expect(push).resolves.toEqual({ persisted: 0, total: 0 })
       expect(vi.getTimerCount()).toBe(0)
     })
-  })
-
-  it('handles push gracefully if no auth token is present (AuthError)', async () => {
-    mockApiClient.putSnapshots.mockRejectedValue(new AuthError('No active session token available'))
-
-    const result = await pusher.triggerSnapshotPush()
-    expect(result).toEqual({ persisted: 0, total: 0 })
-    expect(mockApiClient.putSnapshots).toHaveBeenCalled()
   })
 
   describe('with a real tracker and builder', () => {
@@ -528,6 +571,7 @@ describe('SnapshotPusher', () => {
       return { ...resolved, results }
     }
 
+
     /** Replaces `tracker` and `pusher` with a real tracker wired to a pusher, as SnapshotManager wires them */
     function createPusher(options: { maxPayloadBytes?: number } = {}): void {
       session = new SyncSessionState({ isLeader: true })
@@ -535,8 +579,6 @@ describe('SnapshotPusher', () => {
         lastModifiedStore,
         recoveryManager: mockRecoveryManager,
         session,
-        onTriggerPush: () => fireAndForget(pusher.triggerSnapshotPush(), 'test:onTriggerPush'),
-        isRetryActive: () => pusher.isRetryActive,
       })
       pusher = new SnapshotPusher({
         accountId: 'test-account',
@@ -552,10 +594,16 @@ describe('SnapshotPusher', () => {
       })
     }
 
+    /** Makes every dirty item due and runs the snapshot phase, as a flush does */
+    function uploadNow() {
+      tracker.requestNow()
+      return push()
+    }
+
     /** Simulates a worker restart: drops the in-memory state and replaces it with a fresh tracker and pusher */
     async function restart(): Promise<void> {
       session.markShutdown()
-      await pusher.shutdown()
+      pusher.clear()
       await tracker.shutdown({ clearLocalData: true })
       createPusher()
     }
@@ -602,10 +650,23 @@ describe('SnapshotPusher', () => {
         })
 
         tracker.markItemDirty('item-1' as ItemId)
-        await pusher.flushPendingSnapshots()
+        await uploadNow()
 
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-        expect(pusher.retryAttempt).toBe(0)
+        expect(tracker.isDue()).toBe(false)
+      })
+
+      it('uploads once the debounce has passed, at the next poll', async () => {
+        mockPutSnapshots.mockResolvedValue({ success: true, persisted: 1 })
+        vi.setSystemTime(1000)
+        tracker.markItemDirty('item-1' as ItemId)
+
+        await push()
+        expect(mockPutSnapshots).not.toHaveBeenCalled()
+
+        vi.setSystemTime(31_000)
+        await push()
+        expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
       })
 
       it('updates lastSnapshotAt on successful snapshot push', async () => {
@@ -616,7 +677,7 @@ describe('SnapshotPusher', () => {
         })
 
         tracker.markItemDirty('item-1' as ItemId)
-        await pusher.flushPendingSnapshots()
+        await uploadNow()
 
         const lastSnapshotAt = getTimestamps(tracker, 'item-1').lastSnapshotAt
         expect(lastSnapshotAt).toBeDefined()
@@ -624,45 +685,33 @@ describe('SnapshotPusher', () => {
         expect(lastSnapshotAt).toBeGreaterThan(0)
       })
 
-      it('immediately flushes pending snapshots on flushPendingSnapshots()', async () => {
-        mockPutSnapshots.mockResolvedValue({
-          success: true,
-          persisted: 1,
-        })
-
-        tracker.markItemDirty('item-1' as ItemId)
-        expect(mockPutSnapshots).not.toHaveBeenCalled()
-
-        await pusher.flushPendingSnapshots()
-        expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-      })
-
-      it('schedules retry when buildSnapshot returns null (e.g. not ready)', async () => {
+      it('leaves an item whose doc is not ready to the next poll', async () => {
         mockHandle.isReady.mockReturnValue(false)
 
         tracker.markItemDirty('item-1' as ItemId)
-        await pusher.flushPendingSnapshots()
+        await uploadNow()
 
         expect(mockPutSnapshots).not.toHaveBeenCalled()
         expect(tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
-        expect(pusher.retryAttempt).toBe(1)
-        expect(pusher.isRetryActive).toBe(true)
+        expect(tracker.isDue()).toBe(true)
+        // A retry waits for the next poll; it doesn't bring one forward
+        expect(tracker.nextDueAt).toBeUndefined()
 
-        // When handle becomes ready on retry
+        // When the handle is ready at the next poll
         mockHandle.isReady.mockReturnValue(true)
         mockPutSnapshots.mockResolvedValue({
           success: true,
           persisted: 1,
         })
 
-        await vi.advanceTimersByTimeAsync(2000)
+        await push()
 
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
         expect(tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
-        expect(pusher.retryAttempt).toBe(0)
+        expect(tracker.isDue()).toBe(false)
       })
 
-      it('schedules retry when some items succeed but another returns null', async () => {
+      it('retries at the next poll when some items succeed but another is not ready', async () => {
         mockPutSnapshots.mockResolvedValue({
           success: true,
           persisted: 1,
@@ -684,86 +733,26 @@ describe('SnapshotPusher', () => {
 
         tracker.markItemDirty('item-1' as ItemId)
         tracker.markItemDirty('item-2' as ItemId)
-        await pusher.flushPendingSnapshots()
+        await uploadNow()
 
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
         expect(tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
         expect(tracker.getDirtyItemIds()).toContain('item-2' as ItemId)
-        expect(pusher.retryAttempt).toBe(1)
-        expect(pusher.isRetryActive).toBe(true)
+        expect(tracker.isDue()).toBe(true)
       })
 
-      it('aggressively schedules retries with exponential backoff on failure', async () => {
-        mockPutSnapshots.mockResolvedValue({
-          success: false,
-          persisted: 0,
-        })
-
-        tracker.markItemDirty('item-1' as ItemId)
-        await pusher.flushPendingSnapshots()
-        expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-
-        // Attempt 1: Backoff delay = 2000ms
-        expect(pusher.retryAttempt).toBe(1)
-        expect(pusher.isRetryActive).toBe(true)
-
-        // Advance 1999ms, should not have retried yet
-        await vi.advanceTimersByTimeAsync(1999)
-        expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-
-        // Advance to 2000ms, triggers first retry (attempt 2)
-        await vi.advanceTimersByTimeAsync(1)
-        expect(mockPutSnapshots).toHaveBeenCalledTimes(2)
-        expect(pusher.retryAttempt).toBe(2)
-
-        // Attempt 2: Backoff delay = 5000ms
-        await vi.advanceTimersByTimeAsync(4999)
-        expect(mockPutSnapshots).toHaveBeenCalledTimes(2)
-
-        await vi.advanceTimersByTimeAsync(1)
-        expect(mockPutSnapshots).toHaveBeenCalledTimes(3)
-        expect(pusher.retryAttempt).toBe(3)
-      })
-
-      it('stops early and retries if putSnapshots throws an exception', async () => {
+      it('throws if putSnapshots throws, leaving the items to the next poll', async () => {
         mockPutSnapshots.mockRejectedValue(new Error('Network disconnected'))
 
         tracker.markItemDirty('item-1' as ItemId)
-        await pusher.flushPendingSnapshots()
+        await expect(uploadNow()).rejects.toThrow('Network disconnected')
+
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-        expect(pusher.retryAttempt).toBe(1)
-
-        // Should trigger first retry at 2000ms
-        await vi.advanceTimersByTimeAsync(2000)
-        expect(mockPutSnapshots).toHaveBeenCalledTimes(2)
-        expect(pusher.retryAttempt).toBe(2)
+        expect(tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
+        expect(tracker.isDue()).toBe(true)
       })
 
-      it('resets the retry attempt counter to 0 on a successful retry', async () => {
-        // 1. Fail first push
-        mockPutSnapshots.mockResolvedValueOnce({
-          success: false,
-          persisted: 0,
-        })
-
-        tracker.markItemDirty('item-1' as ItemId)
-        await pusher.flushPendingSnapshots()
-        expect(pusher.retryAttempt).toBe(1)
-
-        // 2. Succeed on second attempt (retry)
-        mockPutSnapshots.mockResolvedValueOnce({
-          success: true,
-          persisted: 1,
-        })
-
-        await vi.advanceTimersByTimeAsync(2000)
-
-        expect(mockPutSnapshots).toHaveBeenCalledTimes(2)
-        expect(pusher.retryAttempt).toBe(0)
-        expect(pusher.isRetryActive).toBe(false)
-      })
-
-      it('retains dirty items and schedules retry when putSnapshots returns persisted: 0 even if success is true', async () => {
+      it('retains dirty items for the next poll when putSnapshots returns persisted: 0 even if success is true', async () => {
         mockPutSnapshots.mockResolvedValue({
           success: true,
           persisted: 0,
@@ -771,15 +760,14 @@ describe('SnapshotPusher', () => {
         })
 
         tracker.markItemDirty('item-1' as ItemId)
-        await pusher.flushPendingSnapshots()
+        await uploadNow()
 
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
         expect(tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
-        expect(pusher.retryAttempt).toBe(1)
-        expect(pusher.isRetryActive).toBe(true)
+        expect(tracker.isDue()).toBe(true)
       })
 
-      it('retains dirty items and schedules retry when putSnapshots returns persisted less than batch length', async () => {
+      it('retains dirty items for the next poll when putSnapshots returns persisted less than batch length', async () => {
         mockPutSnapshots.mockResolvedValue({
           success: false,
           persisted: 1,
@@ -788,13 +776,12 @@ describe('SnapshotPusher', () => {
 
         tracker.markItemDirty('item-1' as ItemId)
         tracker.markItemDirty('item-2' as ItemId)
-        await pusher.flushPendingSnapshots()
+        await uploadNow()
 
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
         expect(tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
         expect(tracker.getDirtyItemIds()).toContain('item-2' as ItemId)
-        expect(pusher.retryAttempt).toBe(1)
-        expect(pusher.isRetryActive).toBe(true)
+        expect(tracker.isDue()).toBe(true)
       })
 
       it('records the items a partly stored batch did persist, and retries only the rest', async () => {
@@ -807,13 +794,13 @@ describe('SnapshotPusher', () => {
 
         tracker.markItemDirty('item-1' as ItemId)
         tracker.markItemDirty('item-2' as ItemId)
-        await pusher.flushPendingSnapshots()
+        await uploadNow()
 
         expect(tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
         expect(tracker.exportItemVersions().get('item-1' as ItemId)?.baseVersion).toBe(7)
         expect(tracker.getDirtyItemIds()).toContain('item-2' as ItemId)
         expect(pusher['consecutiveFailures']['count']('item-2' as ItemId)).toBe(1)
-        expect(pusher.isRetryActive).toBe(true)
+        expect(tracker.isDue()).toBe(true)
       })
 
       it('quarantines an item the server keeps leaving out of its results', async () => {
@@ -826,7 +813,7 @@ describe('SnapshotPusher', () => {
 
         tracker.markItemDirty('item-2' as ItemId)
         for (let i = 0; i < 5; i += 1) {
-          await pusher.flushPendingSnapshots()
+          await uploadNow()
         }
 
         expect(tracker.getDirtyItemIds()).not.toContain('item-2' as ItemId)
@@ -837,103 +824,36 @@ describe('SnapshotPusher', () => {
         expect(mockEventHub.emit).toHaveBeenCalledWith(expect.objectContaining({ type: 'snapshotFailed', itemId: 'item-2' }))
       })
 
-      it('resets all retry properties on shutdown', async () => {
-        mockPutSnapshots.mockResolvedValue({
-          success: false,
-          persisted: 0,
-        })
-
+      it('waits out the quota delay, then uploads at the next poll after it', async () => {
+        vi.setSystemTime(1000)
+        mockPutSnapshots.mockRejectedValueOnce(quotaError())
         tracker.markItemDirty('item-1' as ItemId)
-        await pusher.flushPendingSnapshots()
-        expect(pusher.retryAttempt).toBe(1)
-        expect(pusher.isRetryActive).toBe(true)
 
-        await pusher.shutdown()
+        await expect(uploadNow()).resolves.toEqual({ persisted: 0, total: 0, success: false })
+        expect(tracker.isDue()).toBe(false)
 
-        expect(pusher.retryAttempt).toBe(0)
-        expect(pusher.isRetryActive).toBe(false)
-      })
+        // A new edit is due no sooner than the quota delay allows
+        tracker.markItemDirty('item-2' as ItemId)
+        expect(tracker.nextDueAt).toBe(1000 + SYNC_TIMEOUTS.snapshotQuotaRetry)
 
-      it('does not bypass retry backoff when debounce timer sets snapshotPushPending during an in-flight failing push', async () => {
-        let rejectPush: (err: any) => void
-        mockPutSnapshots.mockImplementation(
-          () =>
-            new Promise((_, reject) => {
-              rejectPush = reject
-            }),
-        )
+        vi.setSystemTime(1000 + SYNC_TIMEOUTS.snapshotQuotaRetry)
+        mockPutSnapshots.mockResolvedValue({ success: true, persisted: 2 })
+        await push()
 
-        tracker.markItemDirty('item-1' as ItemId, 5000)
-
-        // Advance 5000ms so the first push starts
-        await vi.advanceTimersByTimeAsync(5000)
-        expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-
-        // While push 1 is in-flight, mark item-2 dirty with a 1000ms debounce
-        tracker.markItemDirty('item-2' as ItemId, 1000)
-
-        // Advance 1000ms so the debounce timer fires while push 1 is still in-flight
-        // This calls triggerSnapshotPush while activePushPromise is present, setting snapshotPushPending = true
-        await vi.advanceTimersByTimeAsync(1000)
-        expect(pusher['pendingPushRequested']).toBe(true)
-
-        // Push 1 fails
-        rejectPush!(new Error('Network disconnected'))
-        await vi.advanceTimersByTimeAsync(0)
-
-        // On failure, retry is scheduled with backoff (2000ms). Immediate push must NOT be triggered.
-        expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-        expect(pusher.isRetryActive).toBe(true)
-        expect(pusher.retryAttempt).toBe(1)
-        expect(pusher['pendingPushRequested']).toBe(false)
-
-        // Advance 1999ms: retry should not have fired yet
-        await vi.advanceTimersByTimeAsync(1999)
-        expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-
-        // Now make retry push succeed
-        mockPutSnapshots.mockResolvedValueOnce({
-          success: true,
-          persisted: 2,
-        })
-
-        // Advance 1ms to 2000ms: retry fires and pushes both dirty items
-        await vi.advanceTimersByTimeAsync(1)
         expect(mockPutSnapshots).toHaveBeenCalledTimes(2)
         expect(tracker.getDirtyItemIds()).toHaveLength(0)
-        expect(pusher.retryAttempt).toBe(0)
-        expect(pusher.isRetryActive).toBe(false)
       })
 
-      it('does not schedule debounced push while in retry backoff', async () => {
-        mockPutSnapshots.mockResolvedValueOnce({
-          success: false,
-          persisted: 0,
-        })
-
+      it('uploads at once when asked to, even while waiting out the quota delay', async () => {
+        mockPutSnapshots.mockRejectedValueOnce(quotaError())
         tracker.markItemDirty('item-1' as ItemId)
-        await pusher.flushPendingSnapshots()
-        expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-        expect(pusher.isRetryActive).toBe(true)
-        expect(pusher.retryAttempt).toBe(1)
+        await uploadNow()
 
-        // While waiting for retry, an item is marked dirty with 500ms debounce, which mustn't start its own push
-        tracker.markItemDirty('item-2' as ItemId, 500)
+        mockPutSnapshots.mockResolvedValue({ success: true, persisted: 1 })
+        await uploadNow()
 
-        // Advance 500ms: no push should have occurred
-        await vi.advanceTimersByTimeAsync(500)
-        expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-
-        // Advance to 2000ms: retry runs and pushes both items
-        mockPutSnapshots.mockResolvedValueOnce({
-          success: true,
-          persisted: 2,
-        })
-
-        await vi.advanceTimersByTimeAsync(1500)
         expect(mockPutSnapshots).toHaveBeenCalledTimes(2)
         expect(tracker.getDirtyItemIds()).toHaveLength(0)
-        expect(pusher.isRetryActive).toBe(false)
       })
     })
 
@@ -949,7 +869,7 @@ describe('SnapshotPusher', () => {
           tracker.markItemDirty(`item-${i}` as ItemId)
         }
 
-        await pusher.flushPendingSnapshots()
+        await uploadNow()
 
         // Should have been split into two calls: first with 25, second with 5.
         expect(mockPutSnapshots).toHaveBeenCalledTimes(2)
@@ -967,7 +887,7 @@ describe('SnapshotPusher', () => {
 
         tracker.markItemDirty('item-1' as ItemId)
         tracker.markItemDirty('item-2' as ItemId)
-        await pusher.flushPendingSnapshots()
+        await uploadNow()
 
         // Since each mock snapshot is ~140 bytes, two snapshots (280 bytes) will exceed 200 bytes limit.
         // So they should be pushed in 2 calls.
@@ -985,7 +905,7 @@ describe('SnapshotPusher', () => {
         })
 
         tracker.markItemDirty('item-1' as ItemId)
-        await pusher.flushPendingSnapshots()
+        await uploadNow()
 
         // Should not be pushed, and should be removed from dirtyItems to avoid retry loops
         expect(mockPutSnapshots).not.toHaveBeenCalled()
@@ -1003,10 +923,8 @@ describe('SnapshotPusher', () => {
         mockPutSnapshots.mockImplementation(() => uploadPromise)
 
         tracker.markItemDirty('item-1' as ItemId, 0)
-
-        // Start the snapshot push
-        await vi.advanceTimersByTimeAsync(0)
-        expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
+        const run = push()
+        await vi.waitFor(() => expect(mockPutSnapshots).toHaveBeenCalledTimes(1))
 
         // While upload is in flight, item-1 is modified again
         tracker.markItemDirty('item-1' as ItemId)
@@ -1016,10 +934,12 @@ describe('SnapshotPusher', () => {
           success: true,
           persisted: 1,
         })
-        await vi.advanceTimersByTimeAsync(0)
+        await run
 
         // item-1 should still be dirty because it was modified after batch preparation
         expect(tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
+        // ...and due again after the debounce of that edit
+        expect(tracker.nextDueAt).toBeDefined()
       })
 
       it('clears dirty status if item was not modified during in flight upload', async () => {
@@ -1029,7 +949,7 @@ describe('SnapshotPusher', () => {
         })
 
         tracker.markItemDirty('item-1' as ItemId)
-        await pusher.flushPendingSnapshots()
+        await uploadNow()
 
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
         expect(tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
@@ -1053,176 +973,12 @@ describe('SnapshotPusher', () => {
           return originalFind(url)
         })
 
-        await pusher.flushPendingSnapshots()
+        await uploadNow()
 
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
         // Both item-1 and item-2 should be cleanly cleared because item-2 was built with the new tick
         expect(tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
         expect(tracker.getDirtyItemIds()).not.toContain('item-2' as ItemId)
-      })
-    })
-
-    describe('flushPendingSnapshots with In-Flight Pushes', () => {
-      it('waits for in-flight snapshot push to complete before returning', async () => {
-        let resolveUpload: (val: any) => void
-        const uploadPromise = new Promise(resolve => {
-          resolveUpload = resolve
-        })
-        mockPutSnapshots.mockImplementation(() => uploadPromise)
-
-        tracker.markItemDirty('item-1' as ItemId, 0)
-
-        // Start the snapshot push
-        await vi.advanceTimersByTimeAsync(0)
-        expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-
-        let flushed = false
-        const flushPromise = pusher.flushPendingSnapshots().then(res => {
-          flushed = true
-          return res
-        })
-
-        // Advance timers; flush should NOT have resolved yet because push is in flight
-        await vi.advanceTimersByTimeAsync(0)
-        expect(flushed).toBe(false)
-
-        // Complete in-flight upload
-        resolveUpload!({
-          success: true,
-          persisted: 1,
-        })
-
-        const result = await flushPromise
-        expect(flushed).toBe(true)
-        expect(result).toEqual({ persisted: 1, total: 1 })
-        expect(tracker.getDirtyItemIds()).toHaveLength(0)
-      })
-
-      it('flushes newly dirtied items after waiting for in-flight push to complete', async () => {
-        let resolveUpload1: (val: any) => void
-        const uploadPromise1 = new Promise(resolve => {
-          resolveUpload1 = resolve
-        })
-        let resolveUpload2: (val: any) => void
-        const uploadPromise2 = new Promise(resolve => {
-          resolveUpload2 = resolve
-        })
-
-        mockPutSnapshots
-          .mockImplementationOnce(() => uploadPromise1)
-          .mockImplementationOnce(() => uploadPromise2)
-
-        tracker.markItemDirty('item-1' as ItemId, 0)
-        await vi.advanceTimersByTimeAsync(0)
-        expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-
-        // While upload 1 is in-flight, mark item-2 dirty and call flushPendingSnapshots
-        tracker.markItemDirty('item-2' as ItemId)
-        let flushed = false
-        const flushPromise = pusher.flushPendingSnapshots().then(res => {
-          flushed = true
-          return res
-        })
-
-        await vi.advanceTimersByTimeAsync(0)
-        expect(flushed).toBe(false)
-
-        // Resolve upload 1
-        resolveUpload1!({ success: true, persisted: 1 })
-        await vi.advanceTimersByTimeAsync(0)
-
-        // Upload 2 should now be invoked for item-2
-        expect(mockPutSnapshots).toHaveBeenCalledTimes(2)
-        expect(flushed).toBe(false)
-
-        // Resolve upload 2
-        resolveUpload2!({ success: true, persisted: 1 })
-        const result = await flushPromise
-
-        expect(flushed).toBe(true)
-        expect(result).toEqual({ persisted: 2, total: 2 })
-        expect(tracker.getDirtyItemIds()).toHaveLength(0)
-      })
-
-      it('multiple concurrent callers of flushPendingSnapshots all wait for in-flight push', async () => {
-        let resolveUpload: (val: any) => void
-        const uploadPromise = new Promise(resolve => {
-          resolveUpload = resolve
-        })
-        mockPutSnapshots.mockImplementation(() => uploadPromise)
-
-        tracker.markItemDirty('item-1' as ItemId, 0)
-        await vi.advanceTimersByTimeAsync(0)
-
-        let flushed1 = false
-        let flushed2 = false
-        const p1 = pusher.flushPendingSnapshots().then(res => {
-          flushed1 = true
-          return res
-        })
-        const p2 = pusher.flushPendingSnapshots().then(res => {
-          flushed2 = true
-          return res
-        })
-
-        await vi.advanceTimersByTimeAsync(0)
-        expect(flushed1).toBe(false)
-        expect(flushed2).toBe(false)
-
-        resolveUpload!({ success: true, persisted: 1 })
-        const [res1, res2] = await Promise.all([p1, p2])
-
-        expect(flushed1).toBe(true)
-        expect(flushed2).toBe(true)
-        expect(res1).toEqual({ persisted: 1, total: 1 })
-        expect(res2).toEqual({ persisted: 1, total: 1 })
-      })
-
-      it('aborts flush and returns when in-flight push fails, avoiding infinite loops', async () => {
-        let resolveUpload: (val: any) => void
-        const uploadPromise = new Promise(resolve => {
-          resolveUpload = resolve
-        })
-        mockPutSnapshots.mockImplementation(() => uploadPromise)
-
-        tracker.markItemDirty('item-1' as ItemId, 0)
-        await vi.advanceTimersByTimeAsync(0)
-
-        const flushPromise = pusher.flushPendingSnapshots()
-
-        // Fail the in-flight upload
-        resolveUpload!({ success: false, persisted: 0 })
-
-        const result = await flushPromise
-        expect(result).toEqual({ persisted: 0, total: 1 })
-        // Item remains dirty and retry is scheduled
-        expect(tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
-        expect(pusher.isRetryActive).toBe(true)
-      })
-
-      it('shutdown awaits in-flight push if one is running', async () => {
-        let resolveUpload: (val: any) => void
-        const uploadPromise = new Promise(resolve => {
-          resolveUpload = resolve
-        })
-        mockPutSnapshots.mockImplementation(() => uploadPromise)
-
-        tracker.markItemDirty('item-1' as ItemId, 0)
-        await vi.advanceTimersByTimeAsync(0)
-
-        let shutdownFinished = false
-        session.markShutdown()
-        const shutdownPromise = pusher.shutdown().then(() => {
-          shutdownFinished = true
-        })
-
-        await vi.advanceTimersByTimeAsync(0)
-        expect(shutdownFinished).toBe(false)
-
-        resolveUpload!({ success: true, persisted: 1 })
-        await shutdownPromise
-
-        expect(shutdownFinished).toBe(true)
       })
     })
 
@@ -1234,7 +990,7 @@ describe('SnapshotPusher', () => {
 
         // Run 6 push attempts
         for (let i = 0; i < 6; i += 1) {
-          await pusher.flushPendingSnapshots()
+          await uploadNow()
         }
 
         // Should still be dirty and failures map should not have counted failures
@@ -1252,7 +1008,7 @@ describe('SnapshotPusher', () => {
 
         // Run 5 attempts to reach MAX_CONSECUTIVE_SNAPSHOT_FAILURES (5)
         for (let i = 1; i <= 5; i += 1) {
-          await pusher.flushPendingSnapshots()
+          await uploadNow()
         }
 
         // Item should now be dropped from active dirty queue
@@ -1294,7 +1050,7 @@ describe('SnapshotPusher', () => {
         // Run 6 push attempts while vault is locked
         for (let i = 0; i < 6; i += 1) {
           vi.mocked(encryptBytes).mockRejectedValueOnce(new Error('Vault is locked'))
-          await pusher.flushPendingSnapshots()
+          await uploadNow()
         }
 
         // Item must remain dirty and NOT be dropped
@@ -1314,7 +1070,7 @@ describe('SnapshotPusher', () => {
 
         // Run 6 push attempts where network fails
         for (let i = 0; i < 6; i += 1) {
-          await pusher.flushPendingSnapshots()
+          await expect(uploadNow()).rejects.toThrow('Network disconnected')
         }
 
         // Items must remain dirty for subsequent retry and NOT be dropped
@@ -1334,7 +1090,7 @@ describe('SnapshotPusher', () => {
         })
 
         tracker.markItemDirty('item-1' as ItemId)
-        await pusher.flushPendingSnapshots()
+        await uploadNow()
 
         expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('test-account', 'item-1')
       })
@@ -1346,7 +1102,7 @@ describe('SnapshotPusher', () => {
         createPusher({ maxPayloadBytes: 10 })
 
         tracker.markItemDirty('item-1' as ItemId)
-        await pusher.flushPendingSnapshots()
+        await uploadNow()
 
         expect(mockPutSnapshots).not.toHaveBeenCalled()
         expect(mockEventHub.emit).toHaveBeenCalledWith(
@@ -1370,7 +1126,7 @@ describe('SnapshotPusher', () => {
         createPusher({ maxPayloadBytes: 10 })
 
         tracker.markItemDirty('item-1' as ItemId)
-        await pusher.flushPendingSnapshots()
+        await uploadNow()
 
         // First attempt logs error and upserts manual recovery
         const firstErrorCallCount = consoleErrorSpy.mock.calls.filter(c => String(c[0]).includes('exceeds maxPayloadBytes')).length
@@ -1379,7 +1135,7 @@ describe('SnapshotPusher', () => {
 
         // Re-mark dirty (e.g. from WAL re-negotiation or local change)
         tracker.markItemDirty('item-1' as ItemId)
-        await pusher.flushPendingSnapshots()
+        await uploadNow()
 
         // Should NOT log error again or re-upsert manual recovery
         const secondErrorCallCount = consoleErrorSpy.mock.calls.filter(c => String(c[0]).includes('exceeds maxPayloadBytes')).length
@@ -1389,7 +1145,7 @@ describe('SnapshotPusher', () => {
         consoleErrorSpy.mockRestore()
       })
 
-      it('does not treat batch as failed or trigger retry loops when an oversized item is skipped alongside normal items', async () => {
+      it('does not treat batch as failed or retry when an oversized item is skipped alongside normal items', async () => {
         const { encryptBytes } = vault
         mockPutSnapshots.mockResolvedValue({
           success: true,
@@ -1414,14 +1170,14 @@ describe('SnapshotPusher', () => {
         tracker.markItemDirty('item-1' as ItemId)
         tracker.markItemDirty('item-2' as ItemId)
 
-        await pusher.flushPendingSnapshots()
+        const result = await uploadNow()
 
         // Only item-2 pushed
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
         expect(mockPutSnapshots.mock.calls[0][0].snapshots[0].itemId).toBe('item-2')
         expect(tracker.getDirtyItemIds()).toHaveLength(0)
-        expect(pusher.isRetryActive).toBe(false)
-        expect(pusher.retryAttempt).toBe(0)
+        expect(result.success).toBe(true)
+        expect(tracker.isDue()).toBe(false)
       })
 
       it('allows previously oversized item to sync once compacted below maxPayloadBytes', async () => {
@@ -1441,7 +1197,7 @@ describe('SnapshotPusher', () => {
         })
 
         tracker.markItemDirty('item-1' as ItemId)
-        await pusher.flushPendingSnapshots()
+        await uploadNow()
 
         expect(mockPutSnapshots).not.toHaveBeenCalled()
         expect(tracker['oversizedItems'].has('item-1' as ItemId)).toBe(true)
@@ -1455,7 +1211,7 @@ describe('SnapshotPusher', () => {
 
         // Step 3: Marked dirty after compaction
         tracker.markItemDirty('item-1' as ItemId)
-        await pusher.flushPendingSnapshots()
+        await uploadNow()
 
         // Now successfully pushed and cleared from oversizedItems
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
@@ -1466,21 +1222,18 @@ describe('SnapshotPusher', () => {
     })
 
     describe('Missing Auth Token Handling', () => {
-      it('schedules retry when there is no session token and dirty items exist', async () => {
+      it('throws an auth failure when there is no session token, keeping the items dirty', async () => {
         setApiAuthToken('')
 
         tracker.markItemDirty('item-1' as ItemId)
-        const result = await pusher.flushPendingSnapshots()
+        await expect(uploadNow()).rejects.toBeInstanceOf(AuthError)
 
-        expect(result).toEqual({ persisted: 0, total: 0 })
         expect(mockPutSnapshots).not.toHaveBeenCalled()
         expect(tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
-        expect(pusher.retryAttempt).toBe(1)
-        expect(pusher.isRetryActive).toBe(true)
         expect(pusher['consecutiveFailures']['count']('item-1' as ItemId)).toBe(0)
       })
 
-      it('recovers and pushes snapshots when auth token becomes available on retry', async () => {
+      it('pushes the snapshots at the next poll once the auth token is back', async () => {
         setApiAuthToken('')
         const tokensSent: string[] = []
         mockPutSnapshots.mockImplementation(async () => {
@@ -1489,47 +1242,34 @@ describe('SnapshotPusher', () => {
         })
 
         tracker.markItemDirty('item-1' as ItemId)
-        await pusher.flushPendingSnapshots()
-
-        expect(tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
-        expect(pusher.retryAttempt).toBe(1)
+        await expect(uploadNow()).rejects.toBeInstanceOf(AuthError)
         expect(mockPutSnapshots).not.toHaveBeenCalled()
 
-        // Restore auth token and advance to the first retry interval (2000ms)
         setApiAuthToken('restored-auth-token')
-        await vi.advanceTimersByTimeAsync(2000)
+        await push()
 
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
         expect(tokensSent).toEqual(['restored-auth-token'])
         expect(tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
-        expect(pusher.retryAttempt).toBe(0)
       })
 
-      it('does not schedule retry or treat as failure when dirtyItems is empty', async () => {
+      it('does nothing without a token when no item is dirty', async () => {
         setApiAuthToken('')
 
-        const result = await pusher.flushPendingSnapshots()
+        const result = await uploadNow()
 
-        expect(result).toEqual({ persisted: 0, total: 0 })
+        expect(result).toEqual({ persisted: 0, total: 0, success: true })
         expect(mockPutSnapshots).not.toHaveBeenCalled()
-        expect(pusher.isRetryActive).toBe(false)
-        expect(pusher.retryAttempt).toBe(0)
       })
 
       it('does not increment consecutiveFailures or move items to manual recovery when auth token is missing repeatedly', async () => {
         setApiAuthToken('')
 
         tracker.markItemDirty('item-1' as ItemId)
-        await pusher.flushPendingSnapshots()
+        for (let i = 0; i < 6; i += 1) {
+          await expect(uploadNow()).rejects.toBeInstanceOf(AuthError)
+        }
 
-        // Progress through retries: 2s, 5s, 10s, 30s, 60s
-        await vi.advanceTimersByTimeAsync(2000)
-        await vi.advanceTimersByTimeAsync(5000)
-        await vi.advanceTimersByTimeAsync(10000)
-        await vi.advanceTimersByTimeAsync(30000)
-        await vi.advanceTimersByTimeAsync(60000)
-
-        expect(pusher.retryAttempt).toBe(6)
         expect(tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
         expect(pusher['consecutiveFailures']['count']('item-1' as ItemId)).toBe(0)
         expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
@@ -1550,8 +1290,9 @@ describe('SnapshotPusher', () => {
           persisted: 1,
         })
 
-        // The debounced push runs at 31000
-        await vi.advanceTimersByTimeAsync(29_000)
+        // The poll after the debounce runs at 31000
+        vi.setSystemTime(31_000)
+        await push()
 
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
         const pushedSnapshot = mockPutSnapshots.mock.calls[0][0].snapshots[0]
@@ -1576,9 +1317,10 @@ describe('SnapshotPusher', () => {
         })
         mockPutSnapshots.mockImplementation(() => uploadPromise)
 
-        // The debounced push starts at 31000
-        await vi.advanceTimersByTimeAsync(29_000)
-
+        // The poll after the debounce starts at 31000
+        vi.setSystemTime(31_000)
+        const run = push()
+        await vi.advanceTimersByTimeAsync(0)
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
 
         // While upload is in flight, user modifies item-1 again at 32000
@@ -1592,7 +1334,7 @@ describe('SnapshotPusher', () => {
           success: true,
           persisted: 1,
         })
-        await vi.advanceTimersByTimeAsync(0)
+        await run
 
         // lastSnapshotAt is 31000, but localModifiedAt must retain 32000
         expect(getTimestamps(tracker, 'item-1').lastSnapshotAt).toBe(31000)
@@ -1621,8 +1363,9 @@ describe('SnapshotPusher', () => {
           persisted: 1,
         })
 
-        // The debounced push starts at T1 (31000)
-        await vi.advanceTimersByTimeAsync(29_000)
+        // The poll after the debounce runs at T1 (31000)
+        vi.setSystemTime(31_000)
+        await push()
 
         // Snapshot timestamp was captured at T1, so lastSnapshotAt must be 31000
         expect(getTimestamps(tracker, 'item-1').lastSnapshotAt).toBe(31000)

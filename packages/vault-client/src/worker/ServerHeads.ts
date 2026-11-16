@@ -12,9 +12,9 @@ const SAVE_DEBOUNCE_MS = 1000
 
 /**
  * The heads of each item whose every ancestor is on the server, in the log or in the item's current
- * snapshot. Pushes send what the doc has after them. Every tab may record some (a follower can run a
- * manifest sync), and heads loaded earlier may be older than the store, so a save writes only what
- * this tab changed.
+ * snapshot. Pushes send what the doc has after them. Only the leader records them, but a tab that has
+ * just stopped leading can still save after the new leader loaded, and heads loaded earlier may be
+ * older than the store, so a save writes only what this tab changed.
  */
 export class ServerHeads {
   private readonly headsByItem = new Map<ItemId, string[]>()

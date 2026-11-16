@@ -3,7 +3,6 @@ import type { ItemId } from '@vault/shared'
 import type { LastModifiedStore, ItemSyncTimestamps } from './stores/LastModifiedStore'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { AsyncMutex } from '../utils/AsyncMutex'
-import { RetryTimer } from '../utils/RetryTimer'
 import { checkAlive, isAbortError } from '../utils/abort'
 import type { RecoveryManager } from './RecoveryManager'
 import { fireAndForget } from '../utils/fireAndForget'
@@ -17,10 +16,10 @@ export interface SnapshotTrackerOptions {
   recoveryManager: RecoveryManager
   debounceDelayMs?: number
   maxWaitMs?: number
-  /** Only the leader uploads snapshots, and only while online */
   session: SyncSessionState
-  onTriggerPush?: () => void
-  isRetryActive?: () => boolean
+  /** Called when snapshots may be due sooner than before, so the next poll can be brought forward */
+  onDueChanged?: () => void
+  now?: () => number
 }
 
 /**
@@ -36,8 +35,17 @@ export class SnapshotTracker {
   /** Items quarantined as too large to upload, so the warning is given only once */
   private readonly oversizedItems = new Set<ItemId>()
 
-  private readonly debounceTimer = new RetryTimer()
-  private readonly maxWaitTimer = new RetryTimer()
+  /**
+   * When the dirty items' snapshots are due. An edit puts `debounceDueAt` off again, and `maxWaitDueAt`
+   * bounds that for steady editing. A request with its own delay (`requestedDueAt`) isn't put off by edits.
+   */
+  private debounceDueAt: number | undefined
+  private maxWaitDueAt: number | undefined
+  private requestedDueAt: number | undefined
+  /** Set when an upload failed, so the next poll tries again without a poll being brought forward */
+  private retryAtNextPoll = false
+  /** Nothing is due before this, after the server turned uploads away for the account's quota */
+  private notBefore = 0
   private readonly debounceDelayMs: number
   private readonly maxWaitMs: number
 
@@ -57,15 +65,19 @@ export class SnapshotTracker {
     this.maxWaitMs = deps.maxWaitMs ?? 5 * 60 * 1000
   }
 
-  /** Schedules the pending uploads when this tab becomes the leader, and cancels them when it stops being one */
+  private now(): number {
+    return this.deps.now?.() ?? Date.now()
+  }
+
+  /** Makes the pending uploads due when this tab becomes the leader, and drops them when it stops being one */
   onLeaderChange(): void {
     if (this.deps.session.isShutdown) return
     if (this.deps.session.isLeader) {
       if (this.dirtyItems.size > 0) {
-        this.scheduleDebouncedSnapshotPush()
+        this.scheduleDue()
       }
     } else {
-      this.clearDebounceTimers()
+      this.clearDue()
     }
   }
 
@@ -75,7 +87,7 @@ export class SnapshotTracker {
     this.dirtyItems.set(itemId, this.dirtyItemsTick)
     this.timestamps(itemId).localModifiedAt = Date.now()
     this.saveLastModifiedDebounced()
-    this.scheduleDebouncedSnapshotPush(customDebounceDelayMs)
+    this.scheduleDue(customDebounceDelayMs)
   }
 
   /** The item's tracked timestamps, created empty if it has none */
@@ -88,23 +100,63 @@ export class SnapshotTracker {
     return entry
   }
 
-  private scheduleDebouncedSnapshotPush(customDelayMs?: number): void {
-    if (!this.deps.session.isOperational) return
-    if (this.deps.isRetryActive?.()) return
-
-    const trigger = () => {
-      this.clearDebounceTimers()
-      this.deps.onTriggerPush?.()
+  /** Makes the dirty items due after the debounce, or after `customDelayMs` however later edits come */
+  private scheduleDue(customDelayMs?: number): void {
+    const now = this.now()
+    if (customDelayMs === undefined) {
+      this.debounceDueAt = now + this.debounceDelayMs
+    } else {
+      this.requestedDueAt = Math.min(this.requestedDueAt ?? Number.POSITIVE_INFINITY, now + customDelayMs)
     }
-    if (!this.maxWaitTimer.isPending) {
-      this.maxWaitTimer.schedule(this.maxWaitMs, trigger)
-    }
-    this.debounceTimer.schedule(customDelayMs ?? this.debounceDelayMs, trigger)
+    this.maxWaitDueAt ??= now + this.maxWaitMs
+    this.deps.onDueChanged?.()
   }
 
-  clearDebounceTimers(): void {
-    this.debounceTimer.cancel()
-    this.maxWaitTimer.cancel()
+  /** Makes every dirty item due now, past any wait for the quota, such as when the page is closing */
+  requestNow(): void {
+    this.notBefore = 0
+    this.requestedDueAt = this.now()
+  }
+
+  /**
+   * When the next upload is due, for scheduling a poll, or undefined if none is. An upload left to
+   * retry at the next poll doesn't count: it waits for the poll's own cadence or backoff.
+   */
+  get nextDueAt(): number | undefined {
+    if (this.dirtyItems.size === 0) return undefined
+    const dueAt = Math.min(
+      this.debounceDueAt ?? Number.POSITIVE_INFINITY,
+      this.maxWaitDueAt ?? Number.POSITIVE_INFINITY,
+      this.requestedDueAt ?? Number.POSITIVE_INFINITY,
+    )
+    return Number.isFinite(dueAt) ? Math.max(dueAt, this.notBefore) : undefined
+  }
+
+  /** Whether a poll now should upload the dirty items' snapshots */
+  isDue(now = this.now()): boolean {
+    if (this.dirtyItems.size === 0) return false
+    if (this.retryAtNextPoll && now >= this.notBefore) return true
+    const dueAt = this.nextDueAt
+    return dueAt !== undefined && dueAt <= now
+  }
+
+  /** Called as an upload starts: it takes every dirty item, so nothing stays due */
+  clearDue(): void {
+    this.debounceDueAt = undefined
+    this.maxWaitDueAt = undefined
+    this.requestedDueAt = undefined
+    this.retryAtNextPoll = false
+  }
+
+  /** Called after an upload failed, so the items it left dirty go up at the next poll */
+  retryNextPoll(): void {
+    this.retryAtNextPoll = true
+  }
+
+  /** Called when the server turned uploads away for the account's quota: none goes up before `time` */
+  deferUntil(time: number): void {
+    this.notBefore = time
+    this.retryAtNextPoll = true
   }
 
   private updateLastModifiedForDirtyItems(): void {
@@ -180,7 +232,7 @@ export class SnapshotTracker {
       }
       if (auditCount > 0) {
         log.info(`Startup audit restored ${auditCount} un-snapshotted items to dirty queue`)
-        this.scheduleDebouncedSnapshotPush()
+        this.scheduleDue()
       }
     } catch (error) {
       if (isAbortError(error) || this.deps.session.isShutdown) return
@@ -269,7 +321,7 @@ export class SnapshotTracker {
       this.saveLastModifiedDebounced()
     }
     if (this.dirtyItems.size === 0) {
-      this.clearDebounceTimers()
+      this.clearDue()
     }
     return deleted
   }
@@ -338,7 +390,8 @@ export class SnapshotTracker {
   }
 
   clear(): void {
-    this.clearDebounceTimers()
+    this.clearDue()
+    this.notBefore = 0
     this.saveLastModifiedDebounced.cancel()
     this.dirtyItems.clear()
     this.timestampsByItemId.clear()
@@ -349,7 +402,7 @@ export class SnapshotTracker {
   /** Saves the timestamps, unless local data is being cleared. Called once, by the context's lifecycle. */
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
     await this.loadGuard.waitForRunning()
-    this.clearDebounceTimers()
+    this.clearDue()
     this.saveLastModifiedDebounced.cancel()
 
     if (!options?.clearLocalData) {

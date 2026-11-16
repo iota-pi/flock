@@ -38,6 +38,11 @@ export const SYNC_TIMEOUTS = {
   foregroundPollMinGap: 10_000,
   /** How often a visible tab tells the account's other tabs that it's still visible */
   foregroundPingInterval: 30_000,
+  /**
+   * How long a starting tab waits to learn whether it leads, while no other tab holds the leader lock
+   * (its own request is about to be granted, or is retrying after a lock error)
+   */
+  leadershipSettle: 5000,
   /** Default interval between periodic server manifest reconciliations */
   manifestSyncInterval: 60 * 60 * 1000,
   /**
@@ -55,6 +60,8 @@ export const SYNC_TIMEOUTS = {
   syncProgressDebounce: 300,
   /** How often the changes waiting to sync are recounted anyway, so a tab sees what the account's other tabs pushed */
   syncProgressInterval: 15000,
+  /** How long snapshot uploads wait after the server turns them away for the account's storage quota */
+  snapshotQuotaRetry: 10 * 60 * 1000,
   /** Debounce before uploading a snapshot that manifest sync found missing or newer on this device */
   upstreamSnapshotDebounce: 2000,
   /** How long a seq may stay missing from the log before the row counts as lost */
