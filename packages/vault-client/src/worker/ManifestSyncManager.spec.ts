@@ -5,6 +5,7 @@ import { ClientEventHub } from './SyncEventHub'
 import { SyncApiClient } from './SyncApiClient'
 import type { ItemId } from '@vault/shared'
 import * as Automerge from '@automerge/automerge/slim'
+import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 
 // Mock dependencies
 const mockListItemIds = vi.fn()
@@ -67,7 +68,7 @@ describe('ManifestSyncManager', () => {
   let manifestSyncManager: ManifestSyncManager
   let storeItemsSpy: any
   let migrateLegacySettingsSpy: any
-  let depsObj: { accountId: string; docStore: any; indexManager: any; snapshotManager: any }
+  let depsObj: { accountId: string; docStore: any; indexManager: any; snapshotManager: any; coverage: any }
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -1041,6 +1042,62 @@ describe('ManifestSyncManager', () => {
 
       expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
       expect(depsObj.snapshotManager.tracker.markItemDirty).toHaveBeenCalledWith('item-1', expect.any(Number))
+    })
+
+    describe('with pulled changes no snapshot has confirmed', () => {
+      const pastGrace = () => Date.now() - SYNC_TIMEOUTS.pulledChangesGrace - 1000
+
+      it('forgets the record once the manifest shows the item deleted', async () => {
+        depsObj.coverage.listUnconfirmedPulls.mockResolvedValue(new Map([['item-1', Date.now()]]))
+        mockFetchManifest.mockResolvedValue({
+          manifest: [{ itemId: 'item-1', version: 3, modifiedAt: 100, isDeleted: true }],
+          serverTime: Date.now(),
+        })
+
+        await manifestSyncManager.sync()
+
+        expect(depsObj.coverage.confirmPulledChanges).toHaveBeenCalledWith(['item-1'])
+      })
+
+      it('uploads after the grace period when the snapshot has no heads to check', async () => {
+        depsObj.coverage.listUnconfirmedPulls.mockResolvedValue(new Map([['item-1', pastGrace()]]))
+        mockFetchManifest.mockResolvedValue({
+          manifest: [{ itemId: 'item-1', version: 1, modifiedAt: 100 }],
+          serverTime: Date.now(),
+        })
+
+        await manifestSyncManager.sync()
+
+        expect(depsObj.snapshotManager.tracker.markItemDirty).toHaveBeenCalledWith('item-1', expect.any(Number))
+        // Kept until a snapshot with heads confirms it
+        expect(depsObj.coverage.confirmPulledChanges).not.toHaveBeenCalled()
+      })
+
+      it('leaves a snapshot without heads to its author during the grace period', async () => {
+        depsObj.coverage.listUnconfirmedPulls.mockResolvedValue(new Map([['item-1', Date.now()]]))
+        mockFetchManifest.mockResolvedValue({
+          manifest: [{ itemId: 'item-1', version: 1, modifiedAt: 100 }],
+          serverTime: Date.now(),
+        })
+
+        await manifestSyncManager.sync()
+
+        expect(depsObj.snapshotManager.tracker.markItemDirty).not.toHaveBeenCalled()
+      })
+
+      it('does not upload an item this device does not hold', async () => {
+        mockListItemIds.mockResolvedValue([])
+        depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([])
+        depsObj.coverage.listUnconfirmedPulls.mockResolvedValue(new Map([['item-1', pastGrace()]]))
+        mockFetchManifest.mockResolvedValue({
+          manifest: [{ itemId: 'item-1', version: 1, modifiedAt: 100 }],
+          serverTime: Date.now(),
+        })
+
+        await manifestSyncManager.sync()
+
+        expect(depsObj.snapshotManager.tracker.markItemDirty).not.toHaveBeenCalledWith('item-1', expect.any(Number))
+      })
     })
   })
 

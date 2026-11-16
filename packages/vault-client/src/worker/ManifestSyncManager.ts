@@ -403,6 +403,8 @@ export class ManifestSyncManager {
     signal: AbortSignal,
   ): Promise<void> {
     const unconfirmedPulls = await this.deps.coverage.listUnconfirmedPulls()
+    const graceStart = Date.now() - PULLED_CHANGES_GRACE_MS
+    const forgotten = this.uploadUncheckablePulls(manifest, knownItemIds, localState, unconfirmedPulls, graceStart)
     const found = await findSnapshotsCoveredLocally({
       manifest,
       activeItemIds: knownItemIds,
@@ -415,7 +417,6 @@ export class ManifestSyncManager {
       signal,
       isAlive: this.isAlive,
     })
-    if (found.length === 0) return
     checkAlive(signal, this.isAlive)
 
     const covered = found.filter(snapshot => snapshot.isNewer)
@@ -423,16 +424,15 @@ export class ManifestSyncManager {
       const isDirty = localState.localVersionsMap.get(itemId)?.isDirty ?? false
       localState.localVersionsMap.set(itemId, { baseVersion: version, isDirty })
     }
-    await this.deps.snapshotManager.tracker.importVersions(covered.map(({ itemId, version }) => [itemId, version]))
-    for (const { itemId, heads } of covered) {
-      this.deps.onSnapshotCovered?.(itemId, heads)
-    }
     if (covered.length > 0) {
+      await this.deps.snapshotManager.tracker.importVersions(covered.map(({ itemId, version }) => [itemId, version]))
+      for (const { itemId, heads } of covered) {
+        this.deps.onSnapshotCovered?.(itemId, heads)
+      }
       log.info(`Skipped fetching ${covered.length} snapshots this device already has`)
     }
 
-    const graceStart = Date.now() - PULLED_CHANGES_GRACE_MS
-    const confirmed: ItemId[] = []
+    const confirmed: ItemId[] = [...forgotten]
     for (const { itemId, heads, docHeads, isNewer } of found) {
       if (areHeadsEqual(heads, docHeads)) {
         if (unconfirmedPulls.has(itemId)) confirmed.push(itemId)
@@ -440,7 +440,45 @@ export class ManifestSyncManager {
         this.deps.snapshotManager.tracker.markItemDirty(itemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
       }
     }
-    await this.deps.coverage.confirmPulledChanges(confirmed)
+    if (confirmed.length > 0) {
+      await this.deps.coverage.confirmPulledChanges(confirmed)
+    }
+  }
+
+  /**
+   * S3 for the unconfirmed pulls `findSnapshotsCoveredLocally` can't check. A deleted item never
+   * gets another snapshot, so its record is dropped, which this returns. A snapshot without heads
+   * (written before snapshots had them) can't show whether it holds the pulled changes, so once the
+   * grace period is over the item is uploaded: the doc holds them, and the new snapshot's heads
+   * confirm the record at the next manifest sync.
+   */
+  private uploadUncheckablePulls(
+    manifest: ManifestEntry[],
+    knownItemIds: ItemId[],
+    localState: Awaited<ReturnType<ManifestSyncManager['collectLocalSyncState']>>,
+    unconfirmedPulls: ReadonlyMap<ItemId, number>,
+    graceStart: number,
+  ): ItemId[] {
+    if (unconfirmedPulls.size === 0) return []
+    const known = new Set(knownItemIds)
+    const tombstones = new Set(localState.tombstoneItemIds)
+    const forgotten: ItemId[] = []
+    for (const entry of manifest) {
+      const firstSeenAt = unconfirmedPulls.get(entry.itemId)
+      if (firstSeenAt === undefined) continue
+      if (entry.isDeleted) {
+        forgotten.push(entry.itemId)
+      } else if (
+        !entry.heads
+        && firstSeenAt <= graceStart
+        && known.has(entry.itemId)
+        && !tombstones.has(entry.itemId)
+        && !localState.quarantinedMap.has(entry.itemId)
+      ) {
+        this.deps.snapshotManager.tracker.markItemDirty(entry.itemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
+      }
+    }
+    return forgotten
   }
 
   private async migrateLegacySettings() {

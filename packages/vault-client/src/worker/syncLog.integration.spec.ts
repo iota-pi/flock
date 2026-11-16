@@ -254,6 +254,25 @@ describe('sync log', () => {
       await b.manifestSync()
       expect((await b.services.snapshotCoverage.listUnconfirmedPulls()).size).toBe(0)
     })
+
+    it('forgets pulled changes to an item that was deleted before any snapshot confirmed them', async () => {
+      const a = await startDevice('device-a')
+      const b = await startDevice('device-b')
+      const itemId = await a.create('item-1', { title: 'base' })
+      await a.sync()
+      await b.sync()
+      await a.edit(itemId, { title: 'unconfirmed' })
+      await a.poll()
+      await b.poll()
+      expect((await b.services.snapshotCoverage.listUnconfirmedPulls()).has(itemId)).toBe(true)
+
+      await a.edit(itemId, { deleted: true })
+      await a.sync()
+      await b.manifestSync()
+
+      expect(server.items.get(itemId)?.deleted).toBe(true)
+      expect((await b.services.snapshotCoverage.listUnconfirmedPulls()).size).toBe(0)
+    })
   })
 
   it('pushes a follower\'s edit from its persisted mark after the leader goes', async () => {
