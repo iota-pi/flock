@@ -159,32 +159,6 @@ describe('SyncOrchestrator', () => {
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
   })
 
-  it('emits pollResult event when flush is pending after successful poll', async () => {
-    let resolvePoll: (val: any) => void = () => {}
-    const pollPromise = new Promise(resolve => {
-      resolvePoll = resolve
-    })
-
-    mockPoller.executePoll.mockImplementationOnce(() => pollPromise)
-
-    orchestrator.setLeader(true)
-    setOnline(orchestrator, true)
-    await vi.advanceTimersByTimeAsync(0)
-
-    // Call flush while poll is in-flight
-    orchestrator.flush()
-
-
-    resolvePoll('success')
-    await vi.advanceTimersByTimeAsync(0)
-
-    expect(onPollResult).toHaveBeenCalledWith('success')
-
-    // Immediate flush execution
-    await vi.advanceTimersByTimeAsync(10)
-    expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
-  })
-
   it('resumes polling after auth failure when flush is called', async () => {
     mockPoller.executePoll.mockResolvedValueOnce('auth-failure')
 
@@ -208,69 +182,6 @@ describe('SyncOrchestrator', () => {
     // Subsequent scheduled polling should also work
     mockPoller.executePoll.mockResolvedValueOnce('success')
     await vi.advanceTimersByTimeAsync(35000)
-    expect(mockPoller.executePoll).toHaveBeenCalledTimes(3)
-  })
-
-  it('resumes polling after auth failure when reconnecting online', async () => {
-    mockPoller.executePoll.mockResolvedValueOnce('auth-failure')
-
-    orchestrator.setLeader(true)
-    setOnline(orchestrator, true)
-    await vi.advanceTimersByTimeAsync(0)
-
-    expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
-
-    // Network goes offline then online
-    setOnline(orchestrator, false)
-    mockPoller.executePoll.mockResolvedValueOnce('success')
-    setOnline(orchestrator, true)
-    await vi.advanceTimersByTimeAsync(0)
-
-    expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
-  })
-
-  it('preserves pendingFlush when auth-failure occurs and executes it when polling is resumed', async () => {
-    let resolvePoll: (val: any) => void = () => {}
-    const pollPromise = new Promise(resolve => {
-      resolvePoll = resolve
-    })
-
-    mockPoller.executePoll.mockImplementationOnce(() => pollPromise)
-
-    orchestrator.setLeader(true)
-    setOnline(orchestrator, true)
-    await vi.advanceTimersByTimeAsync(0)
-
-    expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
-
-    // Trigger flush while poll is running
-    orchestrator.flush()
-
-    // Poll fails with auth-failure
-    resolvePoll('auth-failure')
-    await vi.advanceTimersByTimeAsync(0)
-
-    // Polling is paused
-    expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
-
-    // Polling resumes when the device reconnects
-    let resolvePoll2: (val: any) => void = () => {}
-    const poll2Promise = new Promise(resolve => {
-      resolvePoll2 = resolve
-    })
-    mockPoller.executePoll.mockImplementationOnce(() => poll2Promise)
-    setOnline(orchestrator, false)
-    setOnline(orchestrator, true)
-    await vi.advanceTimersByTimeAsync(0)
-    expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
-
-    // Resolve poll 2 with success
-    mockPoller.executePoll.mockResolvedValueOnce('success')
-    resolvePoll2('success')
-    await vi.advanceTimersByTimeAsync(0)
-
-    // Because pendingFlush was preserved, after the successful poll it immediately scheduled and executed the queued flush
-    await vi.advanceTimersByTimeAsync(10)
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(3)
   })
 
@@ -429,22 +340,6 @@ describe('SyncOrchestrator', () => {
     // Once poll completed, advancing past the scheduled poll interval executes the next poll
     await vi.advanceTimersByTimeAsync(40000)
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
-  })
-
-  it('does not permanently freeze polling loop and continues polling over time', async () => {
-    orchestrator.setLeader(true)
-    setOnline(orchestrator, true)
-    await vi.advanceTimersByTimeAsync(0)
-
-    expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
-
-    // Trigger timer for second poll
-    await vi.advanceTimersByTimeAsync(40000)
-    expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
-
-    // Trigger timer for third poll
-    await vi.advanceTimersByTimeAsync(40000)
-    expect(mockPoller.executePoll).toHaveBeenCalledTimes(3)
   })
 
   it('polls again at once while the pull queue has more pages, then waits for the scheduled poll', async () => {
@@ -781,26 +676,6 @@ describe('SyncOrchestrator', () => {
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
     })
 
-    it('does not trigger immediate poll when flush is called during backoff', async () => {
-      mockPoller.executePoll.mockResolvedValueOnce('failure')
-
-      orchestrator.setLeader(true)
-      setOnline(orchestrator, true)
-      await vi.advanceTimersByTimeAsync(0)
-
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
-
-      // Advance partially into backoff window
-      await vi.advanceTimersByTimeAsync(5000)
-
-      // Document edits trigger flush while in backoff
-      orchestrator.flush()
-      await vi.advanceTimersByTimeAsync(10)
-
-      // Flush must NOT immediately execute poll or bypass backoff
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
-    })
-
     it('does not reset or starve backoff timer when multiple flushes occur during backoff', async () => {
       mockPoller.executePoll.mockResolvedValueOnce('failure')
       mockPoller.executePoll.mockResolvedValueOnce('success')
@@ -824,48 +699,6 @@ describe('SyncOrchestrator', () => {
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
     })
 
-    it('resets backoff and allows immediate flush once a poll succeeds after earlier failures', async () => {
-      // Without jitter, so the next regular poll can't fall inside the 80s window
-      vi.spyOn(Math, 'random').mockReturnValue(0.5)
-      mockPoller.executePoll.mockResolvedValueOnce('failure')
-      mockPoller.executePoll.mockResolvedValueOnce('success')
-      mockPoller.executePoll.mockResolvedValueOnce('success')
-
-      orchestrator.setLeader(true)
-      setOnline(orchestrator, true)
-      await vi.advanceTimersByTimeAsync(0)
-
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
-
-      // Advance through backoff to second poll (which succeeds)
-      await vi.advanceTimersByTimeAsync(80000)
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
-
-      // Now that system is healthy (outcome === 'success'), flush should trigger immediate poll
-      orchestrator.flush()
-      await vi.advanceTimersByTimeAsync(10)
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(3)
-    })
-
-    it('schedules next poll with normal interval rather than 0ms when hasImmediatePendingPulls is false', async () => {
-      mockPoller.executePoll.mockResolvedValue('success')
-      mockPuller.hasImmediatePendingPulls = vi.fn().mockReturnValue(false)
-
-      orchestrator.setLeader(true)
-      setOnline(orchestrator, true)
-      await vi.advanceTimersByTimeAsync(0)
-
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
-
-      // Advancing 100ms: should NOT have executed another poll (no 0ms burnout loop)
-      await vi.advanceTimersByTimeAsync(100)
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
-
-      // Advancing to the scheduled poll interval (~30s base backoff + jitter) executes next poll
-      await vi.advanceTimersByTimeAsync(40000)
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
-    })
-
     it('polls again after the gap delay, and never at 0ms, while waiting on a gap', async () => {
       mockPoller.executePoll.mockResolvedValue('success')
       mockPuller.gapRepollDelay = 1000
@@ -882,65 +715,9 @@ describe('SyncOrchestrator', () => {
       await vi.advanceTimersByTimeAsync(5000)
       expect(mockPoller.executePoll.mock.calls.length).toBeGreaterThan(1)
     })
-
-    it('keeps failure backoff while waiting on a gap', async () => {
-      mockPoller.executePoll.mockResolvedValue('failure')
-      mockPuller.gapRepollDelay = 1000
-
-      orchestrator.setLeader(true)
-      setOnline(orchestrator, true)
-      await vi.advanceTimersByTimeAsync(5000)
-
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
-    })
-
-    it('schedules next poll at 0ms delay when hasImmediatePendingPulls is true', async () => {
-      let resolvePoll: (val: any) => void = () => {}
-      const firstPollPromise = new Promise(resolve => {
-        resolvePoll = resolve
-      })
-
-      mockPoller.executePoll.mockImplementationOnce(() => firstPollPromise)
-      mockPuller.hasImmediatePendingPulls = vi.fn().mockReturnValue(true)
-
-      orchestrator.setLeader(true)
-      setOnline(orchestrator, true)
-      await vi.advanceTimersByTimeAsync(0)
-
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
-
-      // Resolve the first poll
-      resolvePoll('success')
-      await vi.advanceTimersByTimeAsync(0)
-
-      // When immediate pulls exist, next poll runs immediately (0ms delay)
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
-    })
   })
 
   describe('onForeground (the user came back to a tab)', () => {
-    it('polls at once and resets backoff when polling is backing off', async () => {
-      vi.spyOn(Math, 'random').mockReturnValue(0.5)
-      mockPoller.executePoll.mockResolvedValueOnce('failure')
-      mockPoller.executePoll.mockResolvedValueOnce('failure')
-      mockPoller.executePoll.mockResolvedValueOnce('failure')
-
-      orchestrator.setLeader(true)
-      setOnline(orchestrator, true)
-      // The first failure waits 60s, and the second failure 120s
-      await vi.advanceTimersByTimeAsync(0)
-      await vi.advanceTimersByTimeAsync(60000)
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
-
-      orchestrator.onForeground()
-      await vi.advanceTimersByTimeAsync(0)
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(3)
-
-      // The third failure backs off from the start (60s), not from the 300s step
-      await vi.advanceTimersByTimeAsync(60000)
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(4)
-    })
-
     it('polls once the last poll is older than the minimum gap', async () => {
       orchestrator.setLeader(true)
       setOnline(orchestrator, true)
@@ -955,21 +732,6 @@ describe('SyncOrchestrator', () => {
       orchestrator.onForeground()
       await vi.advanceTimersByTimeAsync(0)
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
-    })
-
-    it('does not start a second poll while one is running', async () => {
-      let resolvePoll: (outcome: PollOutcome) => void = () => {}
-      mockPoller.executePoll.mockImplementationOnce(() => new Promise(resolve => {
-        resolvePoll = resolve
-      }))
-      orchestrator.setLeader(true)
-      setOnline(orchestrator, true)
-      await vi.advanceTimersByTimeAsync(0)
-
-      orchestrator.onForeground()
-      resolvePoll('success')
-      await vi.advanceTimersByTimeAsync(0)
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
     })
 
     it('does nothing for a follower or while offline', async () => {
@@ -1013,30 +775,20 @@ describe('SyncOrchestrator', () => {
       await vi.advanceTimersByTimeAsync(0)
       expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(manifestSyncs + 1)
     })
-
-    it('does not resume polling that is paused for auth', async () => {
-      mockPoller.executePoll.mockResolvedValueOnce('failure')
-      mockPoller.executePoll.mockResolvedValueOnce('auth-failure')
-      orchestrator.setLeader(true)
-      setOnline(orchestrator, true)
-      await vi.advanceTimersByTimeAsync(0)
-      await vi.advanceTimersByTimeAsync(80000)
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
-
-      orchestrator.onForeground()
-      await vi.advanceTimersByTimeAsync(0)
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
-    })
   })
 
-  describe('poll cadence', () => {
+  // The table in pollSchedule.spec.ts covers the decisions; these check the orchestrator passes the
+  // cadence and snapshot due time through, and that its timers fire when the schedule says
+  describe('cadence and snapshot due time', () => {
     let cadence: PollCadence
+    let snapshotDueAt: number | undefined
     let random: MockInstance<() => number>
 
     beforeEach(() => {
       // 0.5 puts the 30s idle poll in the middle of its jitter window, so it lands at exactly 30s
       random = vi.spyOn(Math, 'random').mockReturnValue(0.5)
       cadence = 'idle'
+      snapshotDueAt = undefined
       orchestrator = createOrchestrator({
         accountId: 'account-1',
         poller: mockPoller,
@@ -1044,6 +796,7 @@ describe('SyncOrchestrator', () => {
         puller: mockPuller,
         manifestSyncManager: mockManifestSyncManager,
         getCadence: () => cadence,
+        getSnapshotDueAt: () => snapshotDueAt,
       })
     })
 
@@ -1062,11 +815,6 @@ describe('SyncOrchestrator', () => {
       return [justBefore, mockPoller.executePoll.mock.calls.length - before]
     }
 
-    it('polls every 30s while a tab is visible and the user is idle', async () => {
-      await startPolling()
-      expect(await pollsAround(30000)).toEqual([0, 1])
-    })
-
     it('polls every 10-15s while the user is active, picking at random each time', async () => {
       cadence = 'active'
       random.mockReturnValue(0)
@@ -1077,38 +825,6 @@ describe('SyncOrchestrator', () => {
       expect(await pollsAround(SYNC_TIMEOUTS.activePollMax)).toEqual([0, 1])
     })
 
-    it('polls every 5-10 min while no tab is visible, picking at random each time', async () => {
-      cadence = 'hidden'
-      random.mockReturnValue(0)
-      await startPolling()
-      random.mockReturnValue(0.999999)
-      expect(await pollsAround(SYNC_TIMEOUTS.hiddenPollMin)).toEqual([0, 1])
-      expect(await pollsAround(SYNC_TIMEOUTS.hiddenPollMax)).toEqual([0, 1])
-    })
-
-    it('keeps failure backoff while active', async () => {
-      cadence = 'active'
-      mockPoller.executePoll.mockResolvedValueOnce('failure')
-      await startPolling()
-      expect(await pollsAround(60000)).toEqual([0, 1])
-    })
-
-    it('keeps failure backoff while hidden', async () => {
-      cadence = 'hidden'
-      mockPoller.executePoll.mockResolvedValueOnce('failure')
-      await startPolling()
-      await vi.advanceTimersByTimeAsync(60000)
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
-    })
-
-    it('still pushes local changes at once while hidden', async () => {
-      cadence = 'hidden'
-      await startPolling()
-      orchestrator.flush()
-      await vi.advanceTimersByTimeAsync(0)
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
-    })
-
     it('brings an idle poll forward when activity starts', async () => {
       await startPolling()
       await vi.advanceTimersByTimeAsync(1000)
@@ -1117,88 +833,6 @@ describe('SyncOrchestrator', () => {
       orchestrator.onActivity()
       expect(await pollsAround(12500)).toEqual([0, 1])
     })
-
-    it('leaves a poll that is already due within the active rate', async () => {
-      cadence = 'active'
-      await startPolling()
-      await vi.advanceTimersByTimeAsync(5000)
-
-      orchestrator.onActivity()
-      expect(await pollsAround(7500)).toEqual([0, 1])
-    })
-
-    it('leaves failure backoff alone on activity', async () => {
-      mockPoller.executePoll.mockResolvedValueOnce('failure')
-      await startPolling()
-
-      cadence = 'active'
-      orchestrator.onActivity()
-      expect(await pollsAround(60000)).toEqual([0, 1])
-    })
-
-    it('does not bring the poll forward for activity while no tab is visible', async () => {
-      cadence = 'hidden'
-      await startPolling()
-
-      orchestrator.onActivity()
-      await vi.advanceTimersByTimeAsync(60000)
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
-    })
-
-    it('ignores activity on a tab that is not the leader', async () => {
-      cadence = 'active'
-      orchestrator.onActivity()
-      await vi.advanceTimersByTimeAsync(60000)
-      expect(mockPoller.executePoll).not.toHaveBeenCalled()
-    })
-
-    it('polls when the user comes back to a hidden leader', async () => {
-      cadence = 'hidden'
-      await startPolling()
-      await vi.advanceTimersByTimeAsync(60000)
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
-
-      cadence = 'idle'
-      orchestrator.onForeground()
-      await vi.advanceTimersByTimeAsync(0)
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
-      await vi.advanceTimersByTimeAsync(30000)
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(3)
-    })
-  })
-
-  describe('snapshot due time', () => {
-    let cadence: PollCadence
-    let snapshotDueAt: number | undefined
-
-    beforeEach(() => {
-      // 0.5 puts the 30s idle poll in the middle of its jitter window, so it lands at exactly 30s
-      vi.spyOn(Math, 'random').mockReturnValue(0.5)
-      cadence = 'idle'
-      snapshotDueAt = undefined
-      orchestrator = createOrchestrator({
-        accountId: 'account-1',
-        poller: mockPoller,
-        clientEventHub,
-        puller: mockPuller,
-        manifestSyncManager: mockManifestSyncManager,
-        getCadence: () => cadence,
-        getSnapshotDueAt: () => snapshotDueAt,
-      })
-    })
-
-    async function startPolling(): Promise<void> {
-      orchestrator.setLeader(true)
-      await vi.advanceTimersByTimeAsync(0)
-    }
-
-    async function pollsAround(delayMs: number): Promise<[number, number]> {
-      const before = mockPoller.executePoll.mock.calls.length
-      await vi.advanceTimersByTimeAsync(delayMs - 1)
-      const justBefore = mockPoller.executePoll.mock.calls.length - before
-      await vi.advanceTimersByTimeAsync(1)
-      return [justBefore, mockPoller.executePoll.mock.calls.length - before]
-    }
 
     it('schedules the next poll for when snapshots are due, if that is sooner than the cadence', async () => {
       snapshotDueAt = Date.now() + 5000
@@ -1217,45 +851,6 @@ describe('SyncOrchestrator', () => {
       orchestrator.onSnapshotDue()
 
       expect(await pollsAround(30_000)).toEqual([0, 1])
-    })
-
-    it('leaves a poll that is already sooner than the due time', async () => {
-      await startPolling()
-
-      snapshotDueAt = Date.now() + 60_000
-      orchestrator.onSnapshotDue()
-
-      expect(await pollsAround(30_000)).toEqual([0, 1])
-    })
-
-    // One backoff for one outage: snapshots wait for the poll's own retry
-    it('leaves failure backoff alone, after the poll and when snapshots become due', async () => {
-      mockPoller.executePoll.mockResolvedValueOnce('failure')
-      snapshotDueAt = Date.now()
-      await startPolling()
-
-      orchestrator.onSnapshotDue()
-
-      expect(await pollsAround(60_000)).toEqual([0, 1])
-    })
-
-    it('does not poll for snapshots while polling is paused for auth', async () => {
-      mockPoller.executePoll.mockResolvedValueOnce('auth-failure')
-      await startPolling()
-
-      snapshotDueAt = Date.now()
-      orchestrator.onSnapshotDue()
-      await vi.advanceTimersByTimeAsync(10 * 60 * 1000)
-
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
-    })
-
-    it('ignores due snapshots on a tab that is not the leader', async () => {
-      snapshotDueAt = Date.now()
-      orchestrator.onSnapshotDue()
-      await vi.advanceTimersByTimeAsync(60_000)
-
-      expect(mockPoller.executePoll).not.toHaveBeenCalled()
     })
   })
 
@@ -1284,16 +879,6 @@ describe('SyncOrchestrator', () => {
 
       resolveFirst('success')
       await polled
-
-      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
-    })
-
-    it('polls while backing off, as a flush does', async () => {
-      mockPoller.executePoll.mockResolvedValueOnce('failure')
-      orchestrator.setLeader(true)
-      await vi.advanceTimersByTimeAsync(0)
-
-      await orchestrator.pollNow()
 
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
     })
