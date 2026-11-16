@@ -22,7 +22,7 @@ Each account has one strictly ordered log, the `FlockSyncLog` table, keyed by `a
 
 ### Server
 
-- **Rows are contiguous.** Every committed push uses exactly the next seqs, and a failed push uses none. One `TransactWriteItems` updates the head row (`seq: 0`, with the condition `head = :expected`) and puts each message, so a transaction for seqs `e+1…` can commit only after the one for `…e`. The head row isn't on the `FlockAccounts` record, because `extendSession` writes that on every request, and a write to an item in a running transaction fails. All of an account's appends serialise on the head row, which is fine for one user's devices; a shared account would need a sub-log per device.
+- **Rows are contiguous.** Every committed push uses exactly the next seqs, and a failed push uses none. One `TransactWriteItems` updates the head row (`seq: 0`, with the condition `head = :expected`) and puts each message, so a transaction for seqs `e+1…` can commit only after the one for `…e`. The head row isn't on the `FlockAccounts` record, because `extendSession` writes that when it renews a session (once it has under 48 hours left, so about daily), and a write to an item in a running transaction fails. All of an account's appends serialise on the head row, which is fine for one user's devices; a shared account would need a sub-log per device.
 - **Reads are consistent `Query`s on the base table,** strictly `seq > after`, with no GSI, page token or lookback. DynamoDB documents `Query` as read-committed, which may show some rows of a multi-row transaction and not others. Contiguity makes that harmless, because the client never moves past a missing seq it might still see.
 - **A row's `encryptedMessage` is a run of Automerge change chunks** encrypted with the item's ID. There's only one kind of row, and an item's change set can span several rows, in dependency order.
 - **Rows expire after `SYNC_LOG_TTL_DAYS` (30).** Snapshots are the lasting copy (see "Snapshot coverage").
@@ -65,7 +65,7 @@ An entry that can't be applied yet (a failed decryption, a missing key, missing 
 
 The `GapHealer` owns those items. It fetches an item's snapshot at once (`ManifestSyncManager.fetchSnapshots`), re-applies its parked rows in seq order and checks for missing dependencies. Rows stay until nothing is missing. If the server doesn't have the dependencies yet, some device's doc does, and it retries after every later entry for the item, every manifest sync, every keyring update, and on a backoff (`GAP_HEAL_DELAYS`). Work runs at the end of each poll, so a failure fails the poll.
 
-- **After a day** (`missingChangesQuarantine`) the item is quarantined as `missingChanges`. It stays usable and keeps retrying, and a heal clears the quarantine.
+- **After a day** (`missingChangesQuarantine`) of missing dependencies, or of a parked row that keeps failing to apply (a doc that won't load), the item is quarantined as `missingChanges`. It stays usable, keeps its rows and keeps retrying, and a heal clears the quarantine.
 - **A row that won't decrypt** is dropped after `MAX_PULL_RETRIES` (5) and the item quarantined as `pullDecryption`.
 - **A row waiting for a key** is never quarantined. A keyring update retries it.
 
@@ -121,7 +121,7 @@ Records don't hold back polling or any other item. An `awaitingHeads` item goes 
 Two devices can upload an `awaitingSnapshot` item at once. S2 can't help, because the loser's changes never reached the log, but S3 does: its next manifest sync merges the winner, finds it has other heads too, and uploads again.
 
 - **The WAL wasn't migrated.** Nothing replays it, because each device's doc nearly always holds the same changes. A change that only reached the WAL (a tab killed straight after an edit, or a doc save that failed on full storage) was dropped at the cut: the one accepted exception to never resetting local data without the user confirming.
-- **Removing first start.** Its code stays until no device can still be on a pre-log build, and goes only with a later `MIN_PROTOCOL_VERSION` bump once every device has run it: a device that skipped it would trust old server heads.
+- **Removing first start.** Its code stays until every device with local data has run it: a device that skipped it would trust old server heads. A protocol version can't tell that, because it gates builds, not a device's data (`MIN_PROTOCOL_VERSION` 5 already requires the log). The gate that fits is a device data level, recorded once first start has finished with no records left, the way level 3 waits for sealing. Raising `MIN_DEVICE_DATA_VERSION` to it then sends any device that hasn't run first start through the migration app, and the main app's engine can drop it.
 
 ## Snapshot sync
 
@@ -150,7 +150,7 @@ Two devices can upload an `awaitingSnapshot` item at once. S2 can't help, becaus
 | Quarantined, V_server ≤ max(V_failed, V_base) | Skip (unless forced) |
 | Quarantined, V_server > max(V_failed, V_base) | Fetch the snapshot to retry recovery |
 
-Timestamps (`localModifiedAt`, `modifiedAt`) only track tombstones and quarantines; no decision compares clocks.
+No decision in this table compares clocks. Timestamps (`localModifiedAt`, `modifiedAt`) track tombstones and quarantines, and one other thing: `SnapshotTracker`'s startup audit re-queues an item whose `localModifiedAt` is after its `lastSnapshotAt`, both from this device's clock. A clock that steps backwards can make it miss one, which S3 and the log cover.
 
 V_base advances only when this device pushes or hydrates a snapshot, not when the log delivers the same changes. So every item edited on another device looks stale, whether or not this device missed anything. **Heads in the manifest** keep that cheap:
 
@@ -235,7 +235,7 @@ The deleted old doc still exceeds the limit. `SnapshotPusher` therefore uploads 
 ## Manual recovery store
 
 Items that can't be synced are quarantined in `manualRecoveryStore` and shown to the user.
-- `kind` is one of `pullDecryption`, `snapshotDecryption`, `oversized`, `snapshotFailure`, `pushFailure` (no longer written), `missingChanges` or `unknown`. For legacy entries it is inferred from the reason text.
+- `kind` is one of `pullDecryption`, `snapshotDecryption`, `oversized`, `snapshotFailure`, `pushFailure` (no longer written), `localDecryption`, `missingChanges` or `unknown`. For legacy entries it is inferred from the reason text.
 - `detail` says why, as a `ManualRecoveryDetail`: a fixed code plus at most a size or a stage. The store is unsealed, and an error message can quote decrypted content, so `quarantine` takes no error and callers log it instead. The displayed `reason` is built from `detail` when the entry is read. Reading rewrites entries from older builds, which stored a free-text reason, without it.
 - `pullDecryption` is auto-cleared only by a successfully applied entry from another device. Own push echoes are excluded via `SyncLogPuller.recordOwnPushes`. The `GapHealer` clears `missingChanges` when it heals the item.
 - A server-confirmed snapshot upload clears every kind, as does any explicit user action (retry, overwrite, delete, recreate, dismiss).
@@ -265,7 +265,7 @@ Cross-tab sync is an ephemeral optimisation. IndexedDB and the server remain the
 - Automerge docs: `VaultIndexedDBStorageAdapter`.
 - Sync log database (`syncLogDatabase` + account), which `SyncLogDatabase` opens directly rather than through localforage: pending marks, parked entries, first-start records, S2 rechecks and S3 records. None of it needs a seal: it holds IDs, heads and counters, and parked entries hold the server's ciphertext.
 - A WAL left by an older build, in its own databases, until first start clears it. Nothing reads it.
-- Sync metadata: one database per account, `flock-sync-metadata-${accountId}` in Flock (store `sync-metadata`), opened once via `getSyncMetadataStorage(accountId)`. Its keys are `logCursor`, `logLastPullAt`, `indexDoc` or `indexDocSealed`, `lastModified` (including `baseVersion`), `syncedHeads`, `snapshotsDocBound`, `deviceDataVersion`, `firstStartReset`, `firstStartSynced` and `walCleared`. The stores only read the current layout.
+- Sync metadata: one database per account, `flock-sync-metadata-${accountId}` in Flock (store `sync-metadata`), opened once via `getSyncMetadataStorage(accountId)`. Its keys are `logCursor`, `logLastPullAt`, `indexDoc` or `indexDocSealed`, `lastModified` (including `baseVersion`), `syncedHeads`, `snapshotsDocBound`, `deviceDataVersion`, `lastSyncedAt`, `firstStartReset`, `firstStartSynced` and `walCleared`. The stores only read the current layout.
 - Sealed storage (`upgradeLocalEncryption`, Part 2 of [local-encryption.md](local-encryption.md)): user content is sealed with a per-device storage key (DSK), wrapped with a data key and kept in the sealed Automerge database's `meta` store (`dsk`, plus `upgradedAt`).
   - **What's sealed:** Automerge chunks go to the sealed Automerge database (`sealedAutomergeDatabase`) as `{ key, v, iv, ct }`. The index is sealed under `indexDocSealed`.
   - **What stays readable:** storage keys, the sync log database and the other metadata keys hold no user content.
@@ -303,5 +303,5 @@ Inside the worker, components call each other through plain callbacks that `Sync
 
 ## Other recovery
 
-- Worker health (`SyncWorkerHealthMonitor.ts`) sends a 15s ping and treats a 30s silence as a timeout. A crashed worker is auto-restarted up to `MAX_CONSECUTIVE_CRASHES` (3) times.
+- Worker health (`SyncWorkerHealthMonitor.ts`) sends a 15s ping and treats a 30s silence as a timeout. A crashed worker is auto-restarted until `MAX_CONSECUTIVE_CRASHES` (3) crashes in a row, and an unresponsive one until `MAX_CONSECUTIVE_TIMEOUTS` (5) timeouts in a row, each count resetting after a minute without one. Then sync stops and the user is asked to refresh.
 - `ManifestSyncManager` reconciles at startup, every hour (`manifestSyncInterval`) and when the user comes back to a tab (`onForeground`). Each run is skipped within `manifestSyncMinGap` (50 min) of the last clean one, unless it's forced or the device has no items. The gap is shorter than the interval so the hourly timer always runs.
