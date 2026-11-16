@@ -125,7 +125,7 @@ export class RetryStrategy {
 
   /**
    * Increments the attempt counter, optionally clamping to the last delay index.
-   * Useful for backoff stepping (e.g. SyncOrchestrator).
+   * Useful for backoff stepping.
    */
   increment(options?: { clampToLast?: boolean }): number {
     if (options?.clampToLast) {
@@ -152,7 +152,7 @@ export class RetryStrategy {
 
   /**
    * Static helper to apply symmetric jitter centered around target delay.
-   * Formula matches SyncOrchestrator:
+   * Formula:
    * jitterWindow = min(maxJitterMs, floor(delayMs * factor))
    * offset in [-floor(jitterWindow/2), ceil(jitterWindow/2)]
    */

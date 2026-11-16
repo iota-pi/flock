@@ -4,9 +4,17 @@ import type { SyncLogPuller } from './SyncLogPuller'
 import type { ManifestSyncManager } from './ManifestSyncManager'
 import type { SyncSessionState } from './SyncSessionState'
 import type { ClientEventHub } from './SyncEventHub'
+import {
+  INITIAL_POLL_STATE,
+  transitionPoll,
+  type PollCadence,
+  type PollEffect,
+  type PollEvent,
+  type PollResult,
+  type PollState,
+} from './pollSchedule'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { AbortableRun } from '../utils/AbortableRun'
-import { RetryStrategy, DEFAULT_POLL_BACKOFF_DELAYS } from '../utils/RetryStrategy'
 import { RetryTimer } from '../utils/RetryTimer'
 import { checkAlive, isAbortError, withTimeout } from '../utils/abort'
 import { classifySyncError } from '../utils/errorClassifier'
@@ -45,45 +53,33 @@ export interface SyncOrchestratorDeps {
   getSnapshotDueAt?: () => number | undefined
 }
 
-export type PollCadence = 'active' | 'idle' | 'hidden'
-
 const DEFAULT_MANIFEST_SYNC_INTERVAL_MS = SYNC_TIMEOUTS.manifestSyncInterval
 /** How often `settleLeadership` looks at the lock again, in case another tab took it meanwhile */
 const LEADERSHIP_RECHECK_MS = 100
 
-/** A whole number of milliseconds picked uniformly from `min` to `max` */
-function randomBetween(min: number, max: number): number {
-  return Math.floor(min + Math.random() * (max - min + 1))
-}
-
-interface PollDelay {
-  delayMs: number
-  /** Whether the delay was picked from a range, which spreads polls out already, so no jitter is added */
-  isSpread: boolean
-}
-
+/**
+ * Runs the leader's sync: leader election, the periodic manifest sync, and polls on the schedule
+ * `transitionPoll` decides. This class owns the timers and runs the poll; every decision about when
+ * to poll is a transition of `pollState` (see `pollSchedule.ts`).
+ */
 export class SyncOrchestrator {
   private leaderElection: LeaderElectionLike | null = null
-  private pollingPausedForAuth = false
 
-  private pendingFlush = false
-  private lastPollFinishedAt = 0
-  /** When the pending poll timer fires. Only meaningful while `pollTimer.isPending`. */
-  private nextPollAt = 0
-  private readonly pollGuard = new SingleFlightGuard<void>()
+  private pollState: PollState = INITIAL_POLL_STATE
+  /** Identifies the poll whose result counts. Starting or aborting a poll makes earlier results stale. */
+  private pollRunId = 0
+  /** The latest poll, which settles after every earlier one */
+  private pollInFlight: Promise<void> | null = null
   private readonly cursorReloadGuard = new SingleFlightGuard<void>()
   private readonly pollRun = new AbortableRun(() => this.isOperational)
 
+  /** Armed while the schedule is `waiting` */
   private readonly pollTimer = new RetryTimer()
-  private readonly syncBatchTimer = new RetryTimer()
-  private readonly pollBackoff = new RetryStrategy({
-    delays: DEFAULT_POLL_BACKOFF_DELAYS,
-    jitter: { factor: 0.25, maxJitterMs: 15000 },
-  })
+  /** Armed while a flush is queued, so flushes made in the same turn share one poll */
+  private readonly flushTimer = new RetryTimer()
 
   private manifestSyncIntervalId: ReturnType<typeof setInterval> | null = null
   private readonly manifestSyncIntervalMs: number
-
 
   constructor(private readonly deps: SyncOrchestratorDeps) {
     this.manifestSyncIntervalMs = deps.manifestSyncIntervalMs ?? DEFAULT_MANIFEST_SYNC_INTERVAL_MS
@@ -97,12 +93,104 @@ export class SyncOrchestrator {
     return this.deps.session.isShutdown
   }
 
-  private canPoll(force = false): boolean {
-    return this.isOperational && (force || !this.pollingPausedForAuth)
+  /** Moves the poll schedule on by `event`, arms the timers its new state needs and carries out its effects */
+  private dispatch(event: PollEvent): void {
+    const previous = this.pollState
+    const { state, effects } = transitionPoll(previous, event, {
+      now: Date.now(),
+      isOperational: this.isOperational,
+      cadence: this.deps.getCadence?.() ?? 'idle',
+      snapshotDueAt: this.deps.getSnapshotDueAt?.(),
+      random: Math.random,
+    })
+    this.pollState = state
+
+    if (state.phase.kind !== 'waiting') {
+      this.pollTimer.cancel()
+    } else if (state.phase !== previous.phase) {
+      this.pollTimer.schedule(state.phase.until - Date.now(), () => this.dispatch({ type: 'timerFired' }))
+    }
+    if (!state.flushQueued) {
+      this.flushTimer.cancel()
+    } else if (!previous.flushQueued) {
+      this.flushTimer.schedule(0, () => this.dispatch({ type: 'flushBatch' }))
+    }
+
+    for (const effect of effects) {
+      this.runEffect(effect)
+    }
   }
 
-  private abortPoll(): void {
-    this.pollRun.abort()
+  private runEffect(effect: PollEffect): void {
+    try {
+      switch (effect.type) {
+        case 'startPoll':
+          this.startPoll()
+          break
+        case 'abortPoll':
+          this.pollRunId += 1
+          this.pollRun.abort()
+          break
+        case 'reportAuthFailure':
+          this.deps.clientEventHub.emit({
+            type: 'authFailure',
+            message: 'Sync paused: your session has expired. Please sign in again.',
+          })
+          break
+        case 'reportResult':
+          this.deps.onPollResult?.(effect.outcome)
+          break
+      }
+    } catch (error) {
+      log.error(`Poll effect ${effect.type} failed:`, error)
+    }
+  }
+
+  /**
+   * Runs a poll once the previous one has settled, which an aborted poll that ignores its signal may
+   * not have yet, and reports its result unless a later start or abort made it stale.
+   */
+  private startPoll(): void {
+    this.pollRunId += 1
+    const runId = this.pollRunId
+    const previous = this.pollInFlight
+    const run = (async () => {
+      await previous
+      if (runId !== this.pollRunId) return
+      const result = await this.runPoll()
+      if (runId !== this.pollRunId || !this.isOperational) return
+      this.dispatch({
+        type: 'pollFinished',
+        result,
+        hasImmediatePendingPulls: result === 'success' && this.deps.puller.hasImmediatePendingPulls(),
+        gapRepollDelay: result === 'success' ? this.deps.puller.gapRepollDelay : undefined,
+      })
+    })()
+    const tracked: Promise<void> = run
+      .catch(error => {
+        log.error('Error running a poll:', error)
+      })
+      .finally(() => {
+        if (this.pollInFlight === tracked) this.pollInFlight = null
+      })
+    this.pollInFlight = tracked
+  }
+
+  private async runPoll(): Promise<PollResult> {
+    try {
+      return await this.pollRun.run(async signal => {
+        if (this.cursorReloadGuard.isRunning) {
+          await this.cursorReloadGuard.waitForRunning()
+        }
+        checkAlive(signal, () => this.isOperational)
+        const outcome = await this.deps.poller.executePoll(signal)
+        checkAlive(signal, () => this.isOperational)
+        return outcome
+      })
+    } catch (error) {
+      if (isAbortError(error)) return 'aborted'
+      return classifySyncError(error).isAuth ? 'auth-failure' : 'failure'
+    }
   }
 
   async start(): Promise<void> {
@@ -179,18 +267,23 @@ export class SyncOrchestrator {
   }
 
   /** Polls now and starts the periodic manifest sync with an immediate run. */
-  private startSyncing(): void {
-    this.startPolling()
+  private startSyncing(options?: { resetBackoff?: boolean }): void {
+    this.startPolling(options)
     this.startPeriodicManifestSync()
     fireAndForget(this.triggerManifestSync(), 'SyncOrchestrator:triggerManifestSync')
   }
 
   /** Cancels scheduled and in-flight polls and manifest syncs. */
   private stopSyncing(): void {
-    this.stopPolling()
+    this.dispatch({ type: 'stop' })
     this.stopPeriodicManifestSync()
-    this.abortPoll()
     this.deps.manifestSyncManager.abort()
+  }
+
+  /** Polls now, or right after the poll in flight */
+  private startPolling(options?: { resetBackoff?: boolean }): void {
+    if (this.isShutdown || !this.deps.session.isLeader) return
+    this.dispatch({ type: 'start', resetBackoff: options?.resetBackoff })
   }
 
   /** Stops syncing when the device goes offline, and resumes when it's back. The session holds the state. */
@@ -201,8 +294,7 @@ export class SyncOrchestrator {
     }
 
     if (this.deps.session.isLeader) {
-      this.pollBackoff.reset()
-      this.startSyncing()
+      this.startSyncing({ resetBackoff: true })
     }
   }
 
@@ -213,13 +305,9 @@ export class SyncOrchestrator {
    * a manifest sync, which skips itself if one finished in the last `manifestSyncMinGap`.
    */
   onForeground(): void {
-    if (this.isShutdown || !this.deps.session.isOnline || !this.deps.session.isLeader) return
+    if (!this.isOperational) return
     fireAndForget(this.triggerManifestSync(), 'SyncOrchestrator:triggerManifestSync')
-    if (this.pollingPausedForAuth || this.pollGuard.isRunning) return
-    const isBackingOff = this.pollBackoff.attempt > 0
-    if (!isBackingOff && Date.now() - this.lastPollFinishedAt < SYNC_TIMEOUTS.foregroundPollMinGap) return
-    this.pollBackoff.reset()
-    this.startPolling()
+    this.dispatch({ type: 'foreground' })
   }
 
   /**
@@ -228,11 +316,7 @@ export class SyncOrchestrator {
    * failure backoff alone.
    */
   onActivity(): void {
-    if (this.isShutdown || !this.deps.session.isOnline || !this.deps.session.isLeader) return
-    if (this.pollingPausedForAuth || this.pollBackoff.attempt > 0 || !this.pollTimer.isPending) return
-    if (this.cadence !== 'active') return
-    if (this.nextPollAt - Date.now() <= SYNC_TIMEOUTS.activePollMax) return
-    this.schedulePollTimer(randomBetween(SYNC_TIMEOUTS.activePollMin, SYNC_TIMEOUTS.activePollMax), { jitter: false })
+    this.dispatch({ type: 'activity' })
   }
 
   /**
@@ -240,17 +324,7 @@ export class SyncOrchestrator {
    * and an auth pause alone, and a poll in flight schedules the next one itself.
    */
   onSnapshotDue(): void {
-    if (this.isShutdown || !this.deps.session.isOnline || !this.deps.session.isLeader) return
-    if (this.pollingPausedForAuth || this.pollBackoff.attempt > 0 || !this.pollTimer.isPending) return
-    const dueDelay = this.snapshotDueDelay
-    if (dueDelay === undefined || Date.now() + dueDelay >= this.nextPollAt) return
-    this.schedulePollTimer(dueDelay, { jitter: false })
-  }
-
-  /** How long until snapshots are due, if any are */
-  private get snapshotDueDelay(): number | undefined {
-    const dueAt = this.deps.getSnapshotDueAt?.()
-    return dueAt === undefined ? undefined : Math.max(0, dueAt - Date.now())
+    this.dispatch({ type: 'snapshotDue' })
   }
 
   /**
@@ -259,202 +333,17 @@ export class SyncOrchestrator {
    */
   async pollNow(): Promise<void> {
     if (this.isShutdown || !this.deps.session.isLeader) return
-    this.pollingPausedForAuth = false
-    while (this.pollGuard.isRunning) {
-      await this.pollGuard.waitForRunning()
+    while (this.pollInFlight) {
+      await this.pollInFlight
     }
-    await this.executeWrappedPoll(true)
+    this.dispatch({ type: 'pollNow' })
+    await this.pollInFlight
   }
 
+  /** Polls soon to push local changes, batching flushes made in the same turn into one poll */
   flush(): void {
     if (this.isShutdown) return
-    this.pollingPausedForAuth = false
-    if (!this.syncBatchTimer.isPending) {
-      this.syncBatchTimer.schedule(0, () => fireAndForget(this.flushSyncBatch(), 'SyncOrchestrator:flushSyncBatch'))
-    }
-  }
-
-  private async flushSyncBatch(): Promise<void> {
-    try {
-      if (this.pollGuard.isRunning) {
-        this.pendingFlush = true
-        return
-      }
-
-      if (this.pollBackoff.attempt > 0) {
-        if (!this.pollTimer.isPending) {
-          this.schedulePollTimer(this.pollBackoff.currentBaseDelay)
-        }
-        return
-      }
-
-      fireAndForget(this.executeWrappedPoll(true), 'SyncOrchestrator:executeWrappedPoll')
-    } catch (err) {
-      log.error('Error during flushSyncBatch:', err)
-    }
-  }
-
-  /** Polls now, or right after the poll in flight */
-  private startPolling(): void {
-    if (this.isShutdown) return
-    this.stopPolling()
-
-    if (!this.deps.session.isLeader) {
-      return
-    }
-
-    this.pollingPausedForAuth = false
-
-    if (!this.pollGuard.isRunning) {
-      fireAndForget(this.executeWrappedPoll(true), 'SyncOrchestrator:executeWrappedPoll')
-    } else {
-      this.pendingFlush = true
-    }
-  }
-
-  private stopPolling(): void {
-    this.pollTimer.cancel()
-    if (this.syncBatchTimer.isPending) {
-      this.syncBatchTimer.cancel()
-      if (!this.isShutdown) {
-        this.pendingFlush = true
-      }
-    }
-  }
-
-  private schedulePollTimer(delayMs: number, options?: { jitter?: boolean }): void {
-    if (!this.canPoll()) {
-      return
-    }
-
-    const scheduledDelay = options?.jitter === false ? delayMs : this.pollBackoff.applyJitter(delayMs)
-    this.nextPollAt = Date.now() + scheduledDelay
-    this.pollTimer.schedule(scheduledDelay, () => {
-      fireAndForget(this.executeWrappedPoll(), 'SyncOrchestrator:executeWrappedPoll')
-    })
-  }
-
-  private get cadence(): PollCadence {
-    return this.deps.getCadence?.() ?? 'idle'
-  }
-
-  /** The backoff delay after failures, otherwise the interval for the current cadence */
-  private get nextPollDelay(): PollDelay {
-    if (this.pollBackoff.attempt > 0) {
-      return { delayMs: this.pollBackoff.currentBaseDelay, isSpread: false }
-    }
-    switch (this.cadence) {
-      case 'active':
-        return { delayMs: randomBetween(SYNC_TIMEOUTS.activePollMin, SYNC_TIMEOUTS.activePollMax), isSpread: true }
-      case 'hidden':
-        return { delayMs: randomBetween(SYNC_TIMEOUTS.hiddenPollMin, SYNC_TIMEOUTS.hiddenPollMax), isSpread: true }
-      case 'idle':
-        return { delayMs: this.pollBackoff.currentBaseDelay, isSpread: false }
-    }
-  }
-
-  private scheduleNextPoll(outcome: PollOutcome): void {
-    const wasFlushPending = this.pendingFlush
-    this.pendingFlush = false
-    this.lastPollFinishedAt = Date.now()
-
-    if (outcome === 'failure') {
-      this.pollBackoff.increment({ clampToLast: true })
-    } else if (outcome === 'success') {
-      this.pollBackoff.reset()
-      this.pollingPausedForAuth = false
-    }
-
-    const pollNow = outcome !== 'failure' && (
-      wasFlushPending
-      || (outcome === 'success' && this.deps.puller.hasImmediatePendingPulls())
-    )
-    const gapDelay = outcome === 'success' ? this.deps.puller.gapRepollDelay : undefined
-    // Snapshots wait out failure backoff with everything else
-    const snapshotDelay = outcome === 'failure' ? undefined : this.snapshotDueDelay
-    const next = this.nextPollDelay
-    if (pollNow) {
-      this.schedulePollTimer(0)
-    } else if (gapDelay !== undefined && gapDelay < next.delayMs && (snapshotDelay === undefined || gapDelay <= snapshotDelay)) {
-      this.schedulePollTimer(gapDelay)
-    } else if (snapshotDelay !== undefined && snapshotDelay < next.delayMs) {
-      this.schedulePollTimer(snapshotDelay, { jitter: false })
-    } else {
-      this.schedulePollTimer(next.delayMs, { jitter: !next.isSpread })
-    }
-    // Reported once the next poll is scheduled, so a failing receiver can't stop polling
-    this.deps.onPollResult?.(outcome)
-  }
-
-  private handlePollError(error: unknown): void {
-    if (isAbortError(error) || !this.isOperational) {
-      return
-    }
-
-    if (classifySyncError(error).isAuth) {
-      this.handleAuthFailure()
-      return
-    }
-
-    this.scheduleNextPoll('failure')
-  }
-
-  /** Pauses polling until the next flush or restart, and tells the app the session has expired. */
-  private handleAuthFailure(): void {
-    this.pollingPausedForAuth = true
-    this.stopPolling()
-    this.deps.clientEventHub.emit({
-      type: 'authFailure',
-      message: 'Sync paused: your session has expired. Please sign in again.',
-    })
-    this.deps.onPollResult?.('auth-failure')
-  }
-
-  private async executeWrappedPoll(force = false): Promise<void> {
-    try {
-      if (!this.canPoll(force) || this.pollGuard.isRunning) return
-
-      await this.pollGuard.run(async () => {
-        let outcome: PollOutcome
-        try {
-          outcome = await this.pollRun.run(async signal => {
-            if (this.cursorReloadGuard.isRunning) {
-              await this.cursorReloadGuard.waitForRunning()
-            }
-            checkAlive(signal, () => this.isOperational)
-
-            const result = await this.deps.poller.executePoll(signal)
-            checkAlive(signal, () => this.isOperational)
-            return result
-          })
-        } catch (err) {
-          if (isAbortError(err)) {
-            return
-          }
-          this.handlePollError(err)
-          return
-        }
-
-        if (!this.isOperational) {
-          return
-        }
-
-        if (outcome === 'auth-failure') {
-          this.handleAuthFailure()
-          return
-        }
-
-        this.scheduleNextPoll(outcome)
-      }, {
-        onCoalesce: () => {
-          this.pendingFlush = true
-        },
-      })
-    } catch (err) {
-      if (!isAbortError(err)) {
-        log.error('Error during executeWrappedPoll:', err)
-      }
-    }
+    this.dispatch({ type: 'flush' })
   }
 
   private async reloadCursors(): Promise<void> {
@@ -473,7 +362,7 @@ export class SyncOrchestrator {
       this.leaderElection = null
     }
     this.stopSyncing()
-    await this.pollGuard.waitForRunning()
+    await this.pollInFlight
     await this.deps.manifestSyncManager.waitForIdle()
   }
 
