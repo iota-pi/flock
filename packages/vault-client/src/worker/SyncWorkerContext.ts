@@ -367,6 +367,7 @@ export class SyncWorkerContext {
       healer: gapHealer,
       apiClient: this.apiClient,
       syncManifest: signal => this.services.manifestSyncManager.syncNow(signal),
+      getSnapshots: () => this.services.snapshotManager,
     })
 
     const snapshotBuilder = new SnapshotBuilder(repo, keys, this.domain.codec, snapshotCoverage)
@@ -388,6 +389,8 @@ export class SyncWorkerContext {
       eventHub: clientEventHub,
       recoveryManager,
       apiClient: this.apiClient,
+      onDueChanged: () => this._services?.orchestrator.onSnapshotDue(),
+      runPollNow: () => this.services.orchestrator.pollNow(),
     })
 
     const markDocumentDirty = (id: ItemId) => {
@@ -531,6 +534,7 @@ export class SyncWorkerContext {
         if (!foregroundTracker.isAnyVisible) return 'hidden'
         return foregroundTracker.isActive ? 'active' : 'idle'
       },
+      getSnapshotDueAt: () => snapshotManager.tracker.nextDueAt,
     })
 
     const storageRecoveryService = new StorageRecoveryService({
@@ -870,7 +874,6 @@ export class SyncWorkerContext {
   setOnlineState(isOnline: boolean): void {
     if (!this.session.setOnline(isOnline) || !this._services) return
     this._services.orchestrator.onOnlineStateChange()
-    this._services.snapshotManager.onOnlineStateChange()
   }
 
   async retrySave(): Promise<RetrySaveResult> {

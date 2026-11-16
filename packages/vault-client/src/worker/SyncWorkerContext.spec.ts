@@ -19,6 +19,7 @@ import type { ChangeOutboxDeps } from './ChangeOutbox'
 import type { GapHealerDeps } from './GapHealer'
 import type { SyncLogPullerDeps } from './SyncLogPuller'
 import type { SyncOrchestratorDeps } from './SyncOrchestrator'
+import type { SyncPollerDeps } from './SyncPoller'
 import type { ItemRecoveryServiceDeps } from './ItemRecoveryService'
 import { Keyring } from '../keys/Keyring'
 import { generateVaultKey } from '../keys/crypto'
@@ -148,7 +149,7 @@ beforeEach(() => {
       shutdown = vi.fn().mockResolvedValue(undefined)
       flushPendingSnapshots = vi.fn().mockResolvedValue({ persisted: 0, total: 0 })
       onLeaderChange = vi.fn().mockResolvedValue(undefined)
-      onOnlineStateChange = vi.fn()
+      pushDue = vi.fn().mockResolvedValue({ persisted: 0, total: 0, success: true })
     },
   })
   spyOnExports(syncOrchestrator, {
@@ -165,6 +166,8 @@ beforeEach(() => {
       flush = vi.fn()
       onForeground = vi.fn()
       onActivity = vi.fn()
+      onSnapshotDue = vi.fn()
+      pollNow = vi.fn().mockResolvedValue(undefined)
     },
   })
   spyOnExports(lastModifiedStoreModule, {
@@ -317,14 +320,32 @@ describe('SyncWorkerContext', () => {
     infoSpy.mockRestore()
   })
 
-  it('tells the orchestrator and snapshot manager when the online state changes', () => {
+  it('tells the orchestrator when the online state changes', () => {
     context.setOnlineState(true)
     expect(context.services.orchestrator.onOnlineStateChange).not.toHaveBeenCalled()
 
     context.setOnlineState(false)
     expect(context.session.isOnline).toBe(false)
     expect(context.services.orchestrator.onOnlineStateChange).toHaveBeenCalledTimes(1)
-    expect(context.services.snapshotManager.onOnlineStateChange).toHaveBeenCalledTimes(1)
+  })
+
+  it('uploads snapshots as a phase of the poll, scheduled by the orchestrator', async () => {
+    const managerDeps = depsOf<ConstructorParameters<typeof snapshotManagerModule.SnapshotManager>[0]>(
+      context.services.snapshotManager,
+    )
+    const orchestratorDeps = depsOf<SyncOrchestratorDeps>(context.services.orchestrator)
+    const pollerDeps = depsOf<SyncPollerDeps>(context.services.poller)
+
+    expect(pollerDeps.getSnapshots()).toBe(context.services.snapshotManager)
+
+    managerDeps.onDueChanged!()
+    expect(context.services.orchestrator.onSnapshotDue).toHaveBeenCalledTimes(1)
+
+    await managerDeps.runPollNow()
+    expect(context.services.orchestrator.pollNow).toHaveBeenCalledTimes(1)
+
+    Object.assign(context.services.snapshotManager.tracker, { nextDueAt: 1234 })
+    expect(orchestratorDeps.getSnapshotDueAt!()).toBe(1234)
   })
 
   it('tells the other tabs its visibility, and polls when the user comes back', () => {

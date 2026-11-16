@@ -52,12 +52,12 @@ describe('RecoveryManager', () => {
       const mockEntries = [{ id: 'item-1', itemId: 'item-1', reason: 'bad decrypt', kind: 'pullDecryption', createdAt: 12345 }]
       mockReadManualRecoveryEntries.mockResolvedValue(mockEntries)
 
-      await recoveryManager.quarantine('item-1' as ItemId, 'pushFailure', { code: 'hydrationFailed' })
+      await recoveryManager.quarantine('item-1' as ItemId, 'snapshotFailure', { code: 'hydrationFailed' })
 
       expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith('account-123', {
         itemId: 'item-1',
         detail: { code: 'hydrationFailed' },
-        kind: 'pushFailure',
+        kind: 'snapshotFailure',
       })
       expect(onEventMock).toHaveBeenCalledWith({
         type: 'recoveryItemsChanged',
@@ -80,7 +80,7 @@ describe('RecoveryManager', () => {
     it('respects checkCooldown option when in cooldown', async () => {
       recoveryManager['setRecoveryCooldown']('item-1' as ItemId, Date.now() + 10000)
 
-      await recoveryManager.quarantine('item-1' as ItemId, 'pushFailure', { code: 'unspecified' }, {
+      await recoveryManager.quarantine('item-1' as ItemId, 'snapshotFailure', { code: 'unspecified' }, {
         checkCooldown: true,
       })
 
@@ -90,7 +90,7 @@ describe('RecoveryManager', () => {
     it('respects in-flight protection', async () => {
       recoveryManager['setInFlight']('item-1' as ItemId, true)
 
-      await recoveryManager.quarantine('item-1' as ItemId, 'pushFailure', { code: 'unspecified' })
+      await recoveryManager.quarantine('item-1' as ItemId, 'snapshotFailure', { code: 'unspecified' })
 
       expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
     })
@@ -100,7 +100,7 @@ describe('RecoveryManager', () => {
       mockUpsertManualRecoveryEntry.mockRejectedValueOnce(new Error('Storage failure'))
 
       await expect(
-        recoveryManager.quarantine('item-fail' as ItemId, 'pushFailure', { code: 'unspecified' })
+        recoveryManager.quarantine('item-fail' as ItemId, 'snapshotFailure', { code: 'unspecified' })
       ).rejects.toThrow('Storage failure')
 
       expect(recoveryManager['isInFlight']('item-fail' as ItemId)).toBe(false)

@@ -1,9 +1,16 @@
 import type { ItemId, VaultSnapshotInput } from '@vault/shared'
 import type { SyncApiClient } from './SyncApiClient'
 
+/**
+ * A snapshot as the client builds it. The server ignores `snapshotCursor` and `modified`, but servers
+ * released before it stopped requiring them reject snapshots without them, so they're still sent.
+ * The tracker uses `modified` locally.
+ */
+export type BuiltSnapshot = VaultSnapshotInput & { snapshotCursor: number; modified: number }
+
 /** A snapshot to upload. `tick` is the dirty tick it was built at, when it was built for a dirty item. */
 export interface UploadableSnapshot {
-  snapshot: VaultSnapshotInput
+  snapshot: BuiltSnapshot
   tick?: number
   heads?: string[]
 }

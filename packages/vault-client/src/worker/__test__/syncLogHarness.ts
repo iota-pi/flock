@@ -62,7 +62,7 @@ export class FakeVaultServer {
         snapshot: snapshot.snapshot ?? existing?.snapshot,
         heads: snapshot.heads,
         deleted: existing?.deleted === true || snapshot.deleted === true,
-        modifiedAt: snapshot.modified,
+        modifiedAt: this.clock(),
       })
       return { itemId: snapshot.itemId, version }
     })

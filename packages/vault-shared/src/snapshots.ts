@@ -5,10 +5,14 @@ import { ItemIdSchema } from './ids'
 export const VaultSnapshotSchema = z.object({
   itemId: ItemIdSchema,
   snapshot: CryptoResultSchema.optional(),
-  snapshotCursor: z.number().int().min(0),
-  modified: z.number(),
+  /**
+   * @deprecated The server reads neither field. They stay optional only while released clients still
+   * send them; the next client release stops, and then they go.
+   */
+  snapshotCursor: z.number().int().min(0).optional(),
+  /** @deprecated See `snapshotCursor` */
+  modified: z.number().optional(),
   deleted: z.boolean().optional(),
-  version: z.number().int().min(0).optional(),
   /**
    * The Automerge heads of the saved document, encrypted and bound to the item. The manifest returns
    * them, so a device that already has those changes can skip fetching the snapshot.

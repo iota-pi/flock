@@ -9,11 +9,12 @@ describe('SnapshotTracker', () => {
   let session: SyncSessionState
   let mockStore: any
   let mockRecoveryManager: any
-  let onTriggerPush: ReturnType<typeof vi.fn<() => void>>
+  let onDueChanged: ReturnType<typeof vi.fn<() => void>>
 
   beforeEach(() => {
     vi.useFakeTimers()
-    onTriggerPush = vi.fn<() => void>()
+    vi.setSystemTime(0)
+    onDueChanged = vi.fn<() => void>()
     mockStore = {
       loadTimestamps: vi.fn().mockResolvedValue([]),
       saveTimestamps: vi.fn().mockResolvedValue(undefined),
@@ -30,7 +31,7 @@ describe('SnapshotTracker', () => {
       debounceDelayMs: 1000,
       maxWaitMs: 5000,
       session,
-      onTriggerPush: () => onTriggerPush(),
+      onDueChanged: () => onDueChanged(),
     })
   })
 
@@ -44,7 +45,7 @@ describe('SnapshotTracker', () => {
     return tracker.shutdown(options)
   }
 
-  it('marks items dirty with monotonic tick and triggers push on debounce expiry', async () => {
+  it('marks items dirty with monotonic tick, due once the debounce expires', async () => {
     tracker.markItemDirty('item-1' as ItemId)
     expect(tracker.getDirtyTick('item-1' as ItemId)).toBe(1)
     expect(tracker.dirtyCount).toBe(1)
@@ -53,33 +54,140 @@ describe('SnapshotTracker', () => {
     expect(tracker.getDirtyTick('item-2' as ItemId)).toBe(2)
     expect(tracker.dirtyCount).toBe(2)
 
-    expect(onTriggerPush).not.toHaveBeenCalled()
-
-    await vi.advanceTimersByTimeAsync(1000)
-
-    expect(onTriggerPush).toHaveBeenCalledTimes(1)
-    expect(tracker['debounceTimer'].isPending).toBe(false)
+    expect(tracker.nextDueAt).toBe(1000)
+    expect(tracker.isDue(999)).toBe(false)
+    expect(tracker.isDue(1000)).toBe(true)
   })
 
-  it('triggers on maxWait timer even if debounce is continuously reset', async () => {
+  it('tells the orchestrator each time an edit changes when uploads are due', () => {
+    tracker.markItemDirty('item-1' as ItemId)
+    tracker.markItemDirty('item-2' as ItemId, 0)
+
+    expect(onDueChanged).toHaveBeenCalledTimes(2)
+  })
+
+  it('is due at maxWait even if the debounce is continuously reset', async () => {
     tracker.markItemDirty('item-1' as ItemId)
 
-    // Advance 800ms (< 1000ms debounce)
-    await vi.advanceTimersByTimeAsync(800)
-    expect(onTriggerPush).not.toHaveBeenCalled()
-
-    // Reset debounce
+    vi.setSystemTime(800)
     tracker.markItemDirty('item-2' as ItemId)
-    await vi.advanceTimersByTimeAsync(800)
-    expect(onTriggerPush).not.toHaveBeenCalled()
-
+    vi.setSystemTime(1600)
     tracker.markItemDirty('item-3' as ItemId)
-    await vi.advanceTimersByTimeAsync(800)
-    expect(onTriggerPush).not.toHaveBeenCalled()
+    vi.setSystemTime(2400)
+    tracker.markItemDirty('item-3' as ItemId)
+    vi.setSystemTime(3200)
+    tracker.markItemDirty('item-3' as ItemId)
+    vi.setSystemTime(4000)
+    tracker.markItemDirty('item-3' as ItemId)
+    expect(tracker.isDue()).toBe(false)
 
-    // Now advance past 5000ms total from start
-    await vi.advanceTimersByTimeAsync(3000)
-    expect(onTriggerPush).toHaveBeenCalledTimes(1)
+    // 5000ms from the first edit
+    expect(tracker.nextDueAt).toBe(5000)
+    vi.setSystemTime(5000)
+    expect(tracker.isDue()).toBe(true)
+  })
+
+  it('keeps a requested delay however later edits put the debounce off', () => {
+    tracker.markItemDirty('item-1' as ItemId, 200)
+    tracker.markItemDirty('item-2' as ItemId)
+
+    expect(tracker.nextDueAt).toBe(200)
+  })
+
+  it('is not due with no dirty items', () => {
+    tracker.markItemDirty('item-1' as ItemId, 0)
+    tracker.deleteDirtyItem('item-1' as ItemId)
+
+    expect(tracker.nextDueAt).toBeUndefined()
+    expect(tracker.isDue()).toBe(false)
+  })
+
+  it('makes everything due now when asked to', () => {
+    tracker.markItemDirty('item-1' as ItemId)
+    vi.setSystemTime(100)
+
+    tracker.requestNow()
+
+    expect(tracker.nextDueAt).toBe(100)
+    expect(tracker.isDue()).toBe(true)
+  })
+
+  it('stops being due as an upload takes the items', () => {
+    tracker.markItemDirty('item-1' as ItemId, 0)
+
+    tracker.clearDue()
+
+    expect(tracker.isDue()).toBe(false)
+    expect(tracker.nextDueAt).toBeUndefined()
+    expect(tracker.dirtyCount).toBe(1)
+  })
+
+  describe('after a failed upload', () => {
+    beforeEach(() => {
+      tracker.markItemDirty('item-1' as ItemId, 0)
+      tracker.clearDue()
+      tracker.retryNextPoll()
+    })
+
+    // A retry waits for the poll's own cadence or backoff, so a failing upload can't loop polls
+    it('is due at the next poll without bringing one forward', () => {
+      expect(tracker.isDue()).toBe(true)
+      expect(tracker.nextDueAt).toBeUndefined()
+    })
+
+    it('brings a poll forward again for a new edit', () => {
+      tracker.markItemDirty('item-2' as ItemId)
+
+      expect(tracker.nextDueAt).toBe(1000)
+    })
+
+    it('stops retrying once an upload takes the items again', () => {
+      tracker.clearDue()
+
+      expect(tracker.isDue()).toBe(false)
+    })
+  })
+
+  describe('after the server turned uploads away for the quota', () => {
+    beforeEach(() => {
+      tracker.markItemDirty('item-1' as ItemId, 0)
+      tracker.clearDue()
+      tracker.deferUntil(10_000)
+    })
+
+    it('is not due before the deferral ends, then due at the next poll', () => {
+      expect(tracker.isDue(9_999)).toBe(false)
+      expect(tracker.isDue(10_000)).toBe(true)
+      expect(tracker.nextDueAt).toBeUndefined()
+    })
+
+    it('makes a new edit due no sooner than the deferral ends', () => {
+      tracker.markItemDirty('item-2' as ItemId, 0)
+
+      expect(tracker.nextDueAt).toBe(10_000)
+      expect(tracker.isDue(5_000)).toBe(false)
+    })
+
+    it('is due at once when asked to', () => {
+      tracker.requestNow()
+
+      expect(tracker.isDue(0)).toBe(true)
+    })
+  })
+
+  describe('leadership', () => {
+    it('makes the dirty items due after the debounce when this tab becomes the leader', () => {
+      session.setLeader(false)
+      tracker.markItemDirty('item-1' as ItemId)
+      tracker.onLeaderChange()
+      expect(tracker.nextDueAt).toBeUndefined()
+
+      vi.setSystemTime(500)
+      session.setLeader(true)
+      tracker.onLeaderChange()
+
+      expect(tracker.nextDueAt).toBe(1500)
+    })
   })
 
   describe('default debounce and max wait', () => {
@@ -88,64 +196,41 @@ describe('SnapshotTracker', () => {
         lastModifiedStore: mockStore as unknown as LastModifiedStore,
         recoveryManager: mockRecoveryManager,
         session,
-        onTriggerPush: () => onTriggerPush(),
       })
     })
 
-    it('triggers a push after 30 seconds of inactivity when an item is marked dirty', async () => {
+    it('is due 30 seconds after an item is marked dirty', () => {
       tracker.markItemDirty('item-1' as ItemId)
 
-      // Advance 29 seconds: should not have pushed yet
-      await vi.advanceTimersByTimeAsync(29_000)
-      expect(onTriggerPush).not.toHaveBeenCalled()
-
-      // Advance 1 second (total 30s): push triggers
-      await vi.advanceTimersByTimeAsync(1_000)
-      expect(onTriggerPush).toHaveBeenCalledTimes(1)
+      expect(tracker.nextDueAt).toBe(30_000)
     })
 
-    it('resets the 30-second timer when another item is marked dirty before the timer expires', async () => {
+    it('puts the 30-second debounce off when another item is marked dirty before it ends', () => {
       tracker.markItemDirty('item-1' as ItemId)
-
-      // Advance 20 seconds
-      await vi.advanceTimersByTimeAsync(20_000)
-      expect(onTriggerPush).not.toHaveBeenCalled()
-
-      // Edit another item -> resets 30s timer
+      vi.setSystemTime(20_000)
       tracker.markItemDirty('item-2' as ItemId)
 
-      // Advance 20 seconds (total 40s from start, but only 20s from item-2)
-      await vi.advanceTimersByTimeAsync(20_000)
-      expect(onTriggerPush).not.toHaveBeenCalled()
-
-      // Advance another 10 seconds (30s after item-2) -> pushes both items
-      await vi.advanceTimersByTimeAsync(10_000)
-      expect(onTriggerPush).toHaveBeenCalledTimes(1)
+      expect(tracker.nextDueAt).toBe(50_000)
     })
 
-    it('triggers after maxWait (5 minutes) even if continuous changes keep resetting the 30s timer', async () => {
-      // Simulate typing every 10 seconds for 5 minutes (300 seconds)
-      for (let second = 0; second < 290; second += 10) {
+    it('is due after maxWait (5 minutes) even if continuous changes keep putting the debounce off', () => {
+      // Simulate typing every 10 seconds for 5 minutes
+      for (let second = 0; second < 300; second += 10) {
+        vi.setSystemTime(second * 1000)
         tracker.markItemDirty('item-1' as ItemId)
-        await vi.advanceTimersByTimeAsync(10_000)
       }
-      expect(onTriggerPush).not.toHaveBeenCalled()
 
-      // Advance to reach 300,000ms (5 minutes maxWait)
-      await vi.advanceTimersByTimeAsync(10_000)
-      expect(onTriggerPush).toHaveBeenCalledTimes(1)
+      expect(tracker.nextDueAt).toBe(300_000)
     })
 
-    it('markItemDirty respects custom debounce delay (e.g. 2000ms)', async () => {
+    it('markItemDirty respects custom debounce delay (e.g. 2000ms)', () => {
       tracker.markItemDirty('item-1' as ItemId, 2000)
 
-      await vi.advanceTimersByTimeAsync(1500)
-      expect(onTriggerPush).not.toHaveBeenCalled()
-
-      await vi.advanceTimersByTimeAsync(600)
-      expect(onTriggerPush).toHaveBeenCalledTimes(1)
+      expect(tracker.isDue(1999)).toBe(false)
+      expect(tracker.isDue(2000)).toBe(true)
     })
   })
+
 
   it('records local modification time for dirty items and persists it', async () => {
     vi.setSystemTime(12345)
@@ -175,7 +260,7 @@ describe('SnapshotTracker', () => {
     mockRecoveryManager.listRecoveryItems.mockResolvedValue([
       { itemId: 'item-quarantined', reason: 'Decryption failed', kind: 'pullDecryption' },
       { itemId: 'item-oversized', reason: `Snapshot size exceeds ${MAX_ITEM_SIZE_KB} KB limit`, kind: 'oversized' },
-      { itemId: 'item-rate-limited', reason: 'Push failed after 5 consecutive attempts: Rate limit exceeded', kind: 'pushFailure' },
+      { itemId: 'item-rate-limited', reason: 'Push failed after 5 consecutive attempts: Rate limit exceeded', kind: 'unknown' },
     ])
 
     await tracker.loadLastModified()
@@ -213,8 +298,8 @@ describe('SnapshotTracker', () => {
     expect(tracker.getDirtyItemIds()).not.toContain('item-clean' as ItemId)
 
     // The restored items go up once the debounce elapses
-    await vi.advanceTimersByTimeAsync(1000)
-    expect(onTriggerPush).toHaveBeenCalledTimes(1)
+    expect(tracker.nextDueAt).toBe(Date.now() + 1000)
+    expect(onDueChanged).toHaveBeenCalled()
   })
 
   it('heals legacy stored data on load where localModifiedAt < lastSnapshotAt', async () => {
@@ -266,6 +351,7 @@ describe('SnapshotTracker', () => {
   })
 
   it('recordOversized removes item from dirty queue and advances lastSnapshotAt', () => {
+    vi.setSystemTime(5000)
     tracker.markItemDirty('item-big' as ItemId)
     tracker.recordOversized('item-big' as ItemId, 3000)
 
@@ -394,21 +480,22 @@ describe('SnapshotTracker', () => {
   })
 
   describe('deleteDirtyItem', () => {
-    it('removes item from dirtyItems and clears timers when dirtyItems becomes empty', async () => {
+    it('removes item from dirtyItems and clears the due time when dirtyItems becomes empty', async () => {
       tracker.markItemDirty('item-1' as ItemId)
       expect(tracker.getDirtyTick('item-1' as ItemId)).toBeDefined()
-      expect(tracker['debounceTimer'].isPending).toBe(true)
+      expect(tracker.nextDueAt).toBeDefined()
 
       const deleted = tracker.deleteDirtyItem('item-1' as ItemId)
       expect(deleted).toBe(true)
       expect(tracker.getDirtyTick('item-1' as ItemId)).toBeUndefined()
       expect(tracker.dirtyCount).toBe(0)
-      expect(tracker['debounceTimer'].isPending).toBe(false)
-      expect(tracker['maxWaitTimer'].isPending).toBe(false)
 
-      // Past both the debounce and the max wait
-      await vi.advanceTimersByTimeAsync(5000)
-      expect(onTriggerPush).not.toHaveBeenCalled()
+      // A later edit starts a new debounce and max wait rather than inheriting the old ones
+      vi.setSystemTime(4000)
+      tracker.markItemDirty('item-2' as ItemId)
+      expect(tracker.nextDueAt).toBe(5000)
+      tracker.deleteDirtyItem('item-2' as ItemId)
+      expect(tracker['maxWaitDueAt']).toBeUndefined()
     })
 
     it('advances lastSnapshotAt to localModifiedAt to prevent startup audit resurrection', async () => {
@@ -473,7 +560,7 @@ describe('SnapshotTracker', () => {
       // Advance timers to verify no dangling timer fires
       await vi.advanceTimersByTimeAsync(5000)
       expect(mockStore.saveTimestamps).toHaveBeenCalledTimes(1)
-      expect(onTriggerPush).not.toHaveBeenCalled()
+      expect(tracker.nextDueAt).toBeUndefined()
     })
 
     it('ignores markItemDirty after shutdown', async () => {

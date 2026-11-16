@@ -232,9 +232,10 @@ export class ManifestSyncManager {
     return { skip, hasKnownItems, knownItemIds }
   }
 
-  private async flushPendingSnapshotsSafely(): Promise<void> {
+  /** Uploads directly rather than with a poll: a manifest sync often runs inside one */
+  private async flushPendingSnapshotsSafely(signal: AbortSignal): Promise<void> {
     try {
-      await this.deps.snapshotManager.flushPendingSnapshots()
+      await this.deps.snapshotManager.uploadNow(signal)
     } catch (flushErr) {
       log.warn('Failed to flush pending snapshots before sync', flushErr)
     }
@@ -279,7 +280,7 @@ export class ManifestSyncManager {
         }
 
         // Flushed first so the manifest includes them; otherwise they look missing and are pushed again
-        await this.flushPendingSnapshotsSafely()
+        await this.flushPendingSnapshotsSafely(signal)
         checkAlive(signal, this.isAlive)
 
         const remoteData = await this.fetchRemoteManifest(signal, hasKnownItems)

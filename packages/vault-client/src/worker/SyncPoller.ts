@@ -28,10 +28,12 @@ export interface SyncPollerDeps {
   apiClient: Pick<SyncApiClient, 'pollLog'>
   /** Runs a manifest sync now, returning whether it fetched the manifest */
   syncManifest: (signal?: AbortSignal) => Promise<boolean>
+  /** Uploads the snapshots that are due, throwing if a request fails. Read from the finished services. */
+  getSnapshots: () => { pushDue: (signal: AbortSignal) => Promise<unknown> }
 }
 
 export class SyncPoller {
-  /** Pushes come from polls, snapshot uploads and rewrites, and only one may read the log at a time */
+  /** Pushes come from polls and snapshot rewrites, and only one may read the log at a time */
   private readonly exchangeMutex = new AsyncMutex()
   /** Exchanges completed, so that a poll that pushed nothing still reads the log */
   private exchanges = 0
@@ -45,7 +47,8 @@ export class SyncPoller {
   }
 
   /**
-   * Pushes pending changes and reads the log. Aborting `signal` cancels the poll, which then reports
+   * Pushes pending changes, reads the log, then uploads the snapshots that are due, after the pushes
+   * that must precede them (S1). Aborting `signal` cancels the poll, which then reports
    * `'no-poll'`. Polls go through the untracked client, so they don't show as activity in the sync status.
    */
   async executePoll(signal: AbortSignal = new AbortController().signal): Promise<PollOutcome> {
@@ -72,6 +75,7 @@ export class SyncPoller {
       }
       await this.deps.healer.runDue(signal)
       await this.deps.firstStart.runDue(signal)
+      await this.deps.getSnapshots().pushDue(signal)
       return 'success'
     } catch (error) {
       const classified = classifySyncError(error)
