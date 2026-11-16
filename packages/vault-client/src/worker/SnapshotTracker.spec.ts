@@ -175,7 +175,7 @@ describe('SnapshotTracker', () => {
     mockRecoveryManager.listRecoveryItems.mockResolvedValue([
       { itemId: 'item-quarantined', reason: 'Decryption failed', kind: 'pullDecryption' },
       { itemId: 'item-oversized', reason: `Snapshot size exceeds ${MAX_ITEM_SIZE_KB} KB limit`, kind: 'oversized' },
-      { itemId: 'item-rate-limited', reason: 'Push failed after 5 consecutive attempts: Rate limit exceeded', kind: 'pushFailure' },
+      { itemId: 'item-rate-limited', reason: 'Push failed after 5 consecutive attempts: Rate limit exceeded', kind: 'unknown' },
     ])
 
     await tracker.loadLastModified()

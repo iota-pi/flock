@@ -17,6 +17,11 @@ describe('VaultSnapshotSchema', () => {
     expect(VaultSnapshotSchema.safeParse({ ...base, deleted: true }).success).toBe(true)
   })
 
+  it('accepts a snapshot without the fields the server ignores', () => {
+    const parsed = VaultSnapshotSchema.parse({ itemId: 'item-1', snapshot: cipher, version: 4 })
+    expect(parsed).toEqual({ itemId: 'item-1', snapshot: cipher })
+  })
+
   it('rejects a payload-less snapshot that is not deleted', () => {
     expect(VaultSnapshotSchema.safeParse(base).success).toBe(false)
     expect(VaultSnapshotSchema.safeParse({ ...base, deleted: false }).success).toBe(false)

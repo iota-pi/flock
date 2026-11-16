@@ -11,18 +11,19 @@ import { createLogger } from '../utils/logger'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { encryptSnapshotHeads } from './snapshotHeads'
 import type { SnapshotCoverage } from './SnapshotCoverage'
+import type { BuiltSnapshot } from './snapshotUpload'
 
 const log = createLogger('SnapshotBuilder')
 
 export type BuildSnapshotResult =
-  | { type: 'success'; snapshot: VaultSnapshotInput; heads?: string[] }
+  | { type: 'success'; snapshot: BuiltSnapshot; heads?: string[] }
   | { type: 'not-ready' }
   /** The item can't have a snapshot yet: its changes must reach the log first, or its server heads be known */
   | { type: 'deferred'; reason: 'unpushed' | 'awaitingHeads' }
   | { type: 'error'; reason?: string }
 
 export interface PreparedSnapshotItem {
-  snapshot: VaultSnapshotInput
+  snapshot: BuiltSnapshot
   tick: number
   heads?: string[]
 }
@@ -46,7 +47,7 @@ export function estimateSnapshotSize(snapshot: VaultSnapshotInput): number {
  * for the server to record the tombstone. Used when the full document history
  * is too large to upload.
  */
-export function toTombstoneSnapshot(snapshot: VaultSnapshotInput): VaultSnapshotInput {
+export function toTombstoneSnapshot(snapshot: BuiltSnapshot): BuiltSnapshot {
   if (snapshot.deleted !== true) {
     throw new Error(`Cannot create a tombstone for non-deleted item ${snapshot.itemId}`)
   }

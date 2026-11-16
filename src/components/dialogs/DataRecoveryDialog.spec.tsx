@@ -138,7 +138,7 @@ describe('DataRecoveryDialog', () => {
           itemId: 'item-push' as ItemId,
           reason: 'Push failed after 5 consecutive attempts: Rate limit exceeded',
           detail: { code: 'unspecified' },
-          kind: 'pushFailure',
+          kind: 'unknown',
           createdAt: Date.now(),
         },
       ],
