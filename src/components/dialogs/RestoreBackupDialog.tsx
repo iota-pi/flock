@@ -56,9 +56,6 @@ function normalizeBackupPayload(payload: BackupPayloadV2): BackupPayloadV2 {
     version: 2,
     metadata: payload.metadata,
     documents: sanitizeDocuments(payload.documents),
-    cursors: payload.cursors,
-    pendingSync: payload.pendingSync,
-    lastModified: payload.lastModified,
   }
 }
 

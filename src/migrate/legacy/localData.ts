@@ -7,8 +7,9 @@ import {
   getSyncMetadataStorage,
   SYNC_METADATA_KEYS,
   databaseExists,
+  importItemSyncRecords,
 } from '@vault/client/worker'
-import type { PersistedSyncCursors, ItemSyncTimestamps } from '@vault/client/worker'
+import type { PersistedSyncCursors, ItemSyncRecord } from '@vault/client/worker'
 import { createLogger } from 'src/utils/logger'
 
 const log = createLogger('localData')
@@ -18,11 +19,24 @@ const log = createLogger('localData')
  * - the per-store databases used until the sync metadata database was consolidated (2026-09-14)
  * - the keys the consolidated database first used
  * - cursor arrays and numeric `lastModified` entries
+ * - the whole-account `lastModified` and `syncedHeads` values, which became per-item sync records
+ *   in the sync log database (level 4)
  * - the `manual-recovery-metadata` store and duplicate manual recovery entries
  *
  * A value is copied only when the current key is missing, and the old one is removed only after
  * that, so running it again (or in two tabs) is harmless.
  */
+
+/** Each item's sync timestamps and base version, all in one value, until level 4 */
+const LAST_MODIFIED_KEY = 'lastModified'
+/** Each item's server heads, all in one value, until level 4 */
+const SYNCED_HEADS_KEY = 'syncedHeads'
+
+interface ItemSyncTimestamps {
+  localModifiedAt: number
+  lastSnapshotAt?: number
+  baseVersion?: number
+}
 
 const MANUAL_RECOVERY_STORE = 'manual-recovery-items'
 const LEGACY_MANUAL_RECOVERY_META_STORE = 'manual-recovery-metadata'
@@ -104,14 +118,14 @@ const LEGACY_METADATA_VALUES: LegacyMetadataValue[] = [
     toCurrent: raw => raw,
   },
   {
-    key: SYNC_METADATA_KEYS.LAST_MODIFIED,
+    key: LAST_MODIFIED_KEY,
     legacyKey: 'lastModifiedByItemId',
     legacyDatabase: { name: 'flock-sync-last-modified', storePrefix: 'last-modified', key: 'lastModifiedByItemId' },
     toCurrent: upgradeTimestamps,
     needsUpgrade: hasNumericTimestamp,
   },
   {
-    key: SYNC_METADATA_KEYS.SYNCED_HEADS,
+    key: SYNCED_HEADS_KEY,
     legacyKey: 'syncedHeadsByDocId',
     legacyDatabase: { name: 'flock-sync-synced-heads', storePrefix: 'synced-heads', key: 'syncedHeadsByDocId' },
     toCurrent: raw => (Array.isArray(raw) ? raw : null),
@@ -179,6 +193,55 @@ async function migrateMetadataValue(value: LegacyMetadataValue, accountId: strin
       log.warn(`Failed to remove legacy value from ${value.legacyDatabase.name}`, error)
     })
   }
+}
+
+function isHeads(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(head => typeof head === 'string')
+}
+
+/**
+ * Builds the per-item sync records from the whole-account values. An item was waiting for a snapshot
+ * when it was modified after its last one, which the records keep as its dirty flag.
+ */
+export function toItemSyncRecords(timestamps: unknown, syncedHeads: unknown): ItemSyncRecord[] {
+  const records = new Map<ItemId, ItemSyncRecord>()
+  const recordFor = (itemId: ItemId): ItemSyncRecord => {
+    let record = records.get(itemId)
+    if (!record) {
+      record = { itemId }
+      records.set(itemId, record)
+    }
+    return record
+  }
+
+  for (const entry of Array.isArray(timestamps) ? timestamps : []) {
+    if (!Array.isArray(entry) || typeof entry[0] !== 'string' || !entry[1] || typeof entry[1] !== 'object') continue
+    const [itemId, { localModifiedAt, lastSnapshotAt, baseVersion }] = entry as [ItemId, Partial<ItemSyncTimestamps>]
+    const record = recordFor(itemId)
+    if (typeof baseVersion === 'number' && baseVersion > 0) record.baseVersion = baseVersion
+    if (typeof localModifiedAt === 'number' && localModifiedAt > (lastSnapshotAt ?? 0)) record.dirty = true
+  }
+
+  for (const entry of Array.isArray(syncedHeads) ? syncedHeads : []) {
+    if (!Array.isArray(entry) || typeof entry[0] !== 'string' || !isHeads(entry[1])) continue
+    recordFor(entry[0] as ItemId).serverHeads = entry[1]
+  }
+
+  return Array.from(records.values()).filter(record => Object.keys(record).length > 1)
+}
+
+/** Moves the whole-account values into per-item sync records, then removes them */
+async function migrateItemSyncRecords(accountId: string): Promise<void> {
+  const metadata = getSyncMetadataStorage(accountId)
+  const timestamps = await metadata.getItem<unknown>(LAST_MODIFIED_KEY)
+  const syncedHeads = await metadata.getItem<unknown>(SYNCED_HEADS_KEY)
+  if (!isPresent(timestamps) && !isPresent(syncedHeads)) return
+
+  await importItemSyncRecords(accountId, toItemSyncRecords(timestamps, syncedHeads))
+  await runStorageOperation(async () => {
+    await metadata.removeItem(LAST_MODIFIED_KEY)
+    await metadata.removeItem(SYNCED_HEADS_KEY)
+  })
 }
 
 function getLegacyManualRecoveryMetaStorage(accountId: string): LocalForage {
@@ -284,6 +347,8 @@ export async function migrateLegacyLocalData(accountId: string): Promise<void> {
   for (const value of LEGACY_METADATA_VALUES) {
     await migrateMetadataValue(value, accountId)
   }
+  // After the values above, which bring older layouts into the keys it reads
+  await migrateItemSyncRecords(accountId)
   await migrateManualRecoveryEntries(accountId)
 }
 

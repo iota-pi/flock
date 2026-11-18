@@ -2,7 +2,6 @@ import { act, renderHook } from '@testing-library/react'
 
 import useSettings from './useSettings'
 import type { Item } from 'src/state/items'
-import type { BackupSyncState } from '@vault/client'
 import type { ItemId } from '@vault/shared'
 import { clearBackupReminder, readBackupReminderQuietUntil } from '../app/vault/backupReminderStore'
 import * as sessionModule from '../app/vault/session'
@@ -12,6 +11,7 @@ import * as selectorsModule from '../state/selectors'
 import * as storeModule from '../state/store'
 import * as syncBridgeModule from '../app/vault/syncBridge'
 import { spyOnExports } from '../utils/testUtils'
+import { BackupPayloadV2Schema } from '../shared/schemas/backup'
 
 const mocks = {
   exportData: vi.fn(),
@@ -26,11 +26,7 @@ const mocks = {
   })),
   restoreFromBinaries: vi.fn(async () => ['i1']),
   clearAutomergeDocStore: vi.fn(async () => undefined),
-  exportSyncState: vi.fn(async () => (
-    { cursors: [], lastModified: [] } as BackupSyncState
-  )),
   getUnsyncedChanges: vi.fn(async () => ({ pendingItems: 0, quarantinedItems: 0 })),
-  restoreSyncState: vi.fn(async () => undefined),
   flushSync: vi.fn(async () => undefined),
   fullResync: vi.fn(async () => undefined),
   setMessage: vi.fn(),
@@ -82,9 +78,7 @@ beforeEach(() => {
       clearAutomergeDocStore: mocks.clearAutomergeDocStore,
       exportAllBinaries: mocks.exportAllBinaries,
       restoreFromBinaries: mocks.restoreFromBinaries,
-      exportSyncState: mocks.exportSyncState,
       getUnsyncedChanges: mocks.getUnsyncedChanges,
-      restoreSyncState: mocks.restoreSyncState,
       flushSync: mocks.flushSync,
       fullResync: mocks.fullResync,
       listRecoveryItems: vi.fn(async () => []),
@@ -101,12 +95,8 @@ describe('useSettings backup portability', () => {
     vi.clearAllMocks()
   })
 
-  it('exports metadata and items in a v2 payload along with sync state', async () => {
+  it('exports metadata and items in a v2 payload, without sync state', async () => {
     mocks.exportData.mockImplementation(async (payload: unknown) => payload)
-    mocks.exportSyncState.mockResolvedValue({
-      cursors: [],
-      lastModified: [['i1' as ItemId, 12345]]
-    })
 
     const { result } = renderHook(() => useSettings(mockItems))
 
@@ -119,10 +109,10 @@ describe('useSettings backup portability', () => {
     expect(parsed).toMatchObject({
       version: 2,
       documents: { i1: 'base64-doc' },
-      lastModified: [['i1', 12345]]
     })
+    expect(parsed).not.toHaveProperty('cursors')
     expect(parsed).not.toHaveProperty('pendingSync')
-    expect(mocks.exportSyncState).toHaveBeenCalledTimes(1)
+    expect(parsed).not.toHaveProperty('lastModified')
   })
 
   it('warns about unsent changes from the unsynced count', async () => {
@@ -173,26 +163,25 @@ describe('useSettings backup portability', () => {
     expect(readBackupReminderQuietUntil('acct-1')).toBeGreaterThan(Date.now())
   })
 
-  it('restores metadata, binaries and timestamps, ignoring an older backup\'s cursors and pendingSync', async () => {
+  it('restores metadata and binaries, ignoring an older backup\'s sync state', async () => {
     mocks.restoreFromBinaries.mockResolvedValue(['i1'])
     mocks.setMetadata.mockResolvedValue(undefined)
 
     const { result } = renderHook(() => useSettings(mockItems))
 
     await act(async () => {
-      await result.current.actions.handleConfirmRestore({
+      await result.current.actions.handleConfirmRestore(BackupPayloadV2Schema.parse({
         version: 2,
         metadata: {},
         documents: { ['i1' as ItemId]: 'base64-doc' },
-        cursors: [['i1' as ItemId, 10]],
-        pendingSync: [['i1' as ItemId, ['msg1']]],
-        lastModified: [['i1' as ItemId, 12345]]
-      })
+        cursors: [['i1', 10]],
+        pendingSync: [['i1', ['msg1']]],
+        lastModified: [['i1', 12345]],
+      }))
     })
 
     expect(mocks.setMetadata).toHaveBeenCalledTimes(1)
     expect(mocks.restoreFromBinaries).toHaveBeenCalledTimes(1)
-    expect(mocks.restoreSyncState).toHaveBeenCalledWith({ lastModified: [['i1', 12345]] })
     expect(mocks.flushSync).toHaveBeenCalledTimes(1)
     expect(mocks.storeItems).not.toHaveBeenCalled()
   })

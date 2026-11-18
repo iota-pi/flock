@@ -103,7 +103,7 @@ describe('MigrateApp', () => {
   it('migrates, then returns to the main app once both levels are current', async () => {
     vi.mocked(MigrationBridge.checkDataVersion)
       .mockResolvedValueOnce({ device: 0, account: 1, blockers: ['legacySettings'] })
-      .mockResolvedValue({ device: 3, account: 3, blockers: [] })
+      .mockResolvedValue({ device: 4, account: 4, blockers: [] })
 
     await logIn()
     expect(startMigration).toHaveBeenCalledWith('acc1', 'password')
@@ -215,7 +215,7 @@ describe('MigrateApp', () => {
 
   it('re-encrypts data still under the password-derived key once sync has settled, only once', async () => {
     vi.mocked(MigrationBridge.checkDataVersion)
-      .mockResolvedValue({ device: 3, account: 1, blockers: ['passwordDerivedDataKey'] })
+      .mockResolvedValue({ device: 4, account: 1, blockers: ['passwordDerivedDataKey'] })
 
     await logIn()
     await poll(3)
@@ -226,7 +226,7 @@ describe('MigrateApp', () => {
 
   it('re-encrypts every item when snapshots are still unbound', async () => {
     vi.mocked(MigrationBridge.checkDataVersion)
-      .mockResolvedValue({ device: 3, account: 1, blockers: ['unboundSnapshots'] })
+      .mockResolvedValue({ device: 4, account: 1, blockers: ['unboundSnapshots'] })
 
     await logIn()
     await poll(3)
@@ -237,7 +237,7 @@ describe('MigrateApp', () => {
 
   it("doesn't re-encrypt for blockers re-encryption can't clear", async () => {
     vi.mocked(MigrationBridge.checkDataVersion)
-      .mockResolvedValue({ device: 3, account: 1, blockers: ['legacyCipherItems'] })
+      .mockResolvedValue({ device: 4, account: 1, blockers: ['legacyCipherItems'] })
 
     await logIn()
     await poll(3)
@@ -247,7 +247,7 @@ describe('MigrateApp', () => {
 
   it('shows what could not be migrated, and lets the user continue for now', async () => {
     vi.mocked(MigrationBridge.checkDataVersion)
-      .mockResolvedValue({ device: 3, account: 1, blockers: ['legacyCipherItems'] })
+      .mockResolvedValue({ device: 4, account: 1, blockers: ['legacyCipherItems'] })
 
     await logIn()
     await poll(6)
@@ -264,7 +264,7 @@ describe('MigrateApp', () => {
 
   it('does not offer to continue while the password still needs changing', async () => {
     vi.mocked(MigrationBridge.checkDataVersion)
-      .mockResolvedValue({ device: 3, account: 1, blockers: ['legacyKeyDerivation'] })
+      .mockResolvedValue({ device: 4, account: 1, blockers: ['legacyKeyDerivation'] })
 
     await logIn()
     await poll(6)
@@ -283,7 +283,7 @@ describe('MigrateApp', () => {
 
   it('retries with a full resync', async () => {
     vi.mocked(MigrationBridge.checkDataVersion)
-      .mockResolvedValue({ device: 3, account: 1, blockers: ['legacyCipherItems'] })
+      .mockResolvedValue({ device: 4, account: 1, blockers: ['legacyCipherItems'] })
 
     await logIn()
     await poll(6)
@@ -296,7 +296,7 @@ describe('MigrateApp', () => {
   })
 
   describe('an update that stops moving', () => {
-    const outdatedKey = { device: 3, account: 1, blockers: ['passwordDerivedDataKey'] }
+    const outdatedKey = { device: 4, account: 1, blockers: ['passwordDerivedDataKey'] }
 
     /** Re-encryption that waits until it's cancelled, as one stuck behind another tab would */
     function hangReencryption(stage: 'waitingForLeader' | 'waitingForSync' | null = null) {
@@ -377,6 +377,8 @@ describe('MigrateApp', () => {
 
       expect(reencryptOutdatedItems).not.toHaveBeenCalled()
       expect(screen.getByText(/could not finish syncing/)).toBeDefined()
+      // The main app's device gate has no deferral, so it would send the user straight back
+      expect(screen.queryByRole('button', { name: /Continue to Flock/i })).toBeNull()
     })
 
     it('ends when the server never answers', async () => {

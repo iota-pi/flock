@@ -4,7 +4,7 @@ import type { ClientEventHub } from './SyncEventHub'
 import type { ChangeOutbox } from './ChangeOutbox'
 import type { AutomergeDocStore } from './docStore'
 import type { SnapshotManager } from './SnapshotManager'
-import type { LastModifiedStore } from './stores/LastModifiedStore'
+import type { ScopedMetadataStore } from './stores/syncMetadataStorage'
 import type { SyncOrchestrator } from './SyncOrchestrator'
 import type { RetrySaveResult } from './syncProtocol'
 import { fireAndForget } from '../utils/fireAndForget'
@@ -27,7 +27,8 @@ export interface StorageRecoveryServiceDeps {
   outbox: Pick<ChangeOutbox, 'markAll'>
   docStore: AutomergeDocStore
   snapshotManager: SnapshotManager
-  lastModifiedStore: LastModifiedStore
+  /** Any store in the sync metadata database, written to probe whether storage has room again */
+  metadataStore: Pick<ScopedMetadataStore<unknown>, 'testStorageAvailable'>
   orchestrator: SyncOrchestrator
 }
 
@@ -51,12 +52,12 @@ export class StorageRecoveryService {
 
   /**
    * Saves what failed to save while storage was full, once it has room again: the dirty documents,
-   * then the timestamps. Their pending marks may have failed too, so they're written again.
+   * then the items' sync records. Their pending marks may have failed too, so they're written again.
    */
   async retrySave(): Promise<RetrySaveResult> {
     try {
       await rethrowQuota(
-        this.deps.lastModifiedStore.testStorageAvailable(),
+        this.deps.metadataStore.testStorageAvailable(),
         'Storage quota is still exceeded. Please free up more space on your device.',
       )
       const dirtyIds = this.deps.snapshotManager.tracker.getDirtyItemIds()
@@ -73,8 +74,8 @@ export class StorageRecoveryService {
       await rethrowQuota(this.deps.outbox.markAll(dirtyIds), 'Storage quota is still exceeded while saving changes.')
 
       await rethrowQuota(
-        this.deps.snapshotManager.tracker.saveLastModified(),
-        'Storage quota is still exceeded while saving timestamps.',
+        this.deps.snapshotManager.tracker.save(),
+        'Storage quota is still exceeded while saving sync records.',
       )
       if (this.deps.session.isOnline) {
         fireAndForget(

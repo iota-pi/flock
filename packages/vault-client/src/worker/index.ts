@@ -12,4 +12,4 @@ export { createAccountStore, getAccountDatabaseName } from '../shared/createAcco
 export { runStorageOperation } from '../utils/storageManager'
 export { databaseExists } from '../utils/databaseExists'
 export { getSyncMetadataStorage, SYNC_METADATA_KEYS, type PersistedSyncCursors } from './stores/syncMetadataStorage'
-export type { ItemSyncTimestamps } from './stores/LastModifiedStore'
+export { importItemSyncRecords, type ItemSyncRecord } from './stores/itemSyncRecords'

@@ -14,6 +14,33 @@ describe('SyncLogDatabase', () => {
     await database.close()
   })
 
+  it('adds the item records store to a database an older build created, keeping its records', async () => {
+    const name = getSyncLogDatabaseName('account-1')
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open(name, 1)
+      request.onupgradeneeded = () => {
+        for (const store of ['outbox', 'parked', 'first-start', 'snapshot-rechecks', 'unconfirmed-pulls']) {
+          request.result.createObjectStore(store, { keyPath: store === 'parked' ? 'seq' : 'itemId' })
+        }
+      }
+      request.onsuccess = () => {
+        const db = request.result
+        const transaction = db.transaction('outbox', 'readwrite')
+        transaction.objectStore('outbox').put({ itemId: 'item-1', tick: 1 })
+        transaction.oncomplete = () => {
+          db.close()
+          resolve()
+        }
+      }
+      request.onerror = () => reject(request.error)
+    })
+
+    await database.put(SYNC_LOG_STORES.items, { itemId: 'item-1', baseVersion: 2 })
+
+    expect(await database.getAll(SYNC_LOG_STORES.outbox)).toEqual([{ itemId: 'item-1', tick: 1 }])
+    expect(await database.getAll(SYNC_LOG_STORES.items)).toEqual([{ itemId: 'item-1', baseVersion: 2 }])
+  })
+
   it('stores records by item, and parked entries by seq', async () => {
     await database.put(SYNC_LOG_STORES.outbox, { itemId: 'item-1', tick: 1 })
     await database.put(SYNC_LOG_STORES.parked, { seq: 7, itemId: 'item-1' })

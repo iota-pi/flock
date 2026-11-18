@@ -2,9 +2,12 @@ import {
   clearLegacyLocalData,
   migrateLegacyLocalData,
   normalizeCursors,
+  toItemSyncRecords,
 } from './localData'
 import localforage from 'localforage'
+import type { MockInstance } from 'vitest'
 import type { ItemId } from '@vault/shared'
+import * as vaultWorker from '@vault/client/worker'
 
 /** An in-memory localforage instance */
 class MemoryStore {
@@ -106,9 +109,12 @@ beforeEach(() => {
 })
 
 describe('migrateLegacyLocalData', () => {
+  let importRecords: MockInstance<typeof vaultWorker.importItemSyncRecords>
+
   beforeEach(() => {
     vi.clearAllMocks()
     resetStores()
+    importRecords = vi.spyOn(vaultWorker, 'importItemSyncRecords').mockResolvedValue(undefined)
     // Most tests don't care about manual recovery, so mark it done
     metadataStore().data.set('manualRecoveryMigrated', true)
   })
@@ -124,10 +130,10 @@ describe('migrateLegacyLocalData', () => {
     await migrateLegacyLocalData(accountId)
 
     expect(metadata.data.get('cursors')).toEqual({ globalCursor: 70, retries: [['item-1', 50], ['item-2', 70]] })
-    expect(metadata.data.get('lastModified')).toEqual([
-      ['item-1', { localModifiedAt: 4000, lastSnapshotAt: 4000, baseVersion: 0 }],
-    ])
-    expect(metadata.data.get('syncedHeads')).toEqual([['doc-1', ['head-1']]])
+    // item-1's snapshot was up to date, so its record would be empty
+    expect(importRecords).toHaveBeenCalledWith(accountId, [{ itemId: 'doc-1', serverHeads: ['head-1'] }])
+    expect(metadata.data.has('lastModified')).toBe(false)
+    expect(metadata.data.has('syncedHeads')).toBe(false)
     expect(metadata.data.has('cursorByItemId')).toBe(false)
     expect(metadata.data.has('lastModifiedByItemId')).toBe(false)
     expect(metadata.data.has('syncedHeadsByDocId')).toBe(false)
@@ -145,10 +151,7 @@ describe('migrateLegacyLocalData', () => {
     const metadata = metadataStore()
     expect(metadata.data.get('cursors')).toEqual({ globalCursor: 77, retries: [['item-1', 77]] })
     expect(metadata.data.get('indexDoc')).toEqual({ itemIds: ['legacy-1'] })
-    expect(metadata.data.get('lastModified')).toEqual([
-      ['item-1', { localModifiedAt: 8888, lastSnapshotAt: 8888, baseVersion: 0 }],
-    ])
-    expect(metadata.data.get('syncedHeads')).toEqual([['doc-1', ['head-db']]])
+    expect(importRecords).toHaveBeenCalledWith(accountId, [{ itemId: 'doc-1', serverHeads: ['head-db'] }])
     for (const database of Object.values(LEGACY_DATABASES)) {
       expect(legacyStore(database).data.has(database.key)).toBe(false)
     }
@@ -161,7 +164,7 @@ describe('migrateLegacyLocalData', () => {
 
     await migrateLegacyLocalData(accountId)
 
-    expect(metadataStore().data.get('syncedHeads')).toEqual([['doc-key', ['head-key']]])
+    expect(importRecords).toHaveBeenCalledWith(accountId, [{ itemId: 'doc-key', serverHeads: ['head-key'] }])
   })
 
   it('keeps current values, drops stale legacy keys and leaves the databases alone', async () => {
@@ -178,8 +181,10 @@ describe('migrateLegacyLocalData', () => {
 
     expect(metadata.data.get('cursors')).toEqual({ globalCursor: 500 })
     expect(metadata.data.get('indexDoc')).toEqual({ itemIds: ['current'] })
-    expect(metadata.data.get('lastModified')).toEqual([['item-1', { localModifiedAt: 9000 }]])
-    expect(metadata.data.get('syncedHeads')).toEqual([['doc-1', ['current']]])
+    expect(importRecords).toHaveBeenCalledWith(accountId, [
+      { itemId: 'item-1', dirty: true },
+      { itemId: 'doc-1', serverHeads: ['current'] },
+    ])
     expect(metadata.data.has('cursorByItemId')).toBe(false)
     expect(databases).not.toHaveBeenCalled()
   })
@@ -195,10 +200,22 @@ describe('migrateLegacyLocalData', () => {
     await migrateLegacyLocalData(accountId)
 
     expect(metadata.data.get('cursors')).toEqual({ globalCursor: 100, retries: [['item-1', 10], ['item-2', 100]] })
-    expect(metadata.data.get('lastModified')).toEqual([
-      ['item-1', { localModifiedAt: 5000, lastSnapshotAt: 5000, baseVersion: 0 }],
-      ['item-2', { localModifiedAt: 6000, lastSnapshotAt: 5500, baseVersion: 3 }],
-    ])
+    expect(importRecords).toHaveBeenCalledWith(accountId, [{ itemId: 'item-2', baseVersion: 3, dirty: true }])
+  })
+
+  it('moves no sync records when there are no whole-account values', async () => {
+    await migrateLegacyLocalData(accountId)
+
+    expect(importRecords).not.toHaveBeenCalled()
+  })
+
+  it('keeps the whole-account values when the records fail to import, so a later run repeats', async () => {
+    importRecords.mockRejectedValueOnce(new Error('quota'))
+    metadataStore().data.set('syncedHeads', [['doc-1', ['head-1']]])
+
+    await expect(migrateLegacyLocalData(accountId)).rejects.toThrow('quota')
+
+    expect(metadataStore().data.get('syncedHeads')).toEqual([['doc-1', ['head-1']]])
   })
 
   it('does not open a per-store database that does not exist', async () => {
@@ -240,6 +257,32 @@ describe('migrateLegacyLocalData', () => {
     metadataStore().getItem.mockRejectedValueOnce(new Error('read failed'))
 
     await expect(migrateLegacyLocalData(accountId)).rejects.toThrow('read failed')
+  })
+})
+
+describe('toItemSyncRecords', () => {
+  it('keeps base versions, server heads, and flags items modified after their last snapshot', () => {
+    expect(toItemSyncRecords(
+      [
+        ['item-1', { localModifiedAt: 2000, lastSnapshotAt: 1000, baseVersion: 2 }],
+        ['item-2', { localModifiedAt: 1000 }],
+        ['item-3', { localModifiedAt: 1000, lastSnapshotAt: 1000, baseVersion: 4 }],
+      ],
+      [['item-3', ['h3']], ['item-4', ['h4']]],
+    )).toEqual([
+      { itemId: 'item-1', baseVersion: 2, dirty: true },
+      { itemId: 'item-2', dirty: true },
+      { itemId: 'item-3', baseVersion: 4, serverHeads: ['h3'] },
+      { itemId: 'item-4', serverHeads: ['h4'] },
+    ])
+  })
+
+  it('skips entries it cannot read', () => {
+    expect(toItemSyncRecords(
+      [['item-1', null], 'garbage', ['item-2', { localModifiedAt: 'soon' }]],
+      [['item-3', 'not heads'], ['item-4', [1, 2]], null],
+    )).toEqual([])
+    expect(toItemSyncRecords(null, { not: 'a list' })).toEqual([])
   })
 })
 

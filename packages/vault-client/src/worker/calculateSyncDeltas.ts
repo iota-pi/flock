@@ -14,7 +14,6 @@ export interface SyncDeltas {
   missingIds: ItemId[]
   upstreamIds: ItemId[]
   locallyTombstonedSnapshots: VaultDoc[]
-  deletedLastModifiedUpdates: [ItemId, number][]
   deletedVersionUpdates: [ItemId, number][]
   knownSet: Set<ItemId>
   tombstoneSet: Set<ItemId>
@@ -25,7 +24,6 @@ export interface CalculateSyncDeltasParams {
   force: boolean
   knownItemIds: ItemId[]
   tombstoneItemIds: ItemId[]
-  localLastModifiedMap: Map<ItemId, number>
   quarantinedMap: Map<ItemId, QuarantinedItem>
   localVersionsMap: Map<ItemId, { baseVersion: number; isDirty: boolean }>
 }
@@ -41,14 +39,12 @@ interface DeltaContext
 
 function calculateInboundDeltas(ctx: DeltaContext) {
   const locallyTombstonedSnapshots: VaultDoc[] = []
-  const deletedLastModifiedUpdates: [ItemId, number][] = []
   const deletedVersionUpdates: [ItemId, number][] = []
   const missingIds: ItemId[] = []
 
   for (const entry of ctx.manifest) {
     const id = entry.itemId
     if (!id) continue
-    const serverTime = entry.modifiedAt ?? 0
     const serverVersion = typeof entry.version === 'number' ? entry.version : 1
     const isDeleted = entry.isDeleted
 
@@ -69,15 +65,13 @@ function calculateInboundDeltas(ctx: DeltaContext) {
 
     if (isDeleted) {
       if (ctx.activeSet.has(id)) {
-        // Item exists locally and is active, but the server manifest indicates it is deleted.
-        // Apply tombstone locally and record timestamp to prevent resurrection.
+        // Item exists locally and is active, but the server manifest indicates it is deleted:
+        // apply the tombstone locally, which puts it in the index's tombstones
         locallyTombstonedSnapshots.push({ id, deleted: true })
-        deletedLastModifiedUpdates.push([id, serverTime])
         deletedVersionUpdates.push([id, serverVersion])
       } else if (serverVersion > baseVersion) {
-        // Item is deleted on server and client does not have it active (e.g. fresh login or already deleted).
-        // Track that this item exists and is deleted at serverTime/serverVersion without fetching snapshot.
-        deletedLastModifiedUpdates.push([id, serverTime])
+        // Deleted on the server and not active here (a fresh login, or already deleted). A deleted
+        // entry is never fetched, so recording its version is all there is to do.
         deletedVersionUpdates.push([id, serverVersion])
       }
       continue
@@ -101,7 +95,7 @@ function calculateInboundDeltas(ctx: DeltaContext) {
     }
   }
 
-  return { missingIds, locallyTombstonedSnapshots, deletedLastModifiedUpdates, deletedVersionUpdates }
+  return { missingIds, locallyTombstonedSnapshots, deletedVersionUpdates }
 }
 
 function calculateUpstreamDeltas(
@@ -142,12 +136,9 @@ function calculateUpstreamDeltas(
 
 export function calculateSyncDeltas(params: CalculateSyncDeltasParams): SyncDeltas {
   const activeSet = new Set(params.knownItemIds)
+  // Every path that removes an item from the index records it among the tombstones
+  // (AutomergeIndexManager.removeItemIds), so the index alone says what this device has deleted
   const tombstoneSet = new Set(params.tombstoneItemIds)
-  for (const [id] of params.localLastModifiedMap) {
-    if (!activeSet.has(id)) {
-      tombstoneSet.add(id)
-    }
-  }
   const knownSet = new Set([...activeSet, ...tombstoneSet])
 
   const ctx: DeltaContext = {

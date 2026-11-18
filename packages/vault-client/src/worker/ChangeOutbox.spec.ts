@@ -40,10 +40,7 @@ describe('ChangeOutbox', () => {
     vi.stubGlobal('indexedDB', new IDBFactory())
     db = new SyncLogDatabase('account-1')
     session = new SyncSessionState({ isLeader: true })
-    serverHeads = new ServerHeads({
-      loadSyncedHeads: async () => [],
-      saveSyncedHeads: async () => {},
-    })
+    serverHeads = new ServerHeads(db)
     docStore = {
       readChangesSince: vi.fn().mockResolvedValue({ changes: [bytes(10)], heads: ['head-2'] }),
       hasChangesSince: vi.fn().mockReturnValue(false),

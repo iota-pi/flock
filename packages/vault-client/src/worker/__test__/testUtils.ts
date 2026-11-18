@@ -9,8 +9,8 @@ import { passthroughCodec } from '../domain'
 import * as vaultTrpcClientModule from '../../keys/vaultTrpcClient'
 import { spyOnExports } from '../../../test/moduleMocks'
 import type { ItemId } from '@vault/shared'
-import type { SnapshotTracker } from '../SnapshotTracker'
-import type { ItemSyncTimestamps } from '../stores/LastModifiedStore'
+import type { SyncLogDatabase } from '../stores/SyncLogDatabase'
+import type { ItemSyncRecord } from '../stores/itemSyncRecords'
 import type { RealtimeBus, TabVisibility } from '../RealtimeBus'
 import type { VaultMetadata } from '../../shared/types'
 
@@ -373,15 +373,26 @@ export async function listDatabases(factory: IDBFactory): Promise<string[]> {
   return (await factory.databases()).map(db => db.name ?? '')
 }
 
-/** Sets some of an item's tracked timestamps directly */
-export function setTimestamps(tracker: SnapshotTracker, itemId: string, timestamps: Partial<ItemSyncTimestamps>): void {
-  const byItemId = tracker['timestampsByItemId']
-  byItemId.set(itemId as ItemId, { ...byItemId.get(itemId as ItemId), ...timestamps })
-}
-
-/** An item's tracked timestamps, empty if it has none */
-export function getTimestamps(tracker: SnapshotTracker, itemId: string): Partial<ItemSyncTimestamps> {
-  return tracker['timestampsByItemId'].get(itemId as ItemId) ?? {}
+/**
+ * Items' sync records held in memory, for specs on fake timers, which would stall IndexedDB. `update`
+ * changes them all at once, as the transaction does.
+ */
+export function createMemoryItemRecords(initial: ItemSyncRecord[] = []) {
+  const records = new Map(initial.map(record => [record.itemId, record]))
+  const db = {
+    getAll: vi.fn(async () => Array.from(records.values())),
+    update: vi.fn(async (_store: string, keys: IDBValidKey[], update: (current: ItemSyncRecord | undefined, key: IDBValidKey) => ItemSyncRecord | undefined) => {
+      for (const key of keys) {
+        const next = update(records.get(key as ItemId), key)
+        if (next) records.set(next.itemId, next)
+      }
+    }),
+  }
+  return {
+    db: db as unknown as Pick<SyncLogDatabase, 'getAll' | 'update'> & typeof db,
+    records,
+    get: (itemId: string) => records.get(itemId as ItemId),
+  }
 }
 
 /** A realtime bus that records what's published and lets a test deliver other tabs' messages */

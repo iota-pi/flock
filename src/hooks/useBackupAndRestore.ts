@@ -6,7 +6,6 @@ import {
 import { exportData } from '@vault/client'
 import { createLogger } from 'src/utils/logger'
 import type { BackupPayloadV2 } from '../types/backup'
-import type { BackupSyncState } from '@vault/client'
 import type { Item } from '../state/items'
 import { quietBackupReminder } from '../app/vault/backupReminderStore'
 import { SyncBridge } from '../app/vault/syncBridge'
@@ -39,19 +38,10 @@ export default function useBackupAndRestore({
       try {
         const { account, metadata: currentMetadata } = useAppStore.getState()
         const { documents, skipped } = await SyncBridge.exportAllBinaries()
-        let syncState: BackupSyncState | undefined
-        try {
-          syncState = await SyncBridge.exportSyncState()
-        } catch (e) {
-          log.error('Failed to export sync state', e)
-        }
-
         const backupPayload: BackupPayloadV2 = {
           version: 2,
           metadata: currentMetadata,
           documents,
-          cursors: syncState?.cursors,
-          lastModified: syncState?.lastModified,
         }
 
         const data = await exportData(backupPayload)
@@ -95,10 +85,6 @@ export default function useBackupAndRestore({
         }
 
         await SyncBridge.restoreFromBinaries(payload.documents)
-
-        if (payload.lastModified) {
-          await SyncBridge.restoreSyncState({ lastModified: payload.lastModified })
-        }
 
         await SyncBridge.flushSync()
 

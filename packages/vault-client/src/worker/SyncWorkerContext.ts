@@ -5,8 +5,6 @@ import type { RepoDoc } from './docStore/AutomergeDocStore'
 import { IndexStore } from './stores/IndexStore'
 import { LogCursorStore } from './stores/LogCursorStore'
 import { SyncLogDatabase } from './stores/SyncLogDatabase'
-import { LastModifiedStore } from './stores/LastModifiedStore'
-import { SyncedHeadsStore } from './stores/SyncedHeadsStore'
 import { SnapshotManager } from './SnapshotManager'
 import { SnapshotBuilder } from './SnapshotBuilder'
 import { SyncOrchestrator } from './SyncOrchestrator'
@@ -15,7 +13,7 @@ import { ManifestSyncManager } from './ManifestSyncManager'
 import { ItemOperations } from './ItemOperations'
 import { INBOUND_MESSAGE_RESOLVABLE_KINDS, RecoveryManager } from './RecoveryManager'
 import { ChangeOutbox } from './ChangeOutbox'
-import { FirstStart, runFirstStartLocalPart } from './FirstStart'
+import { FINISHED_FIRST_START, FirstStart, runFirstStartLocalPart, type FirstStartPort } from './FirstStart'
 import { GapHealer } from './GapHealer'
 import { IncomingChanges } from './IncomingChanges'
 import { ServerHeads } from './ServerHeads'
@@ -95,6 +93,13 @@ export interface SyncSessionConfig {
    * recorded level stays below it until its storage is sealed and the plaintext stores are retired.
    */
   sealedDataVersion?: number
+  /**
+   * The app's data version (`SyncDomain.dataVersion`) at which first start has finished. The device's
+   * recorded level stays below it until `FirstStart.settle` says so. Once `minDataVersion` is at or
+   * above it, every device that starts has finished first start (or had nothing to run it on), so
+   * the session neither runs it nor reads its records.
+   */
+  firstStartDataVersion?: number
 }
 
 /**
@@ -137,12 +142,11 @@ export interface SyncWorkerServices {
   repoManager: AutomergeRepoManager
   syncLogDatabase: SyncLogDatabase
   indexStore: IndexStore
-  lastModifiedStore: LastModifiedStore
   serverHeads: ServerHeads
   docStore: AutomergeDocStore
   indexManager: AutomergeIndexManager
   recoveryManager: RecoveryManager
-  firstStart: FirstStart
+  firstStart: FirstStartPort
   changeOutbox: ChangeOutbox
   snapshotCoverage: SnapshotCoverage
   gapHealer: GapHealer
@@ -232,9 +236,8 @@ export class SyncWorkerContext {
     })
     const cipherOptions = local.cipher ? { cipher: local.cipher } : undefined
     const indexStore = new IndexStore(accountId, cipherOptions)
-    const lastModifiedStore = new LastModifiedStore(accountId)
-    const serverHeads = new ServerHeads(new SyncedHeadsStore(accountId))
     const syncLogDatabase = new SyncLogDatabase(accountId)
+    const serverHeads = new ServerHeads(syncLogDatabase)
 
     const repoManager = new AutomergeRepoManager(accountId, keys, local.storage, {
       bus: realtimeBus,
@@ -273,7 +276,7 @@ export class SyncWorkerContext {
       countUnpushedChanges: () => this.countUnpushedChanges(),
     })
 
-    const firstStart = new FirstStart({
+    const firstStart: FirstStartPort = this.hasFinishedFirstStart ? FINISHED_FIRST_START : new FirstStart({
       accountId,
       db: syncLogDatabase,
       keys,
@@ -377,7 +380,7 @@ export class SyncWorkerContext {
     const snapshotManager = new SnapshotManager({
       accountId,
       session,
-      lastModifiedStore,
+      db: syncLogDatabase,
       builder: snapshotBuilder,
       pushToLog,
       onSnapshotStored: details => {
@@ -442,7 +445,7 @@ export class SyncWorkerContext {
       accountId,
       dataVersion: this.domain.dataVersion ?? 0,
       raiseAccountDataVersion: () => this.apiClient.raiseDataVersion({ account: accountId }),
-      maxDeviceVersion: this.maxDeviceVersion(),
+      maxDeviceVersion: this.maxDeviceVersion(firstStart),
     })
 
     const snapshotFormatUpgrade = this.config.upgradeSnapshotFormat
@@ -543,7 +546,7 @@ export class SyncWorkerContext {
       outbox: changeOutbox,
       docStore,
       snapshotManager,
-      lastModifiedStore,
+      metadataStore: indexStore,
       orchestrator,
     })
 
@@ -565,7 +568,6 @@ export class SyncWorkerContext {
       repoManager,
       syncLogDatabase,
       indexStore,
-      lastModifiedStore,
       serverHeads,
       docStore,
       indexManager,
@@ -590,17 +592,29 @@ export class SyncWorkerContext {
     }
   }
 
+  /** Whether every device this session can start on has finished first start (see `firstStartDataVersion`) */
+  private get hasFinishedFirstStart(): boolean {
+    const { minDataVersion, firstStartDataVersion } = this.config
+    return firstStartDataVersion !== undefined && (minDataVersion ?? 0) >= firstStartDataVersion
+  }
+
   /**
    * Caps the recorded device level below the sealed level until this session's storage is sealed and
    * no plaintext stores are left, so a device on the quota fallback or the password-derived-key guard
-   * isn't recorded as migrated.
+   * isn't recorded as migrated. Caps it below the first start level until first start has finished.
    */
-  private maxDeviceVersion(): (() => number) | undefined {
-    const sealedDataVersion = this.config.sealedDataVersion
-    if (sealedDataVersion === undefined) return undefined
-    return () => {
+  private maxDeviceVersion(firstStart: FirstStartPort): (() => Promise<number>) | undefined {
+    const { sealedDataVersion, firstStartDataVersion } = this.config
+    if (sealedDataVersion === undefined && firstStartDataVersion === undefined) return undefined
+    return async () => {
       const state = this.localStorageState
-      return state?.mode === 'sealed' && state.retired ? Number.POSITIVE_INFINITY : sealedDataVersion - 1
+      if (sealedDataVersion !== undefined && !(state?.mode === 'sealed' && state.retired)) {
+        return sealedDataVersion - 1
+      }
+      if (firstStartDataVersion !== undefined && !await firstStart.settle()) {
+        return firstStartDataVersion - 1
+      }
+      return Number.POSITIVE_INFINITY
     }
   }
 
@@ -657,9 +671,9 @@ export class SyncWorkerContext {
       { name: 'IndexDocument', onStart: () => indexManager.ensureIndexDocument() },
       { name: 'RecoveryManager', onStop: () => recoveryManager.resetRecoveryState() },
       { name: 'DocStore', onStop: () => docStore.shutdown() },
-      // Cross-tab pings can mark items dirty before the timestamps load, so it always stops
+      // Cross-tab pings can mark items dirty before the records load, so it always stops
       { name: 'SnapshotManager', onStop: options => snapshotManager.shutdown(options) },
-      { name: 'LastModifiedTimestamps', onStart: () => snapshotManager.tracker.loadLastModified() },
+      { name: 'ItemSyncRecords', onStart: () => snapshotManager.tracker.load() },
       { name: 'ChangeOutbox', onStop: () => changeOutbox.shutdown() },
       {
         name: 'SyncLogPuller',
@@ -751,7 +765,9 @@ export class SyncWorkerContext {
         }),
       })
       try {
-        await runFirstStartLocalPart(this.accountId, () => this.listIndexedItems(opened))
+        if (!this.hasFinishedFirstStart) {
+          await runFirstStartLocalPart(this.accountId, () => this.listIndexedItems(opened))
+        }
       } catch (error) {
         await opened.storage.close()
         throw error

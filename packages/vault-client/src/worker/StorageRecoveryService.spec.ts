@@ -10,7 +10,7 @@ describe('StorageRecoveryService', () => {
   let mockDocStore: any
   let mockSnapshotManager: any
   let mockSnapshotTracker: any
-  let mockLastModifiedStore: any
+  let mockMetadataStore: any
   let mockOrchestrator: any
   let session: SyncSessionState
   let service: StorageRecoveryService
@@ -25,13 +25,13 @@ describe('StorageRecoveryService', () => {
     }
     mockSnapshotTracker = {
       getDirtyItemIds: vi.fn().mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId]),
-      saveLastModified: vi.fn().mockResolvedValue(undefined),
+      save: vi.fn().mockResolvedValue(undefined),
     }
     mockSnapshotManager = {
       flushPendingSnapshots: vi.fn().mockResolvedValue({ persisted: 1, total: 1 }),
       tracker: mockSnapshotTracker,
     }
-    mockLastModifiedStore = {
+    mockMetadataStore = {
       testStorageAvailable: vi.fn().mockResolvedValue(undefined),
     }
     session = new SyncSessionState()
@@ -45,7 +45,7 @@ describe('StorageRecoveryService', () => {
       outbox: mockOutbox,
       docStore: mockDocStore,
       snapshotManager: mockSnapshotManager,
-      lastModifiedStore: mockLastModifiedStore,
+      metadataStore: mockMetadataStore,
       orchestrator: mockOrchestrator,
     })
   })
@@ -91,13 +91,13 @@ describe('StorageRecoveryService', () => {
       const result = await service.retrySave()
 
       expect(result.success).toBe(true)
-      expect(mockLastModifiedStore.testStorageAvailable).toHaveBeenCalled()
+      expect(mockMetadataStore.testStorageAvailable).toHaveBeenCalled()
       expect(mockDocStore.saveDocToStorage).toHaveBeenCalledWith('item-1')
       expect(mockDocStore.saveDocToStorage).toHaveBeenCalledWith('item-2')
 
       expect(mockOutbox.markAll).toHaveBeenCalledWith(['item-1', 'item-2'])
 
-      expect(mockSnapshotTracker.saveLastModified).toHaveBeenCalled()
+      expect(mockSnapshotTracker.save).toHaveBeenCalled()
       expect(mockSnapshotManager.flushPendingSnapshots).toHaveBeenCalled()
       expect(mockOrchestrator.flush).toHaveBeenCalled()
 
@@ -107,7 +107,7 @@ describe('StorageRecoveryService', () => {
 
     it('returns failure when storage probe fails with QuotaExceededError', async () => {
       const quotaErr = new DOMException('Quota exceeded', 'QuotaExceededError')
-      mockLastModifiedStore.testStorageAvailable.mockRejectedValueOnce(quotaErr)
+      mockMetadataStore.testStorageAvailable.mockRejectedValueOnce(quotaErr)
 
       const result = await service.retrySave()
 
@@ -117,7 +117,7 @@ describe('StorageRecoveryService', () => {
     })
 
     it('rethrows a probe failure that is not a quota error', async () => {
-      mockLastModifiedStore.testStorageAvailable.mockRejectedValueOnce(new Error('Disk read error'))
+      mockMetadataStore.testStorageAvailable.mockRejectedValueOnce(new Error('Disk read error'))
 
       const result = await service.retrySave()
 
@@ -145,18 +145,18 @@ describe('StorageRecoveryService', () => {
       expect(mockDocStore.saveDocToStorage).toHaveBeenCalledWith('item-2')
     })
 
-    it('returns failure when persisting timestamps throws QuotaExceededError', async () => {
+    it('returns failure when saving sync records throws QuotaExceededError', async () => {
       const quotaErr = new DOMException('Quota exceeded', 'QuotaExceededError')
-      mockSnapshotTracker.saveLastModified.mockRejectedValueOnce(quotaErr)
+      mockSnapshotTracker.save.mockRejectedValueOnce(quotaErr)
 
       const result = await service.retrySave()
 
       expect(result.success).toBe(false)
-      expect(result.error).toContain('still exceeded while saving timestamps')
+      expect(result.error).toContain('still exceeded while saving sync records')
     })
 
     it('handles unexpected errors gracefully and returns error message', async () => {
-      mockSnapshotTracker.saveLastModified.mockRejectedValueOnce(new Error('Database corrupted'))
+      mockSnapshotTracker.save.mockRejectedValueOnce(new Error('Database corrupted'))
 
       const result = await service.retrySave()
 

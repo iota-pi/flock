@@ -42,27 +42,28 @@ describe('first start', () => {
     const storage = () => getSyncMetadataStorage(ACCOUNT)
 
     it('records every item, marks it pending, and clears the old sync state', async () => {
-      await storage().setItem(SYNC_METADATA_KEYS.SYNCED_HEADS, [[ITEM, ['old']]])
+      await db.put(SYNC_LOG_STORES.items, { itemId: ITEM, serverHeads: ['old'], baseVersion: 3 })
       await storage().setItem(SYNC_METADATA_KEYS.CURSORS, { globalCursor: 5 })
 
       await runFirstStartLocalPart(ACCOUNT, async () => [ITEM])
 
       expect(await db.getAll(SYNC_LOG_STORES.firstStart)).toEqual([{ itemId: ITEM, state: 'awaitingHeads' }])
       expect(await db.getAll(SYNC_LOG_STORES.outbox)).toEqual([expect.objectContaining({ itemId: ITEM })])
-      expect(await storage().getItem(SYNC_METADATA_KEYS.SYNCED_HEADS)).toBeNull()
+      // The record keeps everything but its server heads
+      expect(await db.getAll(SYNC_LOG_STORES.items)).toEqual([{ itemId: ITEM, baseVersion: 3 }])
       expect(await storage().getItem(SYNC_METADATA_KEYS.CURSORS)).toBeNull()
       expect(await storage().getItem(SYNC_METADATA_KEYS.FIRST_START_RESET)).toBe(true)
     })
 
     it('never runs twice, so a later tab can\'t clear heads the leader has set', async () => {
       await runFirstStartLocalPart(ACCOUNT, async () => [ITEM])
-      await storage().setItem(SYNC_METADATA_KEYS.SYNCED_HEADS, [[ITEM, ['from the leader']]])
+      await db.put(SYNC_LOG_STORES.items, { itemId: ITEM, serverHeads: ['from the leader'] })
       const listItemIds = vi.fn(async () => [ITEM])
 
       await runFirstStartLocalPart(ACCOUNT, listItemIds)
 
       expect(listItemIds).not.toHaveBeenCalled()
-      expect(await storage().getItem(SYNC_METADATA_KEYS.SYNCED_HEADS)).toEqual([[ITEM, ['from the leader']]])
+      expect(await db.getAll(SYNC_LOG_STORES.items)).toEqual([{ itemId: ITEM, serverHeads: ['from the leader'] }])
     })
 
     it('repeats safely after being interrupted', async () => {
@@ -128,7 +129,7 @@ describe('first start', () => {
 
     beforeEach(async () => {
       keys = await createAccountKeys()
-      serverHeads = new ServerHeads({ loadSyncedHeads: async () => [], saveSyncedHeads: async () => {} })
+      serverHeads = new ServerHeads(db)
       requestSnapshot = vi.fn()
       syncManifest = vi.fn().mockResolvedValue(true)
       pushPending = vi.fn().mockResolvedValue(undefined)
@@ -529,6 +530,93 @@ describe('first start', () => {
       controller.abort()
 
       await expect(waiting).rejects.toThrow()
+    })
+
+    describe('driving tries from the poll', () => {
+      it('runs a manifest sync while an item could move at one', async () => {
+        await start()
+        await firstStart.ensureSynced()
+        syncManifest.mockClear()
+
+        await firstStart.runDue()
+
+        expect(syncManifest).toHaveBeenCalledTimes(1)
+      })
+
+      it('runs none while every item waits out its retry gap or is quarantined', async () => {
+        await start([ITEM, 'item-2' as ItemId])
+        await firstStart.ensureSynced()
+        await firstStart.onManifestProcessed([])
+        listRecoveryItems.mockResolvedValue([{ itemId: 'item-2' }])
+        syncManifest.mockClear()
+
+        await firstStart.runDue()
+        expect(syncManifest).not.toHaveBeenCalled()
+
+        now += SYNC_TIMEOUTS.firstStartRetryGap
+        await firstStart.runDue()
+        expect(syncManifest).toHaveBeenCalledTimes(1)
+      })
+
+      it('runs at most one per retry gap', async () => {
+        await start()
+        await firstStart.ensureSynced()
+        await firstStart.onManifestProcessed([entry({ version: 3 })])
+        syncManifest.mockClear()
+
+        await firstStart.runDue()
+        expect(syncManifest).not.toHaveBeenCalled()
+
+        now += SYNC_TIMEOUTS.firstStartRetryGap
+        await firstStart.runDue()
+        expect(syncManifest).toHaveBeenCalledTimes(1)
+      })
+
+      it('runs none before the network part has run', async () => {
+        await start()
+
+        await firstStart.runDue()
+
+        expect(syncManifest).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('settling', () => {
+      it('finishes once the network part has run, the WAL is gone and no item is left', async () => {
+        await start()
+        expect(await firstStart.settle()).toBe(false)
+
+        await firstStart.ensureSynced()
+        expect(await firstStart.settle()).toBe(false)
+
+        await firstStart.onManifestProcessed([entry({ heads: await encryptSnapshotHeads(keys, ITEM, docHeads) })])
+        expect(await firstStart.settle()).toBe(true)
+      })
+
+      it('leaves quarantined items to recovery, removing their records but not their pending marks', async () => {
+        await start([ITEM, 'item-2' as ItemId])
+        await firstStart.ensureSynced()
+        listRecoveryItems.mockResolvedValue([{ itemId: ITEM }])
+        expect(await firstStart.settle()).toBe(false)
+
+        listRecoveryItems.mockResolvedValue([{ itemId: ITEM }, { itemId: 'item-2' }])
+        expect(await firstStart.settle()).toBe(true)
+
+        expect(firstStart.has(ITEM)).toBe(false)
+        expect(await db.getAll(SYNC_LOG_STORES.firstStart)).toEqual([])
+        expect(await db.count(SYNC_LOG_STORES.outbox)).toBe(2)
+      })
+
+      it('clears a WAL the start-up clear left, and waits until it has', async () => {
+        await start([])
+        clearWriteAheadLog.mockRejectedValue(new Error('blocked'))
+        await firstStart.ensureSynced()
+
+        expect(await firstStart.settle()).toBe(false)
+        clearWriteAheadLog.mockResolvedValue(undefined)
+        expect(await firstStart.settle()).toBe(true)
+        expect(await getSyncMetadataStorage(ACCOUNT).getItem(SYNC_METADATA_KEYS.WAL_CLEARED)).toBe(true)
+      })
     })
 
     describe('the write-ahead log', () => {

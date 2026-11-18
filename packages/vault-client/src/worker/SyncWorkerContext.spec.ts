@@ -11,7 +11,8 @@ import { MigrationRequiredError } from './DataVersionTracker'
 import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
 import { AbortError } from '../utils/abort'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
-import type { FirstStartState } from './FirstStart'
+import { FINISHED_FIRST_START, FirstStart, type FirstStartState } from './FirstStart'
+import * as firstStartModule from './FirstStart'
 import { LocalCipher, LocalKeyUnavailableError } from './localEncryption/LocalCipher'
 import { toDocumentIdFromItemId } from './utils/automerge'
 import { DSK_KEY } from './localEncryption/openLocalStorage'
@@ -31,8 +32,6 @@ import * as docStoreModule from './docStore'
 import * as automergeRepoManager from './AutomergeRepoManager'
 import * as snapshotManagerModule from './SnapshotManager'
 import * as syncOrchestrator from './SyncOrchestrator'
-import * as lastModifiedStoreModule from './stores/LastModifiedStore'
-import * as syncedHeadsStore from './stores/SyncedHeadsStore'
 import * as itemOperationsModule from './ItemOperations'
 import * as realtimeBusModule from './RealtimeBus'
 import * as manifestSyncManagerModule from './ManifestSyncManager'
@@ -63,6 +62,11 @@ let realtimeBus: FakeRealtimeBus
 // event handling can be verified end to end
 
 const mockReadDeviceDataVersion = vi.fn(async () => 0)
+
+/** The cap the context gave its data version tracker */
+function readMaxDeviceVersion(ctx: SyncWorkerContext): () => Promise<number> {
+  return depsOf<{ maxDeviceVersion: () => Promise<number> }>(ctx.services.dataVersionTracker).maxDeviceVersion
+}
 
 /** The dependencies the context gave one of the mocked components */
 function depsOf<T>(component: unknown): T {
@@ -98,6 +102,7 @@ beforeEach(() => {
       clear = vi.fn().mockResolvedValue(undefined)
       hasIndex = mockHasIndex
       getIndex = vi.fn().mockResolvedValue(null)
+      testStorageAvailable = vi.fn().mockResolvedValue(true)
     },
   })
   spyOnExports(syncLogDatabaseModule, {
@@ -140,9 +145,9 @@ beforeEach(() => {
     SnapshotManager: class MockSnapshotManager {
       tracker = {
         markItemDirty: vi.fn(),
-        loadLastModified: vi.fn().mockResolvedValue(undefined),
+        load: vi.fn().mockResolvedValue(undefined),
         getDirtyItemIds: vi.fn().mockReturnValue([]),
-        saveLastModified: vi.fn().mockResolvedValue(undefined),
+        save: vi.fn().mockResolvedValue(undefined),
       }
 
       constructor(readonly deps: unknown) {}
@@ -168,19 +173,6 @@ beforeEach(() => {
       onActivity = vi.fn()
       onSnapshotDue = vi.fn()
       pollNow = vi.fn().mockResolvedValue(undefined)
-    },
-  })
-  spyOnExports(lastModifiedStoreModule, {
-    LastModifiedStore: class MockLastModifiedStore {
-      clear = vi.fn().mockResolvedValue(undefined)
-      testStorageAvailable = vi.fn().mockResolvedValue(true)
-    },
-  })
-  spyOnExports(syncedHeadsStore, {
-    SyncedHeadsStore: class MockSyncedHeadsStore {
-      loadSyncedHeads = vi.fn().mockResolvedValue([])
-      saveSyncedHeads = vi.fn().mockResolvedValue(undefined)
-      clear = vi.fn().mockResolvedValue(undefined)
     },
   })
   spyOnExports(itemOperationsModule, {
@@ -411,17 +403,17 @@ describe('SyncWorkerContext', () => {
   describe('retrySave', () => {
     it('returns failure if probe testStorageAvailable throws QuotaExceededError', async () => {
       const quotaErr = new DOMException('Quota exceeded', 'QuotaExceededError')
-      vi.spyOn(context.services.lastModifiedStore, 'testStorageAvailable').mockRejectedValueOnce(quotaErr)
+      vi.spyOn(context.services.indexStore, 'testStorageAvailable').mockRejectedValueOnce(quotaErr)
 
       const result = await context.retrySave()
       expect(result.success).toBe(false)
       expect(result.error).toContain('still exceeded')
     })
 
-    it('saves dirty documents, marks them pending, persists timestamps, and emits quotaResolved on success', async () => {
+    it('saves dirty documents, marks them pending, saves their records, and emits quotaResolved on success', async () => {
       vi.spyOn(context.services.snapshotManager.tracker, 'getDirtyItemIds').mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId])
       const saveDocSpy = vi.spyOn(context.services.docStore, 'saveDocToStorage').mockResolvedValue(true)
-      const persistTimestampsSpy = vi.spyOn(context.services.snapshotManager.tracker, 'saveLastModified').mockResolvedValue(undefined)
+      const saveRecordsSpy = vi.spyOn(context.services.snapshotManager.tracker, 'save').mockResolvedValue(undefined)
       const emitSpy = vi.spyOn(context.clientEventHub, 'emit')
       const markSpy = vi.spyOn(context.services.changeOutbox, 'markAll')
 
@@ -431,7 +423,7 @@ describe('SyncWorkerContext', () => {
       expect(saveDocSpy).toHaveBeenCalledWith('item-1' as ItemId)
       expect(saveDocSpy).toHaveBeenCalledWith('item-2' as ItemId)
       expect(markSpy).toHaveBeenCalledWith(['item-1', 'item-2'])
-      expect(persistTimestampsSpy).toHaveBeenCalled()
+      expect(saveRecordsSpy).toHaveBeenCalled()
       expect(emitSpy).toHaveBeenCalledWith({ type: 'quotaResolved' })
     })
   })
@@ -687,7 +679,7 @@ describe('SyncWorkerContext', () => {
       })
       vi.spyOn(ctx.lifecycle, 'start').mockResolvedValue(undefined)
       await ctx.initialize()
-      return (ctx.services.dataVersionTracker as unknown as { deps: { maxDeviceVersion: () => number } }).deps.maxDeviceVersion
+      return readMaxDeviceVersion(ctx)
     }
 
     it.each([
@@ -697,7 +689,53 @@ describe('SyncWorkerContext', () => {
     ])('caps the device level on %s', async (_case, local, expected) => {
       const maxDeviceVersion = await createTrackedContext(local)
 
-      expect(maxDeviceVersion()).toBe(expected)
+      await expect(maxDeviceVersion()).resolves.toBe(expected)
+    })
+  })
+
+  describe('first start', () => {
+    let runLocalPart: ReturnType<typeof vi.fn>
+
+    beforeEach(() => {
+      runLocalPart = vi.fn().mockResolvedValue(undefined)
+      spyOnExports(firstStartModule, { runFirstStartLocalPart: runLocalPart })
+    })
+
+    async function createContext(accountId: string, minDataVersion?: number) {
+      mockOpenLocalStorage.mockResolvedValueOnce({ mode: 'sealed', retired: true, storage: { close: vi.fn() } })
+      const ctx = new SyncWorkerContext({
+        accountId,
+        keys: createMockKeyProvider(),
+        clientEventHub,
+        apiClient: new SyncApiClient(),
+        minDataVersion,
+        sealedDataVersion: 3,
+        firstStartDataVersion: 4,
+      })
+      vi.spyOn(ctx.lifecycle, 'start').mockResolvedValue(undefined)
+      await ctx.initialize()
+      return ctx
+    }
+
+    it('caps the device level below its level until it has finished', async () => {
+      const ctx = await createContext('test-account-first-start')
+      const settle = vi.spyOn(ctx.services.firstStart, 'settle').mockResolvedValue(false)
+      const maxDeviceVersion = readMaxDeviceVersion(ctx)
+
+      expect(ctx.services.firstStart).toBeInstanceOf(FirstStart)
+      expect(runLocalPart).toHaveBeenCalledTimes(1)
+      await expect(maxDeviceVersion()).resolves.toBe(3)
+
+      settle.mockResolvedValue(true)
+      await expect(maxDeviceVersion()).resolves.toBe(Number.POSITIVE_INFINITY)
+    })
+
+    it('neither runs nor reads first start behind a device gate at its level', async () => {
+      const ctx = await createContext('test-account-past-first-start', 4)
+
+      expect(ctx.services.firstStart).toBe(FINISHED_FIRST_START)
+      expect(runLocalPart).not.toHaveBeenCalled()
+      await expect(readMaxDeviceVersion(ctx)()).resolves.toBe(Number.POSITIVE_INFINITY)
     })
   })
 
@@ -1058,7 +1096,7 @@ describe('SyncWorkerContext', () => {
       'RecoveryManager',
       'DocStore',
       'SnapshotManager',
-      'LastModifiedTimestamps',
+      'ItemSyncRecords',
       'ChangeOutbox',
       'SyncLogPuller',
       'ManifestSyncManager',

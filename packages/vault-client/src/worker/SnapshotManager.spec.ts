@@ -7,9 +7,8 @@ import { SnapshotBuilder } from './SnapshotBuilder'
 import type { Repo } from '@automerge/automerge-repo/slim'
 import { SyncApiClient } from './SyncApiClient'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
-import { LastModifiedStore } from './stores/LastModifiedStore'
 import { setApiAuthToken } from '../keys/runtime'
-import { createMockKeyProvider, createMockVault, noLogCoverage, spyOnVaultTrpc } from './__test__/testUtils'
+import { createMockKeyProvider, createMockVault, noLogCoverage, spyOnVaultTrpc, createMemoryItemRecords } from './__test__/testUtils'
 import { spyOnExports } from '../../test/moduleMocks'
 import type { KeyProvider } from '../keys/Keyring'
 import * as manualRecoveryStoreModule from '../shared/manualRecoveryStore'
@@ -51,14 +50,16 @@ function abortPoll(target: SnapshotManager): void {
   pollControllers.get(target)?.abort()
 }
 
+type ItemRecordsDb = ReturnType<typeof createMemoryItemRecords>['db']
+
 /** A manager with its own session state, a leader's when `isLeader` is set */
 function createManager(
-  context: Omit<ConstructorParameters<typeof SnapshotManager>[0], 'session' | 'lastModifiedStore' | 'builder' | 'runPollNow'> & {
+  context: Omit<ConstructorParameters<typeof SnapshotManager>[0], 'session' | 'db' | 'builder' | 'runPollNow'> & {
     repo: Repo
     keys: KeyProvider
     codec?: DocCodec
   },
-  lastModifiedStore: LastModifiedStore,
+  db: ItemRecordsDb,
   options: SnapshotManagerOptions & { isLeader?: boolean } = {},
 ): SnapshotManager {
   const { isLeader, ...managerOptions } = options
@@ -66,7 +67,7 @@ function createManager(
   const session = new SyncSessionState({ isLeader })
   const builder = new SnapshotBuilder(repo, keys, codec, noLogCoverage)
   const created: SnapshotManager = new SnapshotManager(
-    { ...deps, session, lastModifiedStore, builder, runPollNow: () => poll(created) },
+    { ...deps, session, db, builder, runPollNow: () => poll(created) },
     managerOptions,
   )
   sessions.set(created, session)
@@ -141,11 +142,9 @@ describe('SnapshotManager', () => {
     keys: KeyProvider
     onDueChanged: () => void
   }
-  let lastModifiedStore: LastModifiedStore
+  let records: ReturnType<typeof createMemoryItemRecords>
 
   beforeEach(async () => {
-    // The store persists between tests, and saves merge into it
-    await new LastModifiedStore('test-account').clear()
     vi.useFakeTimers()
     vi.setSystemTime(1_000_000)
     vi.clearAllMocks()
@@ -177,8 +176,8 @@ describe('SnapshotManager', () => {
       onDueChanged: () => onDueChanged(),
     }
 
-    lastModifiedStore = new LastModifiedStore('test-account')
-    manager = createManager(context as any, lastModifiedStore, { isLeader: true })
+    records = createMemoryItemRecords()
+    manager = createManager(context as any, records.db, { isLeader: true })
   })
 
   afterEach(() => {
@@ -236,7 +235,7 @@ describe('SnapshotManager', () => {
     const direct = new SnapshotManager({
       ...context as any,
       session: new SyncSessionState({ isLeader: true }),
-      lastModifiedStore,
+      db: records.db,
       builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec, noLogCoverage),
       runPollNow,
     })
@@ -278,7 +277,7 @@ describe('SnapshotManager', () => {
     const idle = new SnapshotManager({
       ...context as any,
       session: new SyncSessionState({ isLeader: true }),
-      lastModifiedStore,
+      db: records.db,
       builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec, noLogCoverage),
       runPollNow,
     })
@@ -287,17 +286,16 @@ describe('SnapshotManager', () => {
     expect(runPollNow).not.toHaveBeenCalled()
   })
 
-  it('saves pending timestamps at once when flushed, even in a follower tab', async () => {
-    const follower = createManager(context as any, lastModifiedStore, { isLeader: false })
-    const saveSpy = vi.spyOn(lastModifiedStore, 'saveTimestamps')
+  it('saves pending dirty flags at once when flushed, even in a follower tab', async () => {
+    const follower = createManager(context as any, records.db, { isLeader: false })
     follower.tracker.markItemDirty('item-1' as ItemId)
-    expect(saveSpy).not.toHaveBeenCalled()
+    expect(records.db.update).not.toHaveBeenCalled()
 
     // As the page being hidden does
     await follower.flushPendingSnapshots()
     await vi.advanceTimersByTimeAsync(0)
 
-    expect(saveSpy).toHaveBeenCalledWith([['item-1', expect.objectContaining({ localModifiedAt: expect.any(Number) })]])
+    expect(records.get('item-1')).toEqual({ itemId: 'item-1', dirty: true })
     expect(mockPutSnapshots).not.toHaveBeenCalled()
   })
 
@@ -306,7 +304,7 @@ describe('SnapshotManager', () => {
 
     beforeEach(() => {
       // Default creation without options starts with isLeader: false
-      followerManager = createManager(context as any, lastModifiedStore)
+      followerManager = createManager(context as any, records.db)
     })
 
     it('defaults isLeader to false and exposes leader getter', () => {
@@ -363,11 +361,9 @@ describe('SnapshotManager', () => {
       expect(mockPutSnapshots).not.toHaveBeenCalled()
     })
 
-    it('re-reads lastModifiedStore and restores un-snapshotted items to dirty queue upon promotion to leader', async () => {
-      vi.spyOn(lastModifiedStore, 'loadTimestamps').mockResolvedValue([
-        ['item-unpushed' as ItemId, { localModifiedAt: 5000, lastSnapshotAt: 2000 }],
-        ['item-clean' as ItemId, { localModifiedAt: 3000, lastSnapshotAt: 3000 }],
-      ])
+    it('re-reads the item records and restores flagged items to dirty queue upon promotion to leader', async () => {
+      records.records.set('item-unpushed' as ItemId, { itemId: 'item-unpushed' as ItemId, dirty: true })
+      records.records.set('item-clean' as ItemId, { itemId: 'item-clean' as ItemId, baseVersion: 3 })
 
       expect(followerManager.tracker.getDirtyItemIds()).toEqual([])
 
@@ -384,9 +380,7 @@ describe('SnapshotManager', () => {
         total: 1,
       })
 
-      vi.spyOn(lastModifiedStore, 'loadTimestamps').mockResolvedValue([
-        ['item-from-previous-leader' as ItemId, { localModifiedAt: 6000, lastSnapshotAt: 1000 }],
-      ])
+      records.records.set('item-from-previous-leader' as ItemId, { itemId: 'item-from-previous-leader' as ItemId, dirty: true })
 
       await setLeader(followerManager, true)
 
@@ -406,9 +400,7 @@ describe('SnapshotManager', () => {
 
       followerManager.tracker.markItemDirty('follower-local-item' as ItemId)
 
-      vi.spyOn(lastModifiedStore, 'loadTimestamps').mockResolvedValue([
-        ['item-from-previous-leader' as ItemId, { localModifiedAt: 8000, lastSnapshotAt: 2000 }],
-      ])
+      records.records.set('item-from-previous-leader' as ItemId, { itemId: 'item-from-previous-leader' as ItemId, dirty: true })
 
       await setLeader(followerManager, true)
 
@@ -425,9 +417,7 @@ describe('SnapshotManager', () => {
     })
 
     it('has nothing due upon promotion if all stored items are clean', async () => {
-      vi.spyOn(lastModifiedStore, 'loadTimestamps').mockResolvedValue([
-        ['item-clean' as ItemId, { localModifiedAt: 4000, lastSnapshotAt: 4000 }],
-      ])
+      records.records.set('item-clean' as ItemId, { itemId: 'item-clean' as ItemId, baseVersion: 4 })
 
       await setLeader(followerManager, true)
 
@@ -436,11 +426,11 @@ describe('SnapshotManager', () => {
     })
 
     it('does not upload if leadership is revoked while promotion audit is in flight', async () => {
-      let resolveTimestamps: (val: any) => void
+      let resolveRecords: (val: any) => void
       const pendingLoad = new Promise(resolve => {
-        resolveTimestamps = resolve
+        resolveRecords = resolve
       })
-      vi.spyOn(lastModifiedStore, 'loadTimestamps').mockReturnValue(pendingLoad as any)
+      records.db.getAll.mockReturnValueOnce(pendingLoad as any)
 
       const promotionPromise = setLeader(followerManager, true)
 
@@ -448,9 +438,7 @@ describe('SnapshotManager', () => {
       await setLeader(followerManager, false)
       expect(isLeader(followerManager)).toBe(false)
 
-      resolveTimestamps!([
-        ['item-unpushed' as ItemId, { localModifiedAt: 5000, lastSnapshotAt: 2000 }],
-      ])
+      resolveRecords!([{ itemId: 'item-unpushed', dirty: true }])
       await promotionPromise
 
       elapse()
