@@ -1,6 +1,7 @@
 ---
 name: flock-browser-testing
 description: How to run and manually test Flock in the built-in browser pane quickly, covering starting the dev servers, signing up or logging in with a local test account, driving forms that swallow input, timing sync with an indicator recorder and the API logs, and simulating offline. Use this whenever you need to see a Flock change working in the real app, verify UI or sync behaviour in the browser, reproduce a bug by hand, or take a screenshot of the app, even if the user only says "check it works" or "try it in the app". Not for writing or running Cypress specs.
+model: sonnet
 ---
 
 # Testing Flock in the browser pane
