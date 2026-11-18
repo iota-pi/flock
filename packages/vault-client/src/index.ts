@@ -56,7 +56,6 @@ export type {
   VaultMetadata,
 } from './shared/types'
 export { ReencryptionWaitError, reencryptionWaitStage } from './shared/reencryptionWaitError'
-export { BackupSyncStateSchema, type BackupSyncState } from './shared/backupSyncState'
 export type { ManualRecoveryDetail, ManualRecoveryEntry, ManualRecoveryKind } from './shared/manualRecoveryStore'
 export { getOnlineState } from './utils/onlineStatus'
 export { ensurePersistentStorage } from './utils/storageQuota'

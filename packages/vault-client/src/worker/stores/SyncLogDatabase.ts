@@ -4,7 +4,8 @@ import { createLogger } from '../../utils/logger'
 
 const log = createLogger('SyncLogDatabase')
 
-const DB_VERSION = 1
+/** 2 added the `items` store */
+const DB_VERSION = 2
 
 const KEY_PATHS: Record<SyncLogStoreName, string> = {
   [SYNC_LOG_STORES.outbox]: 'itemId',
@@ -12,6 +13,7 @@ const KEY_PATHS: Record<SyncLogStoreName, string> = {
   [SYNC_LOG_STORES.firstStart]: 'itemId',
   [SYNC_LOG_STORES.snapshotRechecks]: 'itemId',
   [SYNC_LOG_STORES.unconfirmedPulls]: 'itemId',
+  [SYNC_LOG_STORES.items]: 'itemId',
 }
 
 /**
@@ -38,8 +40,11 @@ export class SyncLogDatabase {
     this.dbPromise ??= new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open(getSyncLogDatabaseName(this.accountId), DB_VERSION)
       request.onupgradeneeded = () => {
+        const db = request.result
         for (const [name, keyPath] of Object.entries(KEY_PATHS)) {
-          request.result.createObjectStore(name, { keyPath })
+          if (!db.objectStoreNames.contains(name)) {
+            db.createObjectStore(name, { keyPath })
+          }
         }
       }
       request.onerror = () => {

@@ -1,6 +1,6 @@
 # Signed Writes
 
-**Status:** not planned (2026-11-11).
+**Status:** not planned (2026-11-11). Level 4 has since been used for per-item sync records, so a revival would take the next free level.
 
 ## Decision
 

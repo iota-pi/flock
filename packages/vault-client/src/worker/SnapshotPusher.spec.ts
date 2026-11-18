@@ -6,9 +6,8 @@ import { SyncSessionState } from './SyncSessionState'
 import { type ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import { AuthError, SyncApiClient } from './SyncApiClient'
 import { RecoveryManager } from './RecoveryManager'
-import { LastModifiedStore } from './stores/LastModifiedStore'
 import { getApiAuthToken, setApiAuthToken } from '../keys/runtime'
-import { createMockKeyProvider, createMockVault, getTimestamps, noLogCoverage, spyOnVaultTrpc } from './__test__/testUtils'
+import { createMemoryItemRecords, createMockKeyProvider, createMockVault, noLogCoverage, spyOnVaultTrpc } from './__test__/testUtils'
 import { spyOnExports } from '../../test/moduleMocks'
 import { passthroughCodec } from './domain'
 import * as manualRecoveryStoreModule from '../shared/manualRecoveryStore'
@@ -222,7 +221,7 @@ describe('SnapshotPusher', () => {
 
     expect(result).toEqual({ persisted: 1, total: 1, success: true })
     expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
-    expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1000, 1, 2)
+    expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1, 2)
     expect(mockOnSnapshotStored).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'item-1', heads: ['head-1'] }))
     expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith('item-1')
   })
@@ -233,7 +232,7 @@ describe('SnapshotPusher', () => {
     const result = await push()
 
     expect(result).toEqual({ persisted: 0, total: 0, success: true })
-    expect(mockTracker.recordOversized).toHaveBeenCalledWith('item-1', 1000)
+    expect(mockTracker.recordOversized).toHaveBeenCalledWith('item-1')
     expect(mockEventHub.emit).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'snapshotFailed', itemId: 'item-1' }),
     )
@@ -251,7 +250,7 @@ describe('SnapshotPusher', () => {
 
     await push()
 
-    expect(mockTracker.recordOversized).toHaveBeenCalledWith('item-1', 1000)
+    expect(mockTracker.recordOversized).toHaveBeenCalledWith('item-1')
     expect(mockEventHub.emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'snapshotFailed' }))
     expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
   })
@@ -289,7 +288,7 @@ describe('SnapshotPusher', () => {
       expect(mockTracker.recordOversized).not.toHaveBeenCalled()
       expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
       expect(mockEventHub.emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'quotaExceeded' }))
-      expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1000, 1, 2)
+      expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1, 2)
       expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith('item-1')
       expect(mockOnSnapshotStored).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'item-1', heads: undefined }))
       expect(mockTracker.clearOversized).toHaveBeenCalledWith('item-1')
@@ -321,8 +320,8 @@ describe('SnapshotPusher', () => {
       expect(result).toEqual({ persisted: 2, total: 2, success: true })
       expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
       expect(mockApiClient.putSnapshots.mock.calls[0][0].snapshots).toHaveLength(2)
-      expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1000, 1, 3)
-      expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-2', 2000, 1, 4)
+      expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1, 3)
+      expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-2', 1, 4)
       expect(mockOnSnapshotStored).toHaveBeenCalledTimes(2)
       expect(mockOnSnapshotStored).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'item-1', heads: undefined }))
       expect(mockOnSnapshotStored).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'item-2', heads: ['head-2'] }))
@@ -425,7 +424,7 @@ describe('SnapshotPusher', () => {
     await expect(push()).resolves.toEqual({ persisted: 0, total: 0, success: false })
 
     expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(2)
-    expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1000, 1, 2)
+    expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1, 2)
     expect(mockTracker.deferUntil).toHaveBeenCalledTimes(1)
   })
 
@@ -554,7 +553,7 @@ describe('SnapshotPusher', () => {
     let session: SyncSessionState
     let mockRepo: any
     let mockHandle: any
-    let lastModifiedStore: LastModifiedStore
+    let records: ReturnType<typeof createMemoryItemRecords>
 
     /**
      * The server always lists the stored items in `results`. A mocked response that leaves them out stores
@@ -576,7 +575,7 @@ describe('SnapshotPusher', () => {
     function createPusher(options: { maxPayloadBytes?: number } = {}): void {
       session = new SyncSessionState({ isLeader: true })
       tracker = new SnapshotTracker({
-        lastModifiedStore,
+        db: records.db,
         recoveryManager: mockRecoveryManager,
         session,
       })
@@ -626,8 +625,6 @@ describe('SnapshotPusher', () => {
       })
       vi.spyOn(docStoreModule, 'normalizeItemSnapshot').mockReturnValue({ type: 'note' } as any)
 
-      // The store persists between tests, and saves merge into it
-      await new LastModifiedStore('test-account').clear()
       setApiAuthToken('mock-auth-token')
 
       mockHandle = {
@@ -638,7 +635,7 @@ describe('SnapshotPusher', () => {
         find: vi.fn().mockResolvedValue(mockHandle),
       }
       mockRecoveryManager = new RecoveryManager({ accountId: 'test-account', eventHub: mockEventHub })
-      lastModifiedStore = new LastModifiedStore('test-account')
+      records = createMemoryItemRecords()
       createPusher()
     })
 
@@ -656,7 +653,20 @@ describe('SnapshotPusher', () => {
         expect(tracker.isDue()).toBe(false)
       })
 
-      it('updates lastSnapshotAt on successful snapshot push', async () => {
+      it('uploads once the debounce has passed, at the next poll', async () => {
+        mockPutSnapshots.mockResolvedValue({ success: true, persisted: 1 })
+        vi.setSystemTime(1000)
+        tracker.markItemDirty('item-1' as ItemId)
+
+        await push()
+        expect(mockPutSnapshots).not.toHaveBeenCalled()
+
+        vi.setSystemTime(1000 + SYNC_TIMEOUTS.snapshotDebounce)
+        await push()
+        expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
+      })
+
+      it('clears the dirty flag and records the version on a successful push', async () => {
         mockPutSnapshots.mockResolvedValue({
           success: true,
           persisted: 1,
@@ -665,11 +675,9 @@ describe('SnapshotPusher', () => {
 
         tracker.markItemDirty('item-1' as ItemId)
         await uploadNow()
+        await tracker.save()
 
-        const lastSnapshotAt = getTimestamps(tracker, 'item-1').lastSnapshotAt
-        expect(lastSnapshotAt).toBeDefined()
-        expect(typeof lastSnapshotAt).toBe('number')
-        expect(lastSnapshotAt).toBeGreaterThan(0)
+        expect(records.get('item-1')).toEqual({ itemId: 'item-1', baseVersion: 1 })
       })
 
       it('leaves an item whose doc is not ready to the next poll', async () => {
@@ -1263,51 +1271,31 @@ describe('SnapshotPusher', () => {
       })
     })
 
-    describe('Snapshot Push Timestamp Parity (H4 fix)', () => {
-      const editedAt = 1000
-      /** The first poll after the edit's debounce, which builds and uploads its snapshot */
-      const uploadedAt = editedAt + SYNC_TIMEOUTS.snapshotDebounce
-      const editedAgainAt = uploadedAt + 1000
-      const encryptedAt = editedAgainAt + 1000
-
-      /** Lets the tracker's debounced save of its timestamps run */
-      async function saveTimestamps(): Promise<void> {
-        await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.snapshotTimestampsSave)
-      }
-
-      it('advances localModifiedAt to match snapshot.modified on successful push', async () => {
-        vi.setSystemTime(editedAt)
+    describe('dirty flags across an upload', () => {
+      it('clears the flag once the upload is confirmed', async () => {
+        vi.setSystemTime(1000)
         tracker.markItemDirty('item-1' as ItemId)
-        await saveTimestamps()
-
-        expect(getTimestamps(tracker, 'item-1').localModifiedAt).toBe(editedAt)
-        expect(getTimestamps(tracker, 'item-1').lastSnapshotAt).toBeUndefined()
+        await vi.advanceTimersByTimeAsync(1000)
+        expect(records.get('item-1')).toEqual({ itemId: 'item-1', dirty: true })
 
         mockPutSnapshots.mockResolvedValue({
           success: true,
           persisted: 1,
         })
 
-        // The poll after the debounce
-        vi.setSystemTime(uploadedAt)
+        // The poll after the debounce runs
+        vi.setSystemTime(1000 + SYNC_TIMEOUTS.snapshotDebounce)
         await push()
+        await vi.advanceTimersByTimeAsync(1000)
 
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-        const pushedSnapshot = mockPutSnapshots.mock.calls[0][0].snapshots[0]
-        expect(pushedSnapshot.modified).toBe(uploadedAt)
-
-        // Both timestamps must be in parity with the pushed snapshot
-        expect(getTimestamps(tracker, 'item-1').lastSnapshotAt).toBe(uploadedAt)
-        expect(getTimestamps(tracker, 'item-1').localModifiedAt).toBe(uploadedAt)
-
-        // exportLastModified must export the upload time so ManifestSyncManager matches serverTime
-        expect(tracker.exportLastModified()).toEqual([['item-1', uploadedAt]])
+        expect(records.get('item-1')).toEqual({ itemId: 'item-1', baseVersion: 1 })
       })
 
-      it('preserves newer localModifiedAt if modified again while upload is in flight', async () => {
-        vi.setSystemTime(editedAt)
+      it('keeps the flag if modified again while upload is in flight', async () => {
+        vi.setSystemTime(1000)
         tracker.markItemDirty('item-1' as ItemId)
-        await saveTimestamps()
+        await vi.advanceTimersByTimeAsync(1000)
 
         let resolveUpload: (val: any) => void
         const uploadPromise = new Promise(resolve => {
@@ -1316,43 +1304,35 @@ describe('SnapshotPusher', () => {
         mockPutSnapshots.mockImplementation(() => uploadPromise)
 
         // The poll after the debounce starts
-        vi.setSystemTime(uploadedAt)
+        vi.setSystemTime(1000 + SYNC_TIMEOUTS.snapshotDebounce)
         const run = push()
         await vi.advanceTimersByTimeAsync(0)
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
 
         // While upload is in flight, user modifies item-1 again
-        vi.setSystemTime(editedAgainAt)
         tracker.markItemDirty('item-1' as ItemId)
-        await saveTimestamps()
-        expect(getTimestamps(tracker, 'item-1').localModifiedAt).toBe(editedAgainAt)
 
-        // Upload completes for the snapshot built at uploadedAt
+        // Upload completes for the snapshot built before the edit
         resolveUpload!({
           success: true,
           persisted: 1,
         })
         await run
+        await vi.advanceTimersByTimeAsync(1000)
 
-        // lastSnapshotAt is uploadedAt, but localModifiedAt must keep the later edit
-        expect(getTimestamps(tracker, 'item-1').lastSnapshotAt).toBe(uploadedAt)
-        expect(getTimestamps(tracker, 'item-1').localModifiedAt).toBe(editedAgainAt)
         expect(tracker.getDirtyItemIds()).toContain('item-1')
-        expect(tracker.exportLastModified()).toEqual([['item-1', editedAgainAt]])
+        expect(records.get('item-1')).toEqual({ itemId: 'item-1', baseVersion: 1, dirty: true })
       })
 
-      it('retains newer localModifiedAt and re-enqueues item if a local edit occurs during snapshot encryption (C3 fix)', async () => {
-        vi.setSystemTime(editedAt)
+      it('re-enqueues an item after a restart if a local edit occurs during snapshot encryption (C3 fix)', async () => {
+        vi.setSystemTime(1000)
         tracker.markItemDirty('item-1' as ItemId)
-        await saveTimestamps()
+        await vi.advanceTimersByTimeAsync(1000)
 
         const { encryptBytes } = vault
         vi.mocked(encryptBytes).mockImplementationOnce(async () => {
-          // Local edit arrives while encryption is in-flight
-          vi.setSystemTime(editedAgainAt)
+          // A local edit arrives while encryption is in flight
           tracker.markItemDirty('item-1' as ItemId)
-          // Encryption completes after it
-          vi.setSystemTime(encryptedAt)
           return { iv: 'mock-iv', cipher: 'mock-cipher', kver: '1' }
         })
 
@@ -1361,26 +1341,19 @@ describe('SnapshotPusher', () => {
           persisted: 1,
         })
 
-        // The poll after the debounce
-        vi.setSystemTime(uploadedAt)
+        // The poll after the debounce runs
+        vi.setSystemTime(1000 + SYNC_TIMEOUTS.snapshotDebounce)
         await push()
 
-        // Snapshot timestamp was captured when the poll started, so lastSnapshotAt must be uploadedAt
-        expect(getTimestamps(tracker, 'item-1').lastSnapshotAt).toBe(uploadedAt)
         // The edit made during encryption keeps the item dirty
         expect(tracker.getDirtyItemIds()).toContain('item-1')
 
-        // The debounced save records the edit as newer than the uploaded snapshot
-        await saveTimestamps()
-        expect(getTimestamps(tracker, 'item-1').localModifiedAt).toBeGreaterThan(uploadedAt)
-
-        // Persist timestamps and simulate restart / promotion audit
-        await tracker.saveLastModified()
+        // Save the records and simulate restart / promotion audit
+        await tracker.save()
         await restart()
         expect(tracker.getDirtyItemIds()).not.toContain('item-1')
 
-        await tracker.loadLastModified()
-        // Startup audit should detect localModifiedAt > lastSnapshotAt and re-enqueue item-1
+        await tracker.load()
         expect(tracker.getDirtyItemIds()).toContain('item-1')
       })
     })

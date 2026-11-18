@@ -11,12 +11,11 @@ import { Keyring } from '../keys/Keyring'
 import { setApiAuthToken } from '../keys/runtime'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { resetQuotaExceededStatus } from '../utils/storageManager'
-import type { BackupSyncState } from '../shared/backupSyncState'
 import type { ItemId } from '@vault/shared'
 import { SyncWorkerContext, type SyncSessionConfig } from './SyncWorkerContext'
 import { SyncApiClient } from './SyncApiClient'
 import { ItemSubscriptions } from './ItemSubscriptions'
-import { exportAllBinaries, exportSyncState, restoreFromBinaries, restoreSyncState, type RepoDoc } from './docStore'
+import { exportAllBinaries, restoreFromBinaries, type RepoDoc } from './docStore'
 import { configureVaultEndpoint, initVaultTrpcClient } from '../keys/vaultTrpcClient'
 import { configureVaultStorageNames, type VaultStorageNames } from '../shared/storageNames'
 import { getTrackedFetch } from '../keys/trackedFetch'
@@ -452,12 +451,6 @@ export class SyncWorker implements SyncApi {
 
   getSyncDiagnostics = () =>
     this.withContext(ctx => ctx.getSyncDiagnostics())
-
-  exportSyncState = (): Promise<BackupSyncState> =>
-    this.withContext(({ services }) => exportSyncState(services.snapshotManager))
-
-  restoreSyncState = (state: Partial<BackupSyncState>) =>
-    this.withContext(({ services }) => restoreSyncState(services.snapshotManager, state))
 
   claimLeader = () =>
     this.withContext(ctx => ctx.claimLeader())

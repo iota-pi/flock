@@ -29,9 +29,10 @@ export interface DataVersionTrackerDeps {
   raiseAccountDataVersion: () => Promise<{ dataVersion: number, blockers: string[], blockedItems?: Record<string, number> }>
   /**
    * The highest level this device's local data has reached, when some of it is still in an older
-   * layout (such as plaintext stores not yet retired). The recorded level never exceeds it.
+   * layout (such as plaintext stores not yet retired) or first start hasn't finished. The recorded
+   * level never exceeds it.
    */
-  maxDeviceVersion?: () => number
+  maxDeviceVersion?: () => number | Promise<number>
 }
 
 /**
@@ -41,12 +42,14 @@ export interface DataVersionTrackerDeps {
  * - The device level is written to the account's sync metadata once a manifest sync finishes
  *   without failures. By then the session has run every local migration: the app's
  *   `migrateLocalData` hook before any store was read, and legacy settings during the sync. A device with no
- *   local data starts at the current version.
+ *   local data starts at the current version. Each status check writes it again after such a sync,
+ *   so a level reached between syncs (first start finishing, say) doesn't wait for the next one.
  * - The account level is raised by the server, which checks the account's stored data first. The
  *   leader asks once per session, after this device has rewritten its snapshots.
  */
 export class DataVersionTracker {
   private hasAskedServer = false
+  private hasSyncedWithoutFailures = false
 
   constructor(private readonly deps: DataVersionTrackerDeps) {}
 
@@ -58,11 +61,13 @@ export class DataVersionTracker {
   }
 
   async onSyncedWithoutFailures(): Promise<void> {
+    this.hasSyncedWithoutFailures = true
     await this.recordDeviceVersion()
   }
 
   /** Reads the device level and asks the server to raise the account level, reporting both */
   async checkStatus(): Promise<DataVersionStatus> {
+    if (this.hasSyncedWithoutFailures) await this.recordDeviceVersion()
     const device = await readDeviceDataVersion(this.deps.accountId)
     const { dataVersion, blockers, blockedItems } = await this.deps.raiseAccountDataVersion()
     return { device, account: dataVersion, blockers, ...(blockedItems ? { blockedItems } : {}) }
@@ -80,7 +85,7 @@ export class DataVersionTracker {
   private async recordDeviceVersion(): Promise<void> {
     const { accountId, dataVersion } = this.deps
     if (dataVersion === 0) return
-    const reached = Math.min(dataVersion, this.deps.maxDeviceVersion?.() ?? dataVersion)
+    const reached = Math.min(dataVersion, await this.deps.maxDeviceVersion?.() ?? dataVersion)
     if (await readDeviceDataVersion(accountId) >= reached) return
     const storage = getSyncMetadataStorage(accountId)
     await runStorageOperation(() => storage.setItem(SYNC_METADATA_KEYS.DEVICE_DATA_VERSION, reached))

@@ -133,12 +133,8 @@ export class SnapshotPusher {
     }
   }
 
-  private handleOversizedItem(
-    itemId: ItemId,
-    snapshotSize: number,
-    modified: number,
-  ): void {
-    if (this.deps.tracker.recordOversized(itemId, modified)) {
+  private handleOversizedItem(itemId: ItemId, snapshotSize: number): void {
+    if (this.deps.tracker.recordOversized(itemId)) {
       log.error(
         `Snapshot for item ${itemId} exceeds maxPayloadBytes (${snapshotSize} > ${this.maxPayloadBytes}). Skipping.`,
       )
@@ -208,7 +204,7 @@ export class SnapshotPusher {
     }
 
     if (snapshotSize > this.maxPayloadBytes) {
-      this.handleOversizedItem(itemId, snapshotSize, snapshot.modified)
+      this.handleOversizedItem(itemId, snapshotSize)
       return { type: 'skip' }
     }
 
@@ -228,7 +224,7 @@ export class SnapshotPusher {
       this.consecutiveFailures.reset(itemId)
       const assignedVersion = versions.get(itemId)
       const baseVersion = this.deps.tracker.getBaseVersion(itemId)
-      this.deps.tracker.recordSnapshotSuccess(itemId, item.snapshot.modified, item.tick, assignedVersion)
+      this.deps.tracker.recordSnapshotSuccess(itemId, item.tick, assignedVersion)
       this.deps.onSnapshotStored({ itemId, version: assignedVersion ?? baseVersion, baseVersion, heads: item.heads, logSeq })
       fireAndForget(
         this.deps.recoveryManager.unquarantine(item.snapshot.itemId),

@@ -8,8 +8,6 @@ export const SYNC_METADATA_KEYS = {
   INDEX_DOC: 'indexDoc',
   /** The index sealed with the device storage key (see IndexStore) */
   INDEX_DOC_SEALED: 'indexDocSealed',
-  LAST_MODIFIED: 'lastModified',
-  SYNCED_HEADS: 'syncedHeads',
   /** Set once this device has rewritten every snapshot bound to its document (see SnapshotFormatUpgrade) */
   SNAPSHOTS_DOC_BOUND: 'snapshotsDocBound',
   /** The app's data version this device's local data has been migrated to (see DataVersionTracker) */

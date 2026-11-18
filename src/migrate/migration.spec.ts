@@ -177,10 +177,12 @@ describe('migration', () => {
   })
 
   it('is complete once each level reaches its minimum', () => {
-    expect(isMigrationComplete({ device: 3, account: 2, blockers: [] })).toBe(true)
-    expect(isMigrationComplete({ device: 3, account: 1, blockers: ['legacyKeyDerivation'] })).toBe(false)
+    expect(isMigrationComplete({ device: 4, account: 2, blockers: [] })).toBe(true)
+    expect(isMigrationComplete({ device: 4, account: 1, blockers: ['legacyKeyDerivation'] })).toBe(false)
     // A device whose local data isn't sealed yet
     expect(isMigrationComplete({ device: 2, account: 2, blockers: [] })).toBe(false)
+    // A device that has sealed its local data but not finished first start or moved its sync records
+    expect(isMigrationComplete({ device: 3, account: 2, blockers: [] })).toBe(false)
   })
 
   it('describes what is left, with the item counts the server sent', () => {

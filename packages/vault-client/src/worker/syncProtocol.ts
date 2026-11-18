@@ -1,6 +1,5 @@
 import type { DataVersionStatus, ReencryptOptions, ReencryptResult, SyncDiagnostics, UnsyncedChanges, VaultDoc, VaultMetadata } from '../shared/types'
 import type { ManualRecoveryEntry, ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
-import type { BackupSyncState } from '../shared/backupSyncState'
 import type { ItemId } from '@vault/shared'
 
 export interface InitRepoOptions {
@@ -62,8 +61,6 @@ export interface SyncApi<TDoc extends VaultDoc = VaultDoc, TMeta extends VaultMe
   cancelReencryption: () => Promise<void>
   /** What the session is waiting on, for a migration app to report when it stalls */
   getSyncDiagnostics: () => Promise<SyncDiagnostics>
-  exportSyncState: () => Promise<BackupSyncState>
-  restoreSyncState: (state: Partial<BackupSyncState>) => Promise<void>
   claimLeader: () => Promise<void>
   /**
    * Records whether the page is visible, so polling slows while none of the account's tabs is.

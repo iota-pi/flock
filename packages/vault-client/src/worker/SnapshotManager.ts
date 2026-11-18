@@ -1,5 +1,5 @@
 import type { ItemId } from '@vault/shared'
-import type { LastModifiedStore } from './stores/LastModifiedStore'
+import type { SyncLogDatabase } from './stores/SyncLogDatabase'
 import type { ClientEventHub } from './SyncEventHub'
 import type { RecoveryManager } from './RecoveryManager'
 import type { SyncApiClient } from './SyncApiClient'
@@ -37,7 +37,7 @@ export class SnapshotManager implements StoredSnapshotRecorder {
     deps: {
       accountId: string
       session: SyncSessionState
-      lastModifiedStore: LastModifiedStore
+      db: Pick<SyncLogDatabase, 'getAll' | 'update'>
       builder: SnapshotBuilder
       pushToLog: (itemIds: ItemId[], signal?: AbortSignal) => Promise<void>
       onSnapshotStored: (details: StoredSnapshotDetails) => void
@@ -55,7 +55,7 @@ export class SnapshotManager implements StoredSnapshotRecorder {
     this.session = deps.session
     this.runPollNow = deps.runPollNow
     this.tracker = new SnapshotTracker({
-      lastModifiedStore: deps.lastModifiedStore,
+      db: deps.db,
       recoveryManager: deps.recoveryManager,
       debounceDelayMs: options?.debounceDelayMs,
       maxWaitMs: options?.maxWaitMs,
@@ -84,7 +84,7 @@ export class SnapshotManager implements StoredSnapshotRecorder {
     this.tracker.onLeaderChange()
 
     if (this.session.isLeader) {
-      await this.tracker.loadLastModified()
+      await this.tracker.load()
     }
   }
 

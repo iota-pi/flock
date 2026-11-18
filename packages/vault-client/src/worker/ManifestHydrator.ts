@@ -28,7 +28,6 @@ export type HydrateItemResult =
     snapshot?: VaultDoc
     /** Content decoded from a legacy format, which has to be uploaded as a snapshot */
     legacySnapshot?: VaultDoc
-    lastModifiedUpdate?: [ItemId, number]
     versionUpdate?: [ItemId, number]
   }
   | {
@@ -58,7 +57,6 @@ export type HydrateItemResult =
 interface FetchAndHydrateParams {
   missingIds: ItemId[]
   manifest: ManifestEntry[]
-  serverTime: number
   knownSet: Set<ItemId>
   tombstoneSet: Set<ItemId>
 }
@@ -164,7 +162,6 @@ export class ManifestHydrator {
     const snapshots: VaultDoc[] = []
     const legacySnapshots: VaultDoc[] = []
     const hydratedIds: ItemId[] = []
-    const lastModifiedUpdates: [ItemId, number][] = []
     const versionUpdates: [ItemId, number][] = []
     let hasHydrationFailures = false
     let hasMigrationRequired = false
@@ -183,7 +180,6 @@ export class ManifestHydrator {
           manifestById,
           params.knownSet,
           params.tombstoneSet,
-          params.serverTime,
         )
       },
     )
@@ -200,9 +196,6 @@ export class ManifestHydrator {
           }
           if (result.legacySnapshot) {
             legacySnapshots.push(result.legacySnapshot)
-          }
-          if (result.lastModifiedUpdate) {
-            lastModifiedUpdates.push(result.lastModifiedUpdate)
           }
           if (result.versionUpdate) {
             versionUpdates.push(result.versionUpdate)
@@ -259,10 +252,6 @@ export class ManifestHydrator {
       await this.deps.storeItems(legacySnapshots, { markDirty: true })
     }
 
-    if (lastModifiedUpdates.length > 0) {
-      await this.deps.snapshotTracker.importLastModified(lastModifiedUpdates)
-    }
-
     if (versionUpdates.length > 0) {
       await this.deps.snapshotTracker.importVersions(versionUpdates)
     }
@@ -278,12 +267,10 @@ export class ManifestHydrator {
     manifestById: ReadonlyMap<ItemId, ManifestEntry>,
     knownSet: Set<ItemId>,
     tombstoneSet: Set<ItemId> = new Set(),
-    serverTimeFallback: number = Date.now(),
   ): Promise<HydrateItemResult> {
     const itemId = item.item as ItemId
     try {
       const manifestEntry = manifestById.get(itemId)
-      const serverTime = manifestEntry?.modifiedAt ?? serverTimeFallback
       const serverVersion = (manifestEntry?.version && manifestEntry.version > 0)
         ? manifestEntry.version
         : (item.version ?? 1)
@@ -293,7 +280,6 @@ export class ManifestHydrator {
           status: 'success',
           itemId,
           snapshot: { id: item.item, deleted: true },
-          lastModifiedUpdate: [itemId, serverTime],
           versionUpdate: [itemId, serverVersion],
         }
       }
@@ -302,7 +288,6 @@ export class ManifestHydrator {
         const binaryResult = await this.hydrateSnapshotBinary(
           itemId,
           item.snapshot,
-          serverTime,
           serverVersion,
           knownSet,
           tombstoneSet,
@@ -326,7 +311,6 @@ export class ManifestHydrator {
       const legacyResult = await this.hydrateLegacyItem(
         itemId,
         item,
-        serverTime,
         serverVersion,
         tombstoneSet,
       )
@@ -351,7 +335,6 @@ export class ManifestHydrator {
   private async hydrateSnapshotBinary(
     itemId: ItemId,
     snapshot: CryptoResult,
-    serverTime: number,
     serverVersion: number,
     knownSet: Set<ItemId>,
     tombstoneSet: Set<ItemId>,
@@ -386,7 +369,6 @@ export class ManifestHydrator {
       status: 'success',
       itemId,
       hydratedId: isDeleted ? undefined : itemId,
-      lastModifiedUpdate: hydrationResult?.hasLocalChanges ? undefined : [itemId, serverTime],
       versionUpdate: [itemId, serverVersion],
     }
   }
@@ -394,7 +376,6 @@ export class ManifestHydrator {
   private async hydrateLegacyItem(
     itemId: ItemId,
     item: FetchedItem,
-    serverTime: number,
     serverVersion: number,
     tombstoneSet: Set<ItemId>,
   ): Promise<HydrateItemResult | null> {
@@ -429,7 +410,6 @@ export class ManifestHydrator {
       status: 'success',
       itemId,
       legacySnapshot: snapshot as VaultDoc,
-      lastModifiedUpdate: [snapshotId, serverTime],
       versionUpdate: [snapshotId, serverVersion],
     }
   }

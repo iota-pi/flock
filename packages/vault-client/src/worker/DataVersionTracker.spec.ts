@@ -72,6 +72,49 @@ describe('DataVersionTracker', () => {
     await expect(readDeviceDataVersion('acct')).resolves.toBe(3)
   })
 
+  it('waits for a cap that has to look something up', async () => {
+    const tracker = new DataVersionTracker({
+      accountId: 'acct',
+      dataVersion: 4,
+      raiseAccountDataVersion: vi.fn(),
+      maxDeviceVersion: async () => 3,
+    })
+
+    await tracker.onStart(false)
+
+    await expect(readDeviceDataVersion('acct')).resolves.toBe(3)
+  })
+
+  it('records a level reached since the last sync when the status is checked', async () => {
+    storage.set(SYNC_METADATA_KEYS.DEVICE_DATA_VERSION, 3)
+    let reached = 3
+    const tracker = new DataVersionTracker({
+      accountId: 'acct',
+      dataVersion: 4,
+      raiseAccountDataVersion: vi.fn(async () => ({ dataVersion: 4, blockers: [] })),
+      maxDeviceVersion: () => reached,
+    })
+    await tracker.onSyncedWithoutFailures()
+
+    reached = Number.POSITIVE_INFINITY
+    const status = await tracker.checkStatus()
+
+    expect(status.device).toBe(4)
+  })
+
+  it('records nothing at a status check before a sync without failures', async () => {
+    storage.set(SYNC_METADATA_KEYS.DEVICE_DATA_VERSION, 3)
+    const tracker = new DataVersionTracker({
+      accountId: 'acct',
+      dataVersion: 4,
+      raiseAccountDataVersion: vi.fn(async () => ({ dataVersion: 4, blockers: [] })),
+    })
+
+    const status = await tracker.checkStatus()
+
+    expect(status.device).toBe(3)
+  })
+
   it('asks the server to raise the account version once per session', async () => {
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
     const { tracker, raiseAccountDataVersion } = createTracker(2, ['unboundSnapshots'])

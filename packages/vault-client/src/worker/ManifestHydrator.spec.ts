@@ -50,7 +50,6 @@ describe('ManifestHydrator', () => {
       removeItemIds: vi.fn().mockResolvedValue(undefined),
     }
     mockSnapshotTracker = {
-      importLastModified: vi.fn().mockResolvedValue(undefined),
       importVersions: vi.fn().mockResolvedValue(undefined),
       markItemDirty: vi.fn(),
     }
@@ -95,7 +94,6 @@ describe('ManifestHydrator', () => {
         status: 'success',
         itemId: 'item-binary',
         hydratedId: 'item-binary',
-        lastModifiedUpdate: ['item-binary', 2000],
         versionUpdate: ['item-binary', 1],
       })
       expect(onItemSnapshotHydratedSpy).toHaveBeenCalledWith('item-binary', ['head-1'])
@@ -122,7 +120,6 @@ describe('ManifestHydrator', () => {
         status: 'success',
         itemId: 'item-no-heads',
         hydratedId: 'item-no-heads',
-        lastModifiedUpdate: ['item-no-heads', 2000],
         versionUpdate: ['item-no-heads', 1],
       })
       expect(onItemSnapshotHydratedSpy).not.toHaveBeenCalled()
@@ -150,7 +147,6 @@ describe('ManifestHydrator', () => {
         status: 'success',
         itemId: 'item-binary-changes',
         hydratedId: 'item-binary-changes',
-        lastModifiedUpdate: undefined,
         versionUpdate: ['item-binary-changes', 3],
       })
       expect(mockSnapshotTracker.markItemDirty).toHaveBeenCalledWith('item-binary-changes', 2000)
@@ -172,7 +168,6 @@ describe('ManifestHydrator', () => {
         status: 'success',
         itemId: 'item-deleted-meta',
         snapshot: { id: 'item-deleted-meta', deleted: true },
-        lastModifiedUpdate: ['item-deleted-meta', 3000],
         versionUpdate: ['item-deleted-meta', 5],
       })
       expect(mockDecryptBytes).not.toHaveBeenCalled()
@@ -254,7 +249,6 @@ describe('ManifestHydrator', () => {
         status: 'success',
         itemId: 'item-legacy',
         legacySnapshot: { id: 'item-legacy', type: 'person', name: 'Alice' },
-        lastModifiedUpdate: ['item-legacy', 2000],
         versionUpdate: ['item-legacy', 4],
       })
     })
@@ -265,7 +259,6 @@ describe('ManifestHydrator', () => {
       const result = await createHydrator().fetchAndHydrateRemoteItems({
         missingIds: ['item-legacy' as ItemId],
         manifest: [{ itemId: 'item-legacy' as ItemId, modifiedAt: 2000 }],
-        serverTime: 2000,
         knownSet: new Set(),
         tombstoneSet: new Set(),
       })
@@ -344,7 +337,6 @@ describe('ManifestHydrator', () => {
       const result = await withoutHook.fetchAndHydrateRemoteItems({
         missingIds: ['item-legacy', 'item-legacy-2'] as ItemId[],
         manifest: [],
-        serverTime: 2000,
         knownSet: new Set(),
         tombstoneSet: new Set(),
       })
@@ -396,7 +388,6 @@ describe('ManifestHydrator', () => {
       const result = await hydrator.fetchAndHydrateRemoteItems({
         missingIds: ['item-1' as ItemId],
         manifest: [{ itemId: 'item-1' as ItemId, modifiedAt: 1000 }],
-        serverTime: 1000,
         knownSet: new Set(),
         tombstoneSet: new Set(),
       })
@@ -406,7 +397,7 @@ describe('ManifestHydrator', () => {
         [{ id: 'item-1', deleted: true }],
         { markDirty: false },
       )
-      expect(mockSnapshotTracker.importLastModified).toHaveBeenCalledWith([['item-1', 1000]])
+      expect(mockSnapshotTracker.importVersions).toHaveBeenCalledWith([['item-1', 1]])
     })
 
     it('reports decryption failure to onDecryptionFailure', async () => {
@@ -423,7 +414,6 @@ describe('ManifestHydrator', () => {
       const result = await hydrator.fetchAndHydrateRemoteItems({
         missingIds: ['item-bad' as ItemId],
         manifest: [{ itemId: 'item-bad' as ItemId, version: 4, modifiedAt: 1000 }],
-        serverTime: 1000,
         knownSet: new Set(),
         tombstoneSet: new Set(),
       })
@@ -446,7 +436,6 @@ describe('ManifestHydrator', () => {
       const result = await hydrator.fetchAndHydrateRemoteItems({
         missingIds: ['item-new-key' as ItemId],
         manifest: [{ itemId: 'item-new-key' as ItemId, modifiedAt: 1000 }],
-        serverTime: 1000,
         knownSet: new Set(),
         tombstoneSet: new Set(),
       })
@@ -460,7 +449,6 @@ describe('ManifestHydrator', () => {
       const params = () => ({
         missingIds: ['item-err' as ItemId],
         manifest: [{ itemId: 'item-err' as ItemId, version: 7, modifiedAt: 1000 }],
-        serverTime: 1000,
         knownSet: new Set<ItemId>(),
         tombstoneSet: new Set<ItemId>(),
       })
@@ -519,7 +507,6 @@ describe('ManifestHydrator', () => {
       const fetchParams = {
         missingIds: ids,
         manifest: ids.map(itemId => ({ itemId, modifiedAt: 1000 })),
-        serverTime: 1000,
         knownSet: new Set<ItemId>(),
         tombstoneSet: new Set<ItemId>(),
       }
@@ -556,7 +543,6 @@ describe('ManifestHydrator', () => {
       const result = await hydrator.fetchAndHydrateRemoteItems({
         missingIds: ['item-err' as ItemId],
         manifest: [{ itemId: 'item-err' as ItemId, modifiedAt: 1000 }],
-        serverTime: 1000,
         knownSet: new Set(),
         tombstoneSet: new Set(),
       })
@@ -602,7 +588,6 @@ describe('ManifestHydrator', () => {
       const result = await customHydrator.fetchAndHydrateRemoteItems({
         missingIds,
         manifest,
-        serverTime: 1000,
         knownSet: new Set(),
         tombstoneSet: new Set(),
       })
@@ -636,7 +621,6 @@ describe('ManifestHydrator', () => {
           {
             missingIds: items.map(e => e.item as ItemId),
             manifest: items.map(e => ({ itemId: e.item as ItemId, modifiedAt: 1000 })),
-            serverTime: 1000,
             knownSet: new Set(),
             tombstoneSet: new Set(),
           },

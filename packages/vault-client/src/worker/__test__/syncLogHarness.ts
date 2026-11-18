@@ -8,6 +8,7 @@ import { SyncOrchestrator } from '../SyncOrchestrator'
 import { SyncWorkerContext, type SyncWorkerContextConfig } from '../SyncWorkerContext'
 import type { VaultDoc } from '../../shared/types'
 import { getSyncMetadataStorage, SYNC_METADATA_KEYS } from '../stores/syncMetadataStorage'
+import { importItemSyncRecords } from '../stores/itemSyncRecords'
 import { createMockLocalForagePool, mockLocalForage } from './testUtils'
 import { createSyncApiClient, type VaultServerBackend } from './vaultServers'
 
@@ -88,7 +89,7 @@ export class Device {
     await storage.removeItem(SYNC_METADATA_KEYS.WAL_CLEARED)
     await storage.removeItem(SYNC_METADATA_KEYS.LOG_CURSOR)
     await storage.removeItem(SYNC_METADATA_KEYS.LOG_LAST_PULL_AT)
-    await storage.setItem(SYNC_METADATA_KEYS.SYNCED_HEADS, oldHeads)
+    await importItemSyncRecords(this.name, oldHeads.map(([itemId, serverHeads]) => ({ itemId, serverHeads })))
   }
 
   async create(id: string, fields: Record<string, unknown> = {}): Promise<ItemId> {

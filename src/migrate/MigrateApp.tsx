@@ -387,10 +387,11 @@ export default function MigrateApp() {
     await finish()
   }, [account, finish])
 
-  // The main app can't log in to an account still on the old key derivation, so deferring then
-  // would only bring the user straight back here
+  // The main app can't log in to an account still on the old key derivation, and a deferral only
+  // skips the account check, so deferring either one would bring the user straight back here
   const canContinueAnyway = phase.kind === 'blocked'
     && phase.status !== null
+    && phase.status.device >= MIN_DEVICE_DATA_VERSION
     && !phase.status.blockers.includes('legacyKeyDerivation')
 
   return (

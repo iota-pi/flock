@@ -16,6 +16,8 @@ export const SYNC_LOG_STORES = {
   snapshotRechecks: 'snapshot-rechecks',
   /** Items with pulled changes no snapshot has confirmed (rule S3 of snapshot coverage) */
   unconfirmedPulls: 'unconfirmed-pulls',
+  /** One record per item of what this device knows of the server's copy (see ItemSyncRecord) */
+  items: 'items',
 } as const
 
 export type SyncLogStoreName = typeof SYNC_LOG_STORES[keyof typeof SYNC_LOG_STORES]

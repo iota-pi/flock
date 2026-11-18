@@ -1,6 +1,7 @@
 import { debounce } from 'lodash-es'
 import type { ItemId } from '@vault/shared'
-import type { SyncedHeadsStore } from './stores/SyncedHeadsStore'
+import type { SyncLogDatabase } from './stores/SyncLogDatabase'
+import { readItemSyncRecords, updateItemSyncRecords } from './stores/itemSyncRecords'
 import { areHeadsEqual } from './utils/automerge'
 import { AsyncMutex } from '../utils/AsyncMutex'
 import { fireAndForget } from '../utils/fireAndForget'
@@ -12,9 +13,10 @@ const SAVE_DEBOUNCE_MS = 1000
 
 /**
  * The heads of each item whose every ancestor is on the server, in the log or in the item's current
- * snapshot. Pushes send what the doc has after them. Only the leader records them, but a tab that has
- * just stopped leading can still save after the new leader loaded, and heads loaded earlier may be
- * older than the store, so a save writes only what this tab changed.
+ * snapshot. Pushes send what the doc has after them. They're kept in each item's sync record. Only the
+ * leader records them, but a tab that has just stopped leading can still save after the new leader
+ * loaded, and heads loaded earlier may be older than the store, so a save writes only the items this
+ * tab changed.
  */
 export class ServerHeads {
   private readonly headsByItem = new Map<ItemId, string[]>()
@@ -26,14 +28,17 @@ export class ServerHeads {
     SAVE_DEBOUNCE_MS,
   )
 
-  constructor(private readonly store: Pick<SyncedHeadsStore, 'loadSyncedHeads' | 'saveSyncedHeads'>) {}
+  constructor(private readonly db: Pick<SyncLogDatabase, 'getAll' | 'update'>) {}
 
   /** Loads the stored heads. Heads this tab hasn't saved yet stay. */
   async load(): Promise<void> {
-    const stored = await this.store.loadSyncedHeads()
+    const records = await readItemSyncRecords(this.db)
     const kept = new Map(Array.from(this.unsaved, itemId => [itemId, this.get(itemId)]))
     this.headsByItem.clear()
-    for (const [itemId, heads] of [...stored ?? [], ...kept]) {
+    for (const { itemId, serverHeads } of records) {
+      if (serverHeads) this.headsByItem.set(itemId, serverHeads)
+    }
+    for (const [itemId, heads] of kept) {
       this.headsByItem.set(itemId, heads)
     }
   }
@@ -62,11 +67,7 @@ export class ServerHeads {
       const changed = Array.from(this.unsaved)
       this.unsaved.clear()
       try {
-        const merged = new Map(await this.store.loadSyncedHeads() ?? [])
-        for (const itemId of changed) {
-          merged.set(itemId, this.get(itemId))
-        }
-        await this.store.saveSyncedHeads(Array.from(merged.entries()))
+        await updateItemSyncRecords(this.db, changed, record => ({ ...record, serverHeads: this.get(record.itemId) }))
       } catch (error) {
         for (const itemId of changed) {
           this.unsaved.add(itemId)

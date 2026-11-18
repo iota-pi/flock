@@ -6,6 +6,7 @@ import type { RecoveryManager } from './RecoveryManager'
 import type { ServerHeads } from './ServerHeads'
 import { decryptSnapshotHeads } from './snapshotHeads'
 import { SyncLogDatabase } from './stores/SyncLogDatabase'
+import { clearServerHeads } from './stores/itemSyncRecords'
 import { getSyncMetadataStorage, SYNC_METADATA_KEYS } from './stores/syncMetadataStorage'
 import { createPendingMark } from './ChangeOutbox'
 import { MissingKeyError } from './utils/decryptWithKeyResolution'
@@ -56,11 +57,11 @@ export async function runFirstStartLocalPart(accountId: string, listItemIds: () 
     const records: FirstStartRecord[] = itemIds.map(itemId => ({ itemId, state: 'awaitingHeads' }))
     await db.put(SYNC_LOG_STORES.firstStart, ...records)
     await db.put(SYNC_LOG_STORES.outbox, ...itemIds.map(createPendingMark))
+    await clearServerHeads(db)
   } finally {
     await db.close()
   }
   await runStorageOperation(async () => {
-    await storage.removeItem(SYNC_METADATA_KEYS.SYNCED_HEADS)
     await storage.removeItem(SYNC_METADATA_KEYS.CURSORS)
     await storage.setItem(SYNC_METADATA_KEYS.FIRST_START_RESET, true)
   })
@@ -106,6 +107,10 @@ export interface FirstStartDeps {
  * Its pending mark stays while it waits, so an item that never resolves would wait for good. Each
  * way an item can get stuck is retried a few times, spaced out (`FIRST_START_MAX_ATTEMPTS`), and
  * then quarantined, which shows it in manual recovery instead of as waiting to sync.
+ *
+ * It runs only in an app's migration app: the device level at which it has finished
+ * (`firstStartDataVersion`) waits for `settle`, and an app whose device gate is at that level uses
+ * `FINISHED_FIRST_START` instead.
  */
 export class FirstStart {
   private readonly records = new Map<ItemId, FirstStartRecord>()
@@ -115,12 +120,15 @@ export class FirstStart {
   /** Whether heads are resolved enough for pushes to go ahead */
   private isReadyToPush = false
   private latestManifest: ManifestEntry[] | null = null
+  /** When a manifest sync last reached first start, so `runDue` runs at most one per retry gap */
+  private lastManifestAt = 0
   private hasTriedWalClear = false
   /** Why the network part last failed, cleared once it finishes */
   private lastError: string | null = null
   private readonly readyToPush = Promise.withResolvers<void>()
   private readonly networkPart = new SingleFlightGuard<void>()
   private readonly resolveGuard = new SingleFlightGuard<void>()
+  private readonly walClear = new SingleFlightGuard<void>()
 
   constructor(private readonly deps: FirstStartDeps) {}
 
@@ -230,13 +238,43 @@ export class FirstStart {
   }
 
   private async clearWal(): Promise<void> {
-    if (await this.storage.getItem<boolean>(SYNC_METADATA_KEYS.WAL_CLEARED)) return
-    await clearWriteAheadLog(this.deps.accountId)
-    await runStorageOperation(() => this.storage.setItem(SYNC_METADATA_KEYS.WAL_CLEARED, true))
+    await this.walClear.run(async () => {
+      if (await this.storage.getItem<boolean>(SYNC_METADATA_KEYS.WAL_CLEARED)) return
+      await clearWriteAheadLog(this.deps.accountId)
+      await runStorageOperation(() => this.storage.setItem(SYNC_METADATA_KEYS.WAL_CLEARED, true))
+    })
+  }
+
+  /**
+   * Whether first start has finished on this device: the network part has run, the WAL is gone and
+   * every item left is quarantined. Once it has, the quarantined items' records are removed, leaving
+   * them to recovery like any other quarantined item, with their pending marks. After this returns
+   * true, the engine needs nothing more from first start. A tab whose records are stale only ever
+   * holds more of them, never fewer, so it can't finish early.
+   */
+  async settle(): Promise<boolean> {
+    if (!this.isSynced) return false
+    try {
+      // The start-up clear may have failed, and a device that has finished never tries it again
+      await this.clearWal()
+    } catch (error) {
+      log.warn('Failed to clear the write-ahead log; first start has not finished', error)
+      return false
+    }
+    const records = Array.from(this.records.values())
+    if (records.length === 0) return true
+    const quarantined = await this.listQuarantined()
+    if (records.some(record => !quarantined.has(record.itemId))) return false
+    log.info(`First start has finished, leaving ${records.length} quarantined items to recovery`)
+    for (const { itemId } of records) {
+      await this.removeRecord(itemId)
+    }
+    return true
   }
 
   /** Resolves what it can from a manifest sync, which has merged whatever it could first */
   async onManifestProcessed(manifest: ManifestEntry[]): Promise<void> {
+    this.lastManifestAt = this.now()
     this.latestManifest = this.hasAwaitingHeads ? manifest : null
     await this.resolveAwaitingHeads(manifest)
     await this.retryAwaitedSnapshots()
@@ -251,16 +289,33 @@ export class FirstStart {
 
   /**
    * Fetches the snapshots of items whose docs lack heads that manifest sync believes they've merged,
-   * so it would never fetch them itself, then resolves them. The leader's poll runs this.
+   * so it would never fetch them itself, then resolves them. Otherwise, while an item could move at a
+   * manifest sync (it isn't quarantined or waiting out `firstStartRetryGap`), runs one, at most one
+   * per gap: every other try is made there, and the next scheduled sync could be an hour away. The
+   * leader's poll runs this.
    */
   async runDue(signal?: AbortSignal): Promise<void> {
     const itemIds = Array.from(this.forceFetch).filter(itemId => this.stateOf(itemId) === 'awaitingHeads')
     this.forceFetch.clear()
-    if (itemIds.length === 0) return
-    log.info(`Fetching ${itemIds.length} snapshots whose heads first start is waiting for`)
-    await this.deps.fetchSnapshots(itemIds, signal)
-    checkAlive(signal, true)
-    if (this.latestManifest) await this.resolveAwaitingHeads(this.latestManifest)
+    if (itemIds.length > 0) {
+      log.info(`Fetching ${itemIds.length} snapshots whose heads first start is waiting for`)
+      await this.deps.fetchSnapshots(itemIds, signal)
+      checkAlive(signal, true)
+      if (this.latestManifest) await this.resolveAwaitingHeads(this.latestManifest)
+      return
+    }
+    if (this.isSynced && await this.hasItemDue()) {
+      await this.deps.syncManifest(signal)
+    }
+  }
+
+  private async hasItemDue(): Promise<boolean> {
+    const now = this.now()
+    if (now - this.lastManifestAt < SYNC_TIMEOUTS.firstStartRetryGap) return false
+    const due = Array.from(this.records.values()).filter(record => (record.retryAt ?? 0) <= now)
+    if (due.length === 0) return false
+    const quarantined = await this.listQuarantined()
+    return due.some(record => !quarantined.has(record.itemId))
   }
 
   private get hasAwaitingHeads(): boolean {
@@ -424,4 +479,45 @@ export class FirstStart {
     }
     await this.removeRecord(itemId)
   }
+}
+
+/** What the sync engine uses of first start */
+export type FirstStartPort = Pick<
+  FirstStart,
+  | 'load'
+  | 'has'
+  | 'stateOf'
+  | 'readStates'
+  | 'canPush'
+  | 'synced'
+  | 'error'
+  | 'whenReadyToPush'
+  | 'ensureSynced'
+  | 'runDue'
+  | 'onManifestProcessed'
+  | 'onKeyringUpdated'
+  | 'onSnapshotConfirmed'
+  | 'settle'
+>
+
+/**
+ * Stands in for first start in an app whose device gate (`minDataVersion`) is at or above
+ * `firstStartDataVersion`. Every device past that gate has either finished first start, with no
+ * record left, or had no local data, and so no old server heads to distrust.
+ */
+export const FINISHED_FIRST_START: FirstStartPort = {
+  load: async () => {},
+  has: () => false,
+  stateOf: () => undefined,
+  readStates: async () => new Map(),
+  canPush: true,
+  synced: true,
+  error: null,
+  whenReadyToPush: async () => {},
+  ensureSynced: async () => {},
+  runDue: async () => {},
+  onManifestProcessed: async () => {},
+  onKeyringUpdated: () => {},
+  onSnapshotConfirmed: async () => {},
+  settle: async () => true,
 }

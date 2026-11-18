@@ -34,7 +34,7 @@ describe('SnapshotCoverage', () => {
   beforeEach(() => {
     vi.stubGlobal('indexedDB', new IDBFactory())
     db = new SyncLogDatabase('account-1')
-    serverHeads = new ServerHeads({ loadSyncedHeads: async () => [], saveSyncedHeads: async () => {} })
+    serverHeads = new ServerHeads(db)
     firstStartState = undefined
     isSnapshotOnly = false
     readDocHeads = vi.fn().mockResolvedValue(['other-heads'])

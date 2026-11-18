@@ -89,11 +89,11 @@ describe('ManifestSyncManager', () => {
     } as any
 
     const mockSnapshotTracker = {
-      exportLastModified: vi.fn().mockReturnValue([]),
-      importLastModified: vi.fn().mockResolvedValue(undefined),
+      // Not the tracker's own: the items it has base versions for, as tests set them
+      trackedItems: vi.fn().mockReturnValue([]),
       exportItemVersions: vi.fn().mockImplementation(() => {
         const versions = new Map<ItemId, { baseVersion: number; isDirty: boolean }>()
-        const lastModifiedList = (mockSnapshotTracker.exportLastModified?.() ?? []) as Array<[ItemId, number]>
+        const lastModifiedList = (mockSnapshotTracker.trackedItems?.() ?? []) as Array<[ItemId, number]>
         for (const [id] of lastModifiedList) {
           versions.set(id, { baseVersion: 1, isDirty: false })
         }
@@ -410,7 +410,7 @@ describe('ManifestSyncManager', () => {
     it('performs warm path: fetches missing items and outdated known items', async () => {
       mockListItemIds.mockResolvedValue(['item-1' as ItemId, 'item-2' as ItemId])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([['item-1', 100], ['item-2', 100]])
+      depsObj.snapshotManager.tracker.trackedItems.mockReturnValue([['item-1', 100], ['item-2', 100]])
       mockFetchManifest.mockResolvedValue({
         manifest: [
           { itemId: 'item-1', modifiedAt: 100 },
@@ -447,7 +447,7 @@ describe('ManifestSyncManager', () => {
     it('is a no-op when all manifest items are already known and up to date', async () => {
       mockListItemIds.mockResolvedValue(['item-1' as ItemId, 'item-2' as ItemId])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([['item-1', 100], ['item-2', 100]])
+      depsObj.snapshotManager.tracker.trackedItems.mockReturnValue([['item-1', 100], ['item-2', 100]])
       mockFetchManifest.mockResolvedValue({
         manifest: [
           { itemId: 'item-1', modifiedAt: 100 },
@@ -464,11 +464,12 @@ describe('ManifestSyncManager', () => {
     })
 
     it('is a no-op when manifest contains an already-synced deleted item not in knownSet', async () => {
-      // Deleted items are excluded from active index doc (listItemIds)
+      // Deleted items are excluded from active index doc (listItemIds), and kept in its tombstones
       mockListItemIds.mockResolvedValue(['item-active' as ItemId])
+      mockListTombstoneIds.mockResolvedValue(['item-deleted' as ItemId])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      // Both active and deleted items have their last modified timestamp tracked in snapshotTracker
-      depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([
+      // Both active and deleted items have their base version tracked in snapshotTracker
+      depsObj.snapshotManager.tracker.trackedItems.mockReturnValue([
         ['item-active', 100],
         ['item-deleted', 100],
       ])
@@ -688,7 +689,7 @@ describe('ManifestSyncManager', () => {
 
       expect(mockUpdateLastManifestSyncTime).not.toHaveBeenCalled()
       expect(mockAddItemIds).not.toHaveBeenCalled()
-      expect(depsObj.snapshotManager.tracker.importLastModified).not.toHaveBeenCalled()
+      expect(depsObj.snapshotManager.tracker.importVersions).not.toHaveBeenCalled()
       expect(result).toEqual({ added: [], success: false })
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining('Some batches or items failed to sync; lastManifestSyncTime not updated')
@@ -698,7 +699,7 @@ describe('ManifestSyncManager', () => {
       warnSpy.mockRestore()
     })
 
-    it('quarantines un-decryptable items to onDecryptionFailure without recording timestamp in lastModifiedStore', async () => {
+    it('quarantines un-decryptable items to onDecryptionFailure without recording their version', async () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const onDecryptionFailure = vi.fn()
 
@@ -734,8 +735,8 @@ describe('ManifestSyncManager', () => {
         expect.any(Error),
         undefined,
       )
-      // Timestamp MUST NOT be recorded in SnapshotManager to prevent permanent lockout
-      expect(depsObj.snapshotManager.tracker.importLastModified).not.toHaveBeenCalled()
+      // The version MUST NOT be recorded, which would stop the item being fetched again
+      expect(depsObj.snapshotManager.tracker.importVersions).not.toHaveBeenCalled()
       // Hydration failure prevents updating lastManifestSyncTime
       expect(mockUpdateLastManifestSyncTime).not.toHaveBeenCalled()
       expect(result).toEqual({ added: [], success: false })
@@ -859,7 +860,7 @@ describe('ManifestSyncManager', () => {
     it('uploads pending snapshots, without a poll, before evaluating manifest diffs', async () => {
       mockListItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([['item-1', 100]])
+      depsObj.snapshotManager.tracker.trackedItems.mockReturnValue([['item-1', 100]])
       mockFetchManifest.mockResolvedValue({
         manifest: [{ itemId: 'item-1', modifiedAt: 100 }],
         serverTime: Date.now(),
@@ -879,7 +880,7 @@ describe('ManifestSyncManager', () => {
 
       mockListItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([['item-1', 100]])
+      depsObj.snapshotManager.tracker.trackedItems.mockReturnValue([['item-1', 100]])
       mockFetchManifest.mockResolvedValue({
         manifest: [{ itemId: 'item-1', modifiedAt: 100 }],
         serverTime: Date.now(),
@@ -896,7 +897,7 @@ describe('ManifestSyncManager', () => {
     it('skips fetching when the server version matches the local base version', async () => {
       mockListItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([['item-1', 5000]])
+      depsObj.snapshotManager.tracker.trackedItems.mockReturnValue([['item-1', 5000]])
       mockFetchManifest.mockResolvedValue({
         manifest: [{ itemId: 'item-1', version: 1, modifiedAt: 9000 }],
         serverTime: 6000,
@@ -912,7 +913,7 @@ describe('ManifestSyncManager', () => {
       mockListItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
       // The local timestamp is far ahead of the server's, which does not matter
-      depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([['item-1', 1_250_000]])
+      depsObj.snapshotManager.tracker.trackedItems.mockReturnValue([['item-1', 1_250_000]])
       mockFetchManifest.mockResolvedValue({
         manifest: [{ itemId: 'item-1', modifiedAt: 1_050_000, version: 2 }],
         serverTime: 1_000_000,
@@ -943,7 +944,7 @@ describe('ManifestSyncManager', () => {
     it('pushes a dirty item instead of pulling a server snapshot at the same version', async () => {
       mockListItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([['item-1', 1_980_000]])
+      depsObj.snapshotManager.tracker.trackedItems.mockReturnValue([['item-1', 1_980_000]])
       depsObj.snapshotManager.tracker.exportItemVersions.mockReturnValue(
         new Map([['item-1', { baseVersion: 1, isDirty: true }]]),
       )
@@ -975,7 +976,7 @@ describe('ManifestSyncManager', () => {
       depsObj.docStore.findHandle = vi.fn().mockResolvedValue({ isReady: () => true, doc: () => localDoc })
       manifestSyncManager = new ManifestSyncManager({ ...depsObj, onSnapshotCovered } as any)
       mockListItemIds.mockResolvedValue(['item-1'])
-      depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([['item-1', 100]])
+      depsObj.snapshotManager.tracker.trackedItems.mockReturnValue([['item-1', 100]])
       mockFetchSnapshotsByIds.mockResolvedValue({ items: [], serverTime: Date.now() })
     })
 
@@ -1087,7 +1088,7 @@ describe('ManifestSyncManager', () => {
 
       it('does not upload an item this device does not hold', async () => {
         mockListItemIds.mockResolvedValue([])
-        depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([])
+        depsObj.snapshotManager.tracker.trackedItems.mockReturnValue([])
         depsObj.coverage.listUnconfirmedPulls.mockResolvedValue(new Map([['item-1', pastGrace()]]))
         mockFetchManifest.mockResolvedValue({
           manifest: [{ itemId: 'item-1', version: 1, modifiedAt: 100 }],
@@ -1105,7 +1106,7 @@ describe('ManifestSyncManager', () => {
     it('marks item dirty with 2s debounce when local item is missing entirely from server manifest', async () => {
       mockListItemIds.mockResolvedValue(['item-local-only' as ItemId])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([['item-local-only', 1000]])
+      depsObj.snapshotManager.tracker.trackedItems.mockReturnValue([['item-local-only', 1000]])
       mockFetchManifest.mockResolvedValue({
         manifest: [],
         serverTime: 1000,
@@ -1124,7 +1125,7 @@ describe('ManifestSyncManager', () => {
 
       mockListItemIds.mockResolvedValue(['item-newer' as ItemId])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([['item-newer', localTime]])
+      depsObj.snapshotManager.tracker.trackedItems.mockReturnValue([['item-newer', localTime]])
       depsObj.snapshotManager.tracker.exportItemVersions.mockReturnValue(
         new Map([['item-newer', { baseVersion: 1, isDirty: true }]]),
       )
@@ -1144,7 +1145,7 @@ describe('ManifestSyncManager', () => {
 
       mockListItemIds.mockResolvedValue(['item-synced' as ItemId])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([['item-synced', serverTime]])
+      depsObj.snapshotManager.tracker.trackedItems.mockReturnValue([['item-synced', serverTime]])
       mockFetchManifest.mockResolvedValue({
         manifest: [{ itemId: 'item-synced', modifiedAt: serverTime }],
         serverTime,
@@ -1159,7 +1160,7 @@ describe('ManifestSyncManager', () => {
     it('does not mark item dirty upstream if it is currently being pulled downstream in missingIds', async () => {
       mockListItemIds.mockResolvedValue(['item-pulling' as ItemId])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([['item-pulling', 0]])
+      depsObj.snapshotManager.tracker.trackedItems.mockReturnValue([['item-pulling', 0]])
       mockFetchManifest.mockResolvedValue({
         manifest: [{ itemId: 'item-pulling', modifiedAt: 2000 }],
         serverTime: 2000,
@@ -1180,11 +1181,11 @@ describe('ManifestSyncManager', () => {
       expect(depsObj.snapshotManager.tracker.markItemDirty).not.toHaveBeenCalled()
     })
 
-    it('only passes updated items to importLastModified without including other existing items (B5 fix)', async () => {
+    it('only records versions for the items it fetched (B5 fix)', async () => {
       mockListItemIds.mockResolvedValue(['item-offline' as ItemId])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
       // Existing item in snapshot manager with local edits
-      depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([['item-offline', 5000]])
+      depsObj.snapshotManager.tracker.trackedItems.mockReturnValue([['item-offline', 5000]])
 
       mockFetchManifest.mockResolvedValue({
         manifest: [
@@ -1207,17 +1208,17 @@ describe('ManifestSyncManager', () => {
 
       await manifestSyncManager.sync()
 
-      // importLastModified must only be called with item-server updates, never including item-offline
-      expect(depsObj.snapshotManager.tracker.importLastModified).toHaveBeenCalledTimes(1)
-      expect(depsObj.snapshotManager.tracker.importLastModified).toHaveBeenCalledWith([
-        ['item-server', 3000],
+      // Only item-server's version is recorded, never item-offline's
+      expect(depsObj.snapshotManager.tracker.importVersions).toHaveBeenCalledTimes(1)
+      expect(depsObj.snapshotManager.tracker.importVersions).toHaveBeenCalledWith([
+        ['item-server', 1],
       ])
     })
 
-    it('marks item dirty upstream and omits from lastModifiedUpdates when hydration merges local edits (hasLocalChanges is true)', async () => {
+    it('marks item dirty upstream when hydration merges local edits (hasLocalChanges is true)', async () => {
       mockListItemIds.mockResolvedValue(['item-merged' as ItemId])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([['item-merged', 1000]])
+      depsObj.snapshotManager.tracker.trackedItems.mockReturnValue([['item-merged', 1000]])
       mockFetchManifest.mockResolvedValue({
         manifest: [{ itemId: 'item-merged', modifiedAt: 2000, version: 2 }],
         serverTime: 2000,
@@ -1240,14 +1241,13 @@ describe('ManifestSyncManager', () => {
       const result = await manifestSyncManager.sync()
 
       expect(depsObj.snapshotManager.tracker.markItemDirty).toHaveBeenCalledWith('item-merged', 2000)
-      expect(depsObj.snapshotManager.tracker.importLastModified).not.toHaveBeenCalled()
       expect(result).toEqual({ added: ['item-merged'], success: true })
     })
 
-    it('does not mark item dirty and includes in lastModifiedUpdates when hydration has no local edits (hasLocalChanges is false)', async () => {
+    it('does not mark item dirty and records its version when hydration has no local edits (hasLocalChanges is false)', async () => {
       mockListItemIds.mockResolvedValue(['item-clean' as ItemId])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([['item-clean', 1000]])
+      depsObj.snapshotManager.tracker.trackedItems.mockReturnValue([['item-clean', 1000]])
       mockFetchManifest.mockResolvedValue({
         manifest: [{ itemId: 'item-clean', modifiedAt: 2000, version: 2 }],
         serverTime: 2000,
@@ -1270,17 +1270,17 @@ describe('ManifestSyncManager', () => {
       const result = await manifestSyncManager.sync()
 
       expect(depsObj.snapshotManager.tracker.markItemDirty).not.toHaveBeenCalled()
-      expect(depsObj.snapshotManager.tracker.importLastModified).toHaveBeenCalledWith([
-        ['item-clean', 2000],
+      expect(depsObj.snapshotManager.tracker.importVersions).toHaveBeenCalledWith([
+        ['item-clean', 2],
       ])
       expect(result).toEqual({ added: ['item-clean'], success: true })
     })
 
-    it('on initial login, skips snapshot downloads for tombstoned items and imports their timestamps', async () => {
+    it('on initial login, skips snapshot downloads for tombstoned items and records their versions', async () => {
       // Fresh client: no local items, no timestamps
       mockListItemIds.mockResolvedValue([])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([])
+      depsObj.snapshotManager.tracker.trackedItems.mockReturnValue([])
 
       mockFetchManifest.mockResolvedValue({
         manifest: [
@@ -1315,11 +1315,11 @@ describe('ManifestSyncManager', () => {
         maxResponseChars: MAX_FETCH_RESPONSE_CHARS,
       }, { signal: expect.any(AbortSignal) })
 
-      // Timestamps for tombstones must be imported so future syncs recognize them
-      expect(depsObj.snapshotManager.tracker.importLastModified).toHaveBeenCalledWith(
+      // Versions for tombstones are recorded so future syncs don't record them again
+      expect(depsObj.snapshotManager.tracker.importVersions).toHaveBeenCalledWith(
         expect.arrayContaining([
-          ['item-tombstone-1', 2000],
-          ['item-tombstone-2', 3000],
+          ['item-tombstone-1', 1],
+          ['item-tombstone-2', 1],
         ])
       )
 
@@ -1331,7 +1331,7 @@ describe('ManifestSyncManager', () => {
       // Client has item-local active locally
       mockListItemIds.mockResolvedValue(['item-local' as ItemId])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([['item-local', 1000]])
+      depsObj.snapshotManager.tracker.trackedItems.mockReturnValue([['item-local', 1000]])
 
       mockFetchManifest.mockResolvedValue({
         manifest: [
@@ -1357,9 +1357,9 @@ describe('ManifestSyncManager', () => {
       // Must delete from dirtyItems to prevent unintentional resurrection/upload
       expect(depsObj.snapshotManager.tracker.deleteDirtyItem).toHaveBeenCalledWith('item-local')
 
-      // Must import timestamp
-      expect(depsObj.snapshotManager.tracker.importLastModified).toHaveBeenCalledWith([
-        ['item-local', 2000],
+      // Must record the server's version
+      expect(depsObj.snapshotManager.tracker.importVersions).toHaveBeenCalledWith([
+        ['item-local', 1],
       ])
 
       expect(result).toEqual({ added: [], success: true })
@@ -1370,7 +1370,7 @@ describe('ManifestSyncManager', () => {
       mockListItemIds.mockResolvedValue(['item-active' as ItemId])
       mockListTombstoneIds.mockResolvedValue(['item-deleted' as ItemId])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([
+      depsObj.snapshotManager.tracker.trackedItems.mockReturnValue([
         ['item-active', 100],
         ['item-deleted', 500],
       ])
@@ -1395,37 +1395,50 @@ describe('ManifestSyncManager', () => {
       expect(depsObj.snapshotManager.tracker.markItemDirty).toHaveBeenCalledWith('item-deleted', 2000)
     })
 
-    it('does NOT fetch or resurrect locally tombstoned items tracked via localLastModified fallback during forced sync (C5 fix)', async () => {
-      // Even if listTombstoneIds is empty (e.g. legacy index before tombstoneIds field),
-      // localLastModified tracks the item without it being in active itemIds
+    it('fetches an item with a base version but no index entry, and a merge keeps a local deletion', async () => {
+      // Only the index's tombstones say an item was deleted; a base version alone says nothing
       mockListItemIds.mockResolvedValue(['item-active' as ItemId])
       mockListTombstoneIds.mockResolvedValue([])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([
+      depsObj.snapshotManager.tracker.trackedItems.mockReturnValue([
         ['item-active', 100],
-        ['item-legacy-deleted', 500],
+        ['item-unindexed', 500],
       ])
 
       mockFetchManifest.mockResolvedValue({
         manifest: [
           { itemId: 'item-active', modifiedAt: 100 },
-          { itemId: 'item-legacy-deleted', modifiedAt: 200 },
+          { itemId: 'item-unindexed', modifiedAt: 200 },
         ],
         serverTime: 500,
+      })
+      mockFetchSnapshotsByIds.mockResolvedValue({
+        items: [{ item: 'item-unindexed', snapshot: { iv: 'iv', cipher: 'c' } }],
+        serverTime: 500,
+      })
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+      // The local doc was deleted, and the merge keeps it deleted (sync rule 2)
+      mockHydrateAutomergeDocumentBinary.mockResolvedValue({
+        hasLocalChanges: true,
+        incomingHeads: ['head-1'],
+        isDeleted: true,
       })
 
       const result = await manifestSyncManager.sync(true)
 
-      expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
+      expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith(
+        expect.objectContaining({ itemIds: ['item-unindexed'] }),
+        expect.anything(),
+      )
       expect(result.added).toEqual([])
       expect(mockAddItemIds).not.toHaveBeenCalled()
-      expect(depsObj.snapshotManager.tracker.markItemDirty).toHaveBeenCalledWith('item-legacy-deleted', 2000)
+      expect(mockRemoveItemIds).toHaveBeenCalledWith(['item-unindexed'])
     })
 
     it('does NOT add fetched snapshot to hydratedIds or active index if resulting document is deleted (C5 fix)', async () => {
       mockListItemIds.mockResolvedValue([])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([])
+      depsObj.snapshotManager.tracker.trackedItems.mockReturnValue([])
 
       mockFetchManifest.mockResolvedValue({
         manifest: [{ itemId: 'item-merged-deleted', modifiedAt: 2000 }],
@@ -1460,7 +1473,7 @@ describe('ManifestSyncManager', () => {
       mockListItemIds.mockResolvedValue([])
       mockListTombstoneIds.mockResolvedValue(['item-legacy-tombstone' as ItemId])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([['item-legacy-tombstone', 1000]])
+      depsObj.snapshotManager.tracker.trackedItems.mockReturnValue([['item-legacy-tombstone', 1000]])
 
       // Suppose item was fetched in batch
       mockFetchManifest.mockResolvedValue({
@@ -1497,13 +1510,12 @@ describe('ManifestSyncManager', () => {
 
   describe('discrete steps unit tests', () => {
     describe('pushLocalUpdates', () => {
-      it('stores local tombstones, imports timestamps, and marks upstream dirty when passed SyncDeltas', async () => {
+      it('stores local tombstones, records versions, and marks upstream dirty when passed SyncDeltas', async () => {
         await manifestSyncManager['pushLocalUpdates']({
           missingIds: [],
           upstreamIds: ['item-up-1' as ItemId, 'item-up-2' as ItemId],
           locallyTombstonedSnapshots: [{ id: 'item-tomb-1', deleted: true } as any],
-          deletedLastModifiedUpdates: [['item-tomb-1' as ItemId, 2500]],
-          deletedVersionUpdates: [],
+          deletedVersionUpdates: [['item-tomb-1' as ItemId, 3]],
           knownSet: new Set(),
           tombstoneSet: new Set(),
         })
@@ -1513,8 +1525,8 @@ describe('ManifestSyncManager', () => {
           { markDirty: false },
         )
         expect(depsObj.snapshotManager.tracker.deleteDirtyItem).toHaveBeenCalledWith('item-tomb-1')
-        expect(depsObj.snapshotManager.tracker.importLastModified).toHaveBeenCalledWith([
-          ['item-tomb-1', 2500],
+        expect(depsObj.snapshotManager.tracker.importVersions).toHaveBeenCalledWith([
+          ['item-tomb-1', 3],
         ])
         expect(depsObj.snapshotManager.tracker.markItemDirty).toHaveBeenCalledWith('item-up-1', 2000)
         expect(depsObj.snapshotManager.tracker.markItemDirty).toHaveBeenCalledWith('item-up-2', 2000)
@@ -1528,8 +1540,7 @@ describe('ManifestSyncManager', () => {
             missingIds: [],
             upstreamIds: [],
             locallyTombstonedSnapshots: [{ id: 'item-fail-1', deleted: true } as any],
-            deletedLastModifiedUpdates: [['item-fail-1' as ItemId, 2500]],
-            deletedVersionUpdates: [],
+            deletedVersionUpdates: [['item-fail-1' as ItemId, 3]],
             knownSet: new Set(),
             tombstoneSet: new Set(),
           }),

@@ -1,6 +1,7 @@
 import { debounce } from 'lodash-es'
 import type { ItemId } from '@vault/shared'
-import type { LastModifiedStore, ItemSyncTimestamps } from './stores/LastModifiedStore'
+import type { SyncLogDatabase } from './stores/SyncLogDatabase'
+import { readItemSyncRecords, updateItemSyncRecords, type ItemSyncRecord } from './stores/itemSyncRecords'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { AsyncMutex } from '../utils/AsyncMutex'
 import { checkAlive, isAbortError } from '../utils/abort'
@@ -13,7 +14,8 @@ import type { SyncSessionState } from './SyncSessionState'
 const log = createLogger('SnapshotTracker')
 
 export interface SnapshotTrackerOptions {
-  lastModifiedStore: LastModifiedStore
+  /** Holds each item's sync record, where its dirty flag and base version are kept */
+  db: Pick<SyncLogDatabase, 'getAll' | 'update'>
   recoveryManager: RecoveryManager
   debounceDelayMs?: number
   maxWaitMs?: number
@@ -24,15 +26,20 @@ export interface SnapshotTrackerOptions {
 }
 
 /**
- * What the tracker knows of an item's {@link ItemSyncTimestamps}. A field is unset until something
- * records it, which keeps an item known only by its version out of the timestamp export.
+ * Tracks the items that owe the server a snapshot, and each item's base version.
+ *
+ * Within a session the dirty items are counted with ticks, so an edit made while an upload is in
+ * flight keeps the item dirty. Across sessions each item's sync record carries a `dirty` flag, set
+ * when the item is marked and cleared when it stops being dirty, and the startup audit re-queues every
+ * flagged item. Every tab marks items, but only the leader clears them, and each save writes only the
+ * items this tab changed, in one transaction.
  */
-type TrackedTimestamps = Partial<ItemSyncTimestamps>
-
 export class SnapshotTracker {
   private readonly dirtyItems = new Map<ItemId, number>()
   private dirtyItemsTick = 0
-  private readonly timestampsByItemId = new Map<ItemId, TrackedTimestamps>()
+  private readonly baseVersions = new Map<ItemId, number>()
+  /** Items whose dirty flag or base version this tab hasn't saved yet */
+  private readonly unsaved = new Set<ItemId>()
   /** Items quarantined as too large to upload, so the warning is given only once */
   private readonly oversizedItems = new Set<ItemId>()
 
@@ -51,12 +58,12 @@ export class SnapshotTracker {
   private readonly maxWaitMs: number
 
   private readonly loadGuard = new SingleFlightGuard<void>()
-  private readonly persistMutex = new AsyncMutex()
+  private readonly saveMutex = new AsyncMutex()
 
-  // Bounded by maxWait, so steady editing still saves. The startup audit needs a saved localModifiedAt
-  // to re-queue an edit whose snapshot never went up.
-  private readonly saveLastModifiedDebounced = debounce(
-    () => fireAndForget(this.persistLastModified(), 'SnapshotTracker:persistLastModified'),
+  // Bounded by maxWait, so steady editing still saves. The startup audit needs a saved flag to
+  // re-queue an edit whose snapshot never went up.
+  private readonly saveDebounced = debounce(
+    () => fireAndForget(this.persist(), 'SnapshotTracker:persist'),
     SYNC_TIMEOUTS.snapshotTimestampsSave,
     { maxWait: SYNC_TIMEOUTS.snapshotTimestampsSaveMaxWait },
   )
@@ -86,19 +93,20 @@ export class SnapshotTracker {
     if (this.deps.session.isShutdown || !itemId) return
     this.dirtyItemsTick += 1
     this.dirtyItems.set(itemId, this.dirtyItemsTick)
-    this.timestamps(itemId).localModifiedAt = Date.now()
-    this.saveLastModifiedDebounced()
+    this.markUnsaved(itemId)
     this.scheduleDue(customDebounceDelayMs)
   }
 
-  /** The item's tracked timestamps, created empty if it has none */
-  private timestamps(itemId: ItemId): TrackedTimestamps {
-    let entry = this.timestampsByItemId.get(itemId)
-    if (!entry) {
-      entry = {}
-      this.timestampsByItemId.set(itemId, entry)
-    }
-    return entry
+  private markUnsaved(itemId: ItemId): void {
+    this.unsaved.add(itemId)
+    this.saveDebounced()
+  }
+
+  /** Drops the item from the dirty items, clearing its flag */
+  private removeDirty(itemId: ItemId): boolean {
+    const removed = this.dirtyItems.delete(itemId)
+    if (removed) this.markUnsaved(itemId)
+    return removed
   }
 
   /** Makes the dirty items due after the debounce, or after `customDelayMs` however later edits come */
@@ -160,46 +168,29 @@ export class SnapshotTracker {
     this.retryAtNextPoll = true
   }
 
-  private updateLastModifiedForDirtyItems(): void {
-    const dirtyItemIds = Array.from(this.dirtyItems.keys())
-    if (dirtyItemIds.length === 0) {
-      return
-    }
-
-    const timestamp = Date.now()
-    for (const itemId of dirtyItemIds) {
-      this.timestamps(itemId).localModifiedAt = timestamp
-    }
-  }
-
-  /** Starts a pending save of the timestamps now, such as when the page is hidden and may be closed */
+  /** Starts a pending save now, such as when the page is hidden and may be closed */
   flushPendingSave(): void {
-    this.saveLastModifiedDebounced.flush()
+    this.saveDebounced.flush()
   }
 
-  /** Loads the stored timestamps and the items quarantined as oversized */
-  async loadLastModified(): Promise<void> {
+  /** Loads the stored records and the items quarantined as oversized */
+  async load(): Promise<void> {
     if (this.deps.session.isShutdown) return
-    return this.loadGuard.run(() => this.executeLoadLastModified())
+    return this.loadGuard.run(() => this.executeLoad())
   }
 
-  private async executeLoadLastModified(): Promise<void> {
+  private async executeLoad(): Promise<void> {
     try {
       checkAlive(null, () => !this.deps.session.isShutdown)
-      const stored = await this.deps.lastModifiedStore.loadTimestamps()
+      const records = await readItemSyncRecords(this.deps.db)
       checkAlive(null, () => !this.deps.session.isShutdown)
 
-      if (stored && Array.isArray(stored)) {
-        for (const [itemId, ts] of stored) {
-          const entry = this.timestamps(itemId)
-          entry.localModifiedAt = Math.max(entry.localModifiedAt ?? 0, ts.localModifiedAt, ts.lastSnapshotAt ?? 0)
-          if (typeof ts.lastSnapshotAt === 'number') {
-            entry.lastSnapshotAt = Math.max(entry.lastSnapshotAt ?? 0, ts.lastSnapshotAt)
-          }
-          if (typeof ts.baseVersion === 'number') {
-            entry.baseVersion = Math.max(entry.baseVersion ?? 0, ts.baseVersion)
-          }
+      const flagged: ItemId[] = []
+      for (const { itemId, baseVersion, dirty } of records) {
+        if (typeof baseVersion === 'number') {
+          this.raiseBaseVersion(itemId, baseVersion)
         }
+        if (dirty) flagged.push(itemId)
       }
 
       const quarantinedIds = new Set<ItemId>()
@@ -219,17 +210,13 @@ export class SnapshotTracker {
 
       checkAlive(null, () => !this.deps.session.isShutdown)
 
-      // Startup & Promotion Dirty Audit: Re-enqueue un-snapshotted items (excluding quarantined items)
+      // Startup and promotion audit: re-queue flagged items, except quarantined ones
       let auditCount = 0
-      for (const [itemId, { localModifiedAt, lastSnapshotAt }] of this.timestampsByItemId) {
-        if (quarantinedIds.has(itemId) || localModifiedAt === undefined) {
-          continue
-        }
-        if (localModifiedAt > (lastSnapshotAt ?? 0) && !this.dirtyItems.has(itemId)) {
-          this.dirtyItemsTick += 1
-          this.dirtyItems.set(itemId, this.dirtyItemsTick)
-          auditCount += 1
-        }
+      for (const itemId of flagged) {
+        if (quarantinedIds.has(itemId) || this.dirtyItems.has(itemId)) continue
+        this.dirtyItemsTick += 1
+        this.dirtyItems.set(itemId, this.dirtyItemsTick)
+        auditCount += 1
       }
       if (auditCount > 0) {
         log.info(`Startup audit restored ${auditCount} un-snapshotted items to dirty queue`)
@@ -237,67 +224,74 @@ export class SnapshotTracker {
       }
     } catch (error) {
       if (isAbortError(error) || this.deps.session.isShutdown) return
-      log.error('Failed to load lastModified timestamps', error)
+      log.error('Failed to load item sync records', error)
+    }
+  }
+
+  /** Like `save`, but logs a failure */
+  private async persist(): Promise<void> {
+    try {
+      await this.save()
+    } catch (error) {
+      log.error('Failed to save item sync records', error)
     }
   }
 
   /**
-   * Merges this tab's timestamps into the stored ones, keeping the later value of each. Every tab of
-   * the account writes here, and a tab's maps can be older than the store (a follower only loads them
-   * at startup), so writing them over the store would lose the leader's progress. Logs a failure.
+   * Writes the dirty flag and base version of each item this tab changed, in one transaction. Base
+   * versions keep the higher of this tab's and the stored one, since a tab can have loaded before the
+   * leader raised it. Throws a failure, for callers that must know the records were saved, and the
+   * items stay unsaved.
    */
-  private async persistLastModified(): Promise<void> {
-    try {
-      await this.saveLastModified()
-    } catch (error) {
-      log.error('Failed to save lastModified timestamps', error)
-    }
-  }
-
-  /** Like `persistLastModified`, but throws a failure, for callers that must know the timestamps were saved */
-  async saveLastModified(): Promise<void> {
-    await this.persistMutex.runExclusive(async () => {
-      const merged = new Map<ItemId, ItemSyncTimestamps>(await this.deps.lastModifiedStore.loadTimestamps() ?? [])
-      for (const [itemId, local] of this.timestampsByItemId) {
-        const stored = merged.get(itemId)
-        merged.set(itemId, {
-          localModifiedAt: Math.max(stored?.localModifiedAt ?? 0, local.localModifiedAt ?? 0),
-          lastSnapshotAt: local.lastSnapshotAt === undefined && stored?.lastSnapshotAt === undefined
-            ? undefined
-            : Math.max(stored?.lastSnapshotAt ?? 0, local.lastSnapshotAt ?? 0),
-          baseVersion: Math.max(stored?.baseVersion ?? 0, local.baseVersion ?? 0),
-        })
+  async save(): Promise<void> {
+    this.saveDebounced.cancel()
+    await this.saveMutex.runExclusive(async () => {
+      if (this.unsaved.size === 0) return
+      const changed = Array.from(this.unsaved)
+      this.unsaved.clear()
+      try {
+        await updateItemSyncRecords(this.deps.db, changed, record => this.withTrackedState(record))
+      } catch (error) {
+        for (const itemId of changed) {
+          this.unsaved.add(itemId)
+        }
+        throw error
       }
-      await this.deps.lastModifiedStore.saveTimestamps(Array.from(merged.entries()))
     })
   }
 
+  private withTrackedState(stored: ItemSyncRecord): ItemSyncRecord {
+    const { dirty: _dirty, ...record } = stored
+    const baseVersion = Math.max(record.baseVersion ?? 0, this.getBaseVersion(record.itemId))
+    return {
+      ...record,
+      ...(baseVersion > 0 ? { baseVersion } : {}),
+      ...(this.dirtyItems.has(record.itemId) ? { dirty: true } : {}),
+    }
+  }
+
   /** Without a tick, the item stays dirty: the snapshot wasn't built for its pending edits */
-  recordSnapshotSuccess(itemId: ItemId, modified: number, tick: number | undefined, version?: number): void {
+  recordSnapshotSuccess(itemId: ItemId, tick: number | undefined, version?: number): void {
     if (tick !== undefined && this.dirtyItems.get(itemId) === tick) {
       this.dirtyItems.delete(itemId)
     }
-    const entry = this.timestamps(itemId)
-    entry.lastSnapshotAt = modified
-    entry.localModifiedAt = Math.max(entry.localModifiedAt ?? 0, modified)
     if (typeof version === 'number') {
-      entry.baseVersion = Math.max(entry.baseVersion ?? 0, version)
+      this.raiseBaseVersion(itemId, version)
     }
-    this.saveLastModifiedDebounced()
+    this.markUnsaved(itemId)
+  }
+
+  private raiseBaseVersion(itemId: ItemId, version: number): void {
+    this.baseVersions.set(itemId, Math.max(this.getBaseVersion(itemId), version))
   }
 
   /** Returns whether the item wasn't already known to be oversized */
-  recordOversized(itemId: ItemId, modified: number): boolean {
+  recordOversized(itemId: ItemId): boolean {
     const isNew = !this.oversizedItems.has(itemId)
     this.oversizedItems.add(itemId)
 
-    // Unconditionally remove from dirtyItems to avoid infinite retry loops
-    this.dirtyItems.delete(itemId)
-
-    // Advance lastSnapshotAt to localModifiedAt to prevent startup audit / sync loops while quarantined
-    const entry = this.timestamps(itemId)
-    entry.lastSnapshotAt = entry.localModifiedAt ?? modified
-    this.saveLastModifiedDebounced()
+    // Unconditionally, and with its flag, to avoid infinite retry loops while it's quarantined
+    this.removeDirty(itemId)
     return isNew
   }
 
@@ -306,21 +300,12 @@ export class SnapshotTracker {
   }
 
   removeDirtyItemIfTickMatches(itemId: ItemId, tick: number): boolean {
-    if (this.dirtyItems.get(itemId) === tick) {
-      this.dirtyItems.delete(itemId)
-      return true
-    }
-    return false
+    return this.dirtyItems.get(itemId) === tick && this.removeDirty(itemId)
   }
 
   deleteDirtyItem(itemId: ItemId): boolean {
     if (this.deps.session.isShutdown || !itemId) return false
-    const deleted = this.dirtyItems.delete(itemId)
-    const entry = this.timestampsByItemId.get(itemId)
-    if (entry?.localModifiedAt !== undefined && entry.localModifiedAt > (entry.lastSnapshotAt ?? 0)) {
-      entry.lastSnapshotAt = entry.localModifiedAt
-      this.saveLastModifiedDebounced()
-    }
+    const deleted = this.removeDirty(itemId)
     if (this.dirtyItems.size === 0) {
       this.clearDue()
     }
@@ -336,7 +321,7 @@ export class SnapshotTracker {
   }
 
   getBaseVersion(itemId: ItemId): number {
-    return this.timestampsByItemId.get(itemId)?.baseVersion ?? 0
+    return this.baseVersions.get(itemId) ?? 0
   }
 
   get dirtyCount(): number {
@@ -347,35 +332,11 @@ export class SnapshotTracker {
     return Array.from(this.dirtyItems.keys())
   }
 
-  exportLastModified(): [ItemId, number][] {
-    const result: [ItemId, number][] = []
-    for (const [id, { localModifiedAt, lastSnapshotAt }] of this.timestampsByItemId) {
-      if (localModifiedAt !== undefined || lastSnapshotAt !== undefined) {
-        result.push([id, Math.max(localModifiedAt ?? 0, lastSnapshotAt ?? 0)])
-      }
-    }
-    return result
-  }
-
-  async importLastModified(data: [ItemId, number][]): Promise<void> {
-    for (const [itemId, mod] of data) {
-      const entry = this.timestamps(itemId)
-      if (this.dirtyItems.has(itemId)) {
-        // Unsaved local edit: keep it pending upload
-        entry.localModifiedAt = Math.max(entry.localModifiedAt ?? 0, mod)
-      } else {
-        entry.localModifiedAt = mod
-        entry.lastSnapshotAt = mod
-      }
-    }
-    await this.persistLastModified()
-  }
-
   exportItemVersions(): Map<ItemId, { baseVersion: number; isDirty: boolean }> {
     const result = new Map<ItemId, { baseVersion: number; isDirty: boolean }>()
-    for (const id of new Set([...this.timestampsByItemId.keys(), ...this.dirtyItems.keys()])) {
+    for (const id of new Set([...this.baseVersions.keys(), ...this.dirtyItems.keys()])) {
       result.set(id, {
-        baseVersion: this.timestampsByItemId.get(id)?.baseVersion ?? 0,
+        baseVersion: this.getBaseVersion(id),
         isDirty: this.dirtyItems.has(id),
       })
     }
@@ -384,33 +345,31 @@ export class SnapshotTracker {
 
   async importVersions(updates: Array<[ItemId, number]>): Promise<void> {
     for (const [itemId, version] of updates) {
-      const entry = this.timestamps(itemId)
-      entry.baseVersion = Math.max(entry.baseVersion ?? 0, version)
+      this.raiseBaseVersion(itemId, version)
+      this.unsaved.add(itemId)
     }
-    await this.persistLastModified()
+    await this.persist()
   }
 
   clear(): void {
     this.clearDue()
     this.notBefore = 0
-    this.saveLastModifiedDebounced.cancel()
+    this.saveDebounced.cancel()
     this.dirtyItems.clear()
-    this.timestampsByItemId.clear()
+    this.baseVersions.clear()
+    this.unsaved.clear()
     this.oversizedItems.clear()
     this.loadGuard.clear()
   }
 
-  /** Saves the timestamps, unless local data is being cleared. Called once, by the context's lifecycle. */
+  /** Saves what this tab changed, unless local data is being cleared. Called once, by the context's lifecycle. */
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
     await this.loadGuard.waitForRunning()
     this.clearDue()
-    this.saveLastModifiedDebounced.cancel()
+    this.saveDebounced.cancel()
 
     if (!options?.clearLocalData) {
-      if (this.dirtyItems.size > 0) {
-        this.updateLastModifiedForDirtyItems()
-      }
-      await this.persistLastModified()
+      await this.persist()
     }
 
     this.clear()

@@ -35,7 +35,7 @@ A second page of Flock's Vite build (`migrate/index.html` → `src/migrate/main.
 
 - **Its worker** (`migrate.worker.ts`) runs the main app's engine and domain plus every legacy hook, `upgradeSnapshotFormat`, and `fetchManifestEverySync` (otherwise a device that synced within `manifestSyncMinGap` would skip the manifest and never see a legacy row).
 - **Flow:** it logs in (online only), announces itself on the `flock-migration` BroadcastChannel so the main app's tabs lock and its engine is the only one running, runs the levels' migrations, polls `SyncApi.checkDataVersion` until both levels reach their minimums, then clears legacy local stores, locks and returns to `/`.
-- **Blockers that remain** once sync has settled (such as an item that won't decrypt, quarantined to manual recovery) are listed, with **Try again** (a full resync) and **Continue**, which defers the main app's account-level check on this device for 30 days (`deferMigration`).
+- **Blockers that remain** once sync has settled (such as an item that won't decrypt, quarantined to manual recovery) are listed, with **Try again** (a full resync) and **Continue**, which defers the main app's account-level check on this device for 30 days (`deferMigration`). **Continue** isn't offered while the device is below its minimum, because nothing defers the device gate.
 - **Server:** its legacy procedures are in the `migration` router (`src/vault/trpc/routers/migration.ts`).
 - **Testing by hand:** `scripts/seedLegacyAccount.ts` puts a local account back at level 0.
 
@@ -71,3 +71,15 @@ Part 1 of [local-encryption.md](local-encryption.md). Blockers: `legacyKeyDeriva
 ### Level 3: sealed local data
 
 Part 2 of [local-encryption.md](local-encryption.md). It changes only device data.
+
+### Level 4: per-item sync records and first start finished
+
+Each item's server heads, base version and dirty flag live in its own record in the sync log database (see "Local storage layout" in sync-design.md), where they used to be two whole-account values in the sync metadata, `syncedHeads` and `lastModified` (each item's timestamps and base version). It changes only device data, and has no account blockers.
+
+- **First start.** "First start" in [sync-design.md](sync-design.md). Both workers pass `firstStartDataVersion: 4`: the migration app copies the sync records before the engine starts, then runs first start and records level 4 once `FirstStart.settle` reports it finished (items still stuck are left quarantined in recovery). The main app, whose device gate is at 4, never runs it.
+
+- **The copy.** `migrateLocalData` (`migrateItemSyncRecords` in `src/migrate/legacy/localData.ts`, after the older layouts have been brought into those keys) builds a record for each item and adds them with the library's `importItemSyncRecords`, which keeps any field a record already has. An item was dirty when its `localModifiedAt` was after its `lastSnapshotAt`. It removes both values only once the records are written, so a failure repeats the copy at the next start.
+- **Why it can't be skipped.** Without its server heads an item pushes its whole history, and without its base version it fetches every snapshot again. The dirty flags are what re-queue snapshots that never went up.
+- **Old builds.** A tab of an older build still writes the whole-account values, which nothing reads. Its dirty items still reach the log through their pending marks, and S3 uploads any snapshot they owe.
+
+Still to do: retire the level. That deletes `migrateItemSyncRecords`, `importItemSyncRecords` and the two legacy keys from the migration app, and `FirstStart` and its paths through the engine, the `first-start` store, and the `firstStartReset`, `firstStartSynced` and `walCleared` keys.

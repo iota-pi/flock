@@ -151,7 +151,6 @@ export class ManifestSyncManager {
     await this.hydrator.fetchAndHydrateRemoteItems({
       missingIds: itemIds,
       manifest: [],
-      serverTime: Date.now(),
       knownSet: new Set(knownItemIds),
       tombstoneSet: new Set(tombstoneItemIds),
     }, signal)
@@ -165,15 +164,12 @@ export class ManifestSyncManager {
   private async fetchRemoteManifest(
     signal: AbortSignal,
     hasKnownItems: boolean,
-  ): Promise<{ manifest: ManifestEntry[]; serverTime: number } | null> {
+  ): Promise<{ manifest: ManifestEntry[] } | null> {
     checkAlive(signal, this.isAlive)
 
     try {
       const manifestResponse = await this.deps.apiClient.fetchManifest({ account: this.deps.accountId }, { signal })
-      return {
-        manifest: manifestResponse.manifest,
-        serverTime: manifestResponse.serverTime,
-      }
+      return { manifest: manifestResponse.manifest }
     } catch (e) {
       if (signal.aborted || isAbortError(e) || !this.isAlive()) {
         return null
@@ -197,7 +193,6 @@ export class ManifestSyncManager {
 
   private async collectLocalSyncState(signal: AbortSignal) {
     const tombstoneItemIds = await this.deps.indexManager.listTombstoneIds()
-    const localLastModifiedMap = new Map(this.deps.snapshotManager.tracker.exportLastModified())
     const localVersionsMap = new Map(this.deps.snapshotManager.tracker.exportItemVersions())
     checkAlive(signal, this.isAlive)
 
@@ -213,7 +208,7 @@ export class ManifestSyncManager {
       log.warn('Failed to read manual recovery entries', err)
     }
 
-    return { tombstoneItemIds, localLastModifiedMap, quarantinedMap, localVersionsMap }
+    return { tombstoneItemIds, quarantinedMap, localVersionsMap }
   }
 
   private async checkGating(
@@ -303,7 +298,6 @@ export class ManifestSyncManager {
           force,
           knownItemIds: gating.knownItemIds,
           tombstoneItemIds: localState.tombstoneItemIds,
-          localLastModifiedMap: localState.localLastModifiedMap,
           quarantinedMap: localState.quarantinedMap,
           localVersionsMap: localState.localVersionsMap,
         })
@@ -321,7 +315,6 @@ export class ManifestSyncManager {
             {
               missingIds: deltas.missingIds,
               manifest: remoteData.manifest,
-              serverTime: remoteData.serverTime,
               knownSet: deltas.knownSet,
               tombstoneSet: deltas.tombstoneSet,
             },
@@ -363,14 +356,10 @@ export class ManifestSyncManager {
       }
     }
 
-    if (deltas.deletedLastModifiedUpdates.length > 0) {
-      for (const [id] of deltas.deletedLastModifiedUpdates) {
+    if (deltas.deletedVersionUpdates.length > 0) {
+      for (const [id] of deltas.deletedVersionUpdates) {
         this.deps.snapshotManager.tracker.deleteDirtyItem(id)
       }
-      await this.deps.snapshotManager.tracker.importLastModified(deltas.deletedLastModifiedUpdates)
-    }
-
-    if (deltas.deletedVersionUpdates.length > 0) {
       await this.deps.snapshotManager.tracker.importVersions(deltas.deletedVersionUpdates)
     }
 

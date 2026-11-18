@@ -1,13 +1,12 @@
 import { Repo } from '@automerge/automerge-repo/slim'
 import type { AutomergeDocStore } from './AutomergeDocStore'
 import { createTestDocStore } from '../__test__/testUtils'
-import { exportAllBinaries, exportSyncState, restoreFromBinaries, restoreSyncState } from './backup'
+import { exportAllBinaries, restoreFromBinaries } from './backup'
 import { AutomergeIndexManager } from './AutomergeIndexManager'
 import { IndexStore } from '../stores/IndexStore'
 import { ACCOUNT_INDEX_DOCUMENT_ID, type BackupDocId } from '../utils/automerge'
 import type { VaultDoc } from '../../shared/types'
 import type { ItemId } from '@vault/shared'
-import { BackupSyncStateSchema } from '../../shared/backupSyncState'
 
 const testRepo = new Repo()
 
@@ -138,44 +137,5 @@ describe('backup operations', () => {
     const exported = await exportAllBinaries(docStore, indexManager)
     expect(exported.skipped).toContain('missing-item')
     expect(exported.documents['missing-item' as BackupDocId]).toBeUndefined()
-  })
-})
-
-describe('sync state backup', () => {
-  let snapshotManager: any
-
-  beforeEach(() => {
-    snapshotManager = {
-      tracker: {
-        exportLastModified: vi.fn().mockReturnValue([['item-1', 1000]]),
-        importLastModified: vi.fn().mockResolvedValue(undefined),
-      },
-    }
-  })
-
-  it('exports modification times and no unsent messages', () => {
-    expect(exportSyncState(snapshotManager)).toEqual({ cursors: [], lastModified: [['item-1', 1000]] })
-  })
-
-  it('restores modification times, ignoring the cursors and messages in an older backup', async () => {
-    await restoreSyncState(snapshotManager, {
-      cursors: [['item-1' as ItemId, 5]],
-      pendingSync: [['item-1' as ItemId, ['bWVzc2FnZQ==']]],
-      lastModified: [['item-1' as ItemId, 1000]],
-    })
-
-    expect(snapshotManager.tracker.importLastModified).toHaveBeenCalledWith([['item-1', 1000]])
-  })
-
-  it('leaves out the parts a backup does not carry', async () => {
-    await restoreSyncState(snapshotManager, {})
-
-    expect(snapshotManager.tracker.importLastModified).not.toHaveBeenCalled()
-  })
-
-  it('parses an old backup that has pendingSync, and a new one without it', () => {
-    const old = { cursors: [['item-1', 5]], pendingSync: [['item-1', ['bWVzc2FnZQ==']]], lastModified: [] }
-    expect(BackupSyncStateSchema.safeParse(old).success).toBe(true)
-    expect(BackupSyncStateSchema.safeParse({ cursors: [], lastModified: [] }).success).toBe(true)
   })
 })

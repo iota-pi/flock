@@ -19,8 +19,6 @@ const mockSyncApi = {
   bootstrapItems: vi.fn().mockResolvedValue(undefined),
   clearAutomergeDocStore: vi.fn().mockResolvedValue(undefined),
   listRecoveryItems: vi.fn().mockResolvedValue([]),
-  exportSyncState: vi.fn().mockResolvedValue({ cursors: [], pendingSync: [], lastModified: [] }),
-  restoreSyncState: vi.fn().mockResolvedValue(undefined),
   forceSync: vi.fn().mockResolvedValue(undefined),
   fullResync: vi.fn().mockResolvedValue(undefined),
   shutdown: vi.fn().mockResolvedValue(undefined),
@@ -154,8 +152,6 @@ describe('SyncBridge', () => {
     mockSyncApi.bootstrapItems.mockResolvedValue(undefined)
     mockSyncApi.clearAutomergeDocStore.mockResolvedValue(undefined)
     mockSyncApi.listRecoveryItems.mockResolvedValue([])
-    mockSyncApi.exportSyncState.mockResolvedValue({ cursors: [], pendingSync: [], lastModified: [] })
-    mockSyncApi.restoreSyncState.mockResolvedValue(undefined)
     mockSyncApi.forceSync.mockResolvedValue(undefined)
     mockSyncApi.fullResync.mockResolvedValue(undefined)
     mockSyncApi.shutdown.mockResolvedValue(undefined)
@@ -796,7 +792,6 @@ describe('SyncBridge', () => {
         'SyncBridge not initialized'
       )
       await expect(SyncBridge.fullResync()).rejects.toThrow('SyncBridge not initialized')
-      await expect(SyncBridge.exportSyncState()).rejects.toThrow('SyncBridge not initialized')
     })
 
     it('forwards proxied method calls with arguments to syncApi when initialized', async () => {
@@ -845,12 +840,6 @@ describe('SyncBridge', () => {
       await SyncBridge.updateVaultKey('new-key')
       expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('new-key')
 
-      const syncState = await SyncBridge.exportSyncState()
-      expect(mockSyncApi.exportSyncState).toHaveBeenCalledTimes(1)
-      expect(syncState).toEqual({ cursors: [], pendingSync: [], lastModified: [] })
-
-      await SyncBridge.restoreSyncState({ cursors: [] })
-      expect(mockSyncApi.restoreSyncState).toHaveBeenCalledWith({ cursors: [] })
     })
 
     it('handles custom override methods correctly', async () => {
