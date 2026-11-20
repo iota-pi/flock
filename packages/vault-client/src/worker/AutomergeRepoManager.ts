@@ -15,13 +15,27 @@ export interface AutomergeStorageAdapter extends StorageAdapterInterface {
 }
 
 class QuotaHandlingStorageAdapter implements AutomergeStorageAdapter {
+  private isFlushed = false
+
   constructor(private delegate: AutomergeStorageAdapter) {}
+
+  /**
+   * Marks the Repo as shut down. `Repo.shutdown` saves every loaded doc, but leaves the throttled
+   * saves that edits and sync states queued, which run up to `saveDebounceRate` later, once the
+   * database has closed. Nothing handles their errors, so each would be an unhandled rejection.
+   * They're dropped instead: the shutdown already saved those docs whole, and a sync state only
+   * saves a peer some round trips.
+   */
+  markFlushed(): void {
+    this.isFlushed = true
+  }
 
   async load(key: string[]): Promise<Uint8Array | undefined> {
     return runStorageOperation(() => this.delegate.load(key))
   }
 
   async save(key: string[], data: Uint8Array): Promise<void> {
+    if (this.isFlushed) return
     return runStorageOperation(() => this.delegate.save(key, data))
   }
 
@@ -54,6 +68,7 @@ export class AutomergeRepoManager {
   readonly repo: Repo
   /** The Repo's storage, with quota failures handled */
   readonly storage: AutomergeStorageAdapter
+  private readonly quotaStorage: QuotaHandlingStorageAdapter
   private readonly broadcastAdapter: EncryptedBroadcastChannelNetworkAdapter
   private isClosed = false
 
@@ -63,7 +78,8 @@ export class AutomergeRepoManager {
     private readonly indexedDbAdapter: VaultIndexedDBStorageAdapter,
     options?: AutomergeRepoManagerOptions,
   ) {
-    this.storage = new QuotaHandlingStorageAdapter(indexedDbAdapter)
+    this.quotaStorage = new QuotaHandlingStorageAdapter(indexedDbAdapter)
+    this.storage = this.quotaStorage
 
     this.broadcastAdapter = new EncryptedBroadcastChannelNetworkAdapter({
       channelName: `${getVaultStorageNames().accountPrefixes.automergeBroadcastChannel}${accountId}`,
@@ -102,6 +118,7 @@ export class AutomergeRepoManager {
     } catch (err) {
       log.error(`Error shutting down repo for ${this.accountId}:`, err)
     }
+    this.quotaStorage.markFlushed()
 
     // Note: Do not clear storage through the adapter on close. Database deletion
     // during logout is handled by the main thread (deleteDatabase in clearAccountLocalData)

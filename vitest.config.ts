@@ -9,7 +9,9 @@ export default defineConfig({
     globals: true,
     env: { DYNAMODB_ENDPOINT: TEST_DYNAMODB_ENDPOINT },
     silent: 'passed-only',
-    execArgv: ['--no-webstorage'],
+    // automerge-repo's save throttle (helpers/throttle.js) passes setTimeout a negative delay
+    // when a save is overdue, which Node warns about and browsers silently treat as 0
+    execArgv: ['--no-webstorage', '--disable-warning=TimeoutNegativeWarning'],
     pool: 'threads',
     // Files share module state within a worker, so every test must undo its spies and stubs.
     // Module mocks go through `vi.spyOn` or the setup files, never `vi.mock` (lint enforces this).

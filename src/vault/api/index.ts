@@ -85,10 +85,15 @@ export function getAllowedOrigins(devMode: boolean): (string | RegExp)[] {
   return origins
 }
 
-async function createServer(devMode = false) {
+export interface CreateServerOptions {
+  /** Fastify's log level, which is otherwise `info` for a local server and `warn` when deployed */
+  logLevel?: 'silent' | 'warn' | 'info'
+}
+
+async function createServer(devMode = false, { logLevel }: CreateServerOptions = {}) {
   const server = Fastify({
     logger: {
-      level: devMode ? 'info' : 'warn',
+      level: logLevel ?? (devMode ? 'info' : 'warn'),
     },
     bodyLimit: 10 * 1024 * 1024,
   })

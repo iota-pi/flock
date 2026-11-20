@@ -8,6 +8,9 @@ import { spyOnExports } from '../../utils/testUtils'
 
 const CURRENT_PROTOCOL = { [PROTOCOL_VERSION_HEADER]: String(VAULT_PROTOCOL_VERSION) }
 
+/** Fastify's logger writes to stdout itself, where Vitest can't silence it */
+const createTestServer = (devMode: boolean) => createServer(devMode, { logLevel: 'silent' })
+
 beforeEach(() => {
   spyOnExports(Sentry, {
     init: vi.fn(),
@@ -42,7 +45,7 @@ describe('createServer error reporting', () => {
     { path: 'sync.pollSync', payload: { account: 'test-account', pushMessages: [] } },
     { path: 'sync.pollLog', payload: { account: 'test-account', after: 0 } },
   ])('turns $path away from a build from before the sync log, so it updates', async ({ path, payload }) => {
-    const server = await createServer(true)
+    const server = await createTestServer(true)
     try {
       const response = await server.inject({
         method: 'POST',
@@ -66,7 +69,7 @@ describe('createServer error reporting', () => {
   })
 
   it('suppresses expected UNAUTHORIZED client errors from Sentry', async () => {
-    const server = await createServer(true)
+    const server = await createTestServer(true)
     try {
       const response = await server.inject({
         method: 'POST',
@@ -84,7 +87,7 @@ describe('createServer error reporting', () => {
 
   // Anyone can lock any ID, so reporting lockouts would let them use up the Sentry quota
   it('suppresses login lockouts from Sentry', async () => {
-    const server = await createServer(true)
+    const server = await createTestServer(true)
     try {
       const account = `unknown-${crypto.randomUUID()}`
       const attempt = () => server.inject({
@@ -106,7 +109,7 @@ describe('createServer error reporting', () => {
   })
 
   it('captures unexpected internal errors in Sentry with tRPC path tag', async () => {
-    const server = await createServer(true)
+    const server = await createTestServer(true)
     vi.spyOn(DynamoDriver.prototype, 'createAccount').mockRejectedValue(new Error('DynamoDB Connection Failure'))
 
     try {
@@ -139,7 +142,7 @@ describe('createServer error reporting', () => {
 
 describe('createServer unknown accounts', () => {
   it('answers an unknown account with stable parameters shaped like a new account\'s', async () => {
-    const server = await createServer(true)
+    const server = await createTestServer(true)
     try {
       const input = encodeURIComponent(JSON.stringify({ account: `unknown-${crypto.randomUUID()}` }))
       const request = () => server.inject({ method: 'GET', url: `/trpc/accounts.getSecurityParams?input=${input}` })
@@ -159,7 +162,7 @@ describe('createServer unknown accounts', () => {
 describe('createServer queries', () => {
   // Clients POST queries so that account and item IDs stay out of URLs, and older builds still GET
   it('answers a query sent as a POST the same as a GET', async () => {
-    const server = await createServer(true)
+    const server = await createTestServer(true)
     try {
       const account = `unknown-${crypto.randomUUID()}`
       const input = encodeURIComponent(JSON.stringify({ account }))
@@ -237,7 +240,7 @@ describe('createServer sign-up limit', () => {
     vi.spyOn(secrets, 'readSecret').mockReturnValue('configured')
     const reserveSignup = vi.spyOn(DynamoDriver.prototype, 'reserveSignup').mockResolvedValue(false)
     const createAccount = vi.spyOn(DynamoDriver.prototype, 'createAccount')
-    const server = await createServer(true)
+    const server = await createTestServer(true)
     try {
       const signUp = (remoteAddress: string, forwardedFor?: string) => server.inject({
         method: 'POST',
@@ -269,7 +272,7 @@ describe('createServer sign-up limit', () => {
   it("counts API Gateway's source address, not the client's X-Forwarded-For", async () => {
     vi.spyOn(secrets, 'readSecret').mockReturnValue('configured')
     const reserveSignup = vi.spyOn(DynamoDriver.prototype, 'reserveSignup').mockResolvedValue(false)
-    const server = await createServer(true)
+    const server = await createTestServer(true)
     // Before the server starts, as in production
     const proxy = createLambdaProxy(server)
     try {
@@ -327,7 +330,7 @@ describe('createServer CORS', () => {
   })
 
   async function preflight(devMode: boolean, origin: string) {
-    const server = await createServer(devMode)
+    const server = await createTestServer(devMode)
     try {
       return await server.inject({
         method: 'OPTIONS',
