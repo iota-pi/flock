@@ -32,7 +32,7 @@ describe('SyncLogPuller', () => {
   let keys: { hasKey: AnyMock; decryptBytes: AnyMock; waitForKey: AnyMock }
   let incoming: { apply: AnyMock }
   let healer: { park: AnyMock; onLogEntry: AnyMock }
-  let coverage: { recordPulledChanges: AnyMock; onCursorAdvanced: AnyMock }
+  let coverage: { recordPulledChanges: AnyMock }
   let bus: { publishSyncPing: AnyMock }
   let onRemoteChangesApplied: AnyMock
   let puller: SyncLogPuller
@@ -53,10 +53,7 @@ describe('SyncLogPuller', () => {
     }
     incoming = { apply: vi.fn().mockResolvedValue(true) }
     healer = { park: vi.fn().mockResolvedValue(undefined), onLogEntry: vi.fn() }
-    coverage = {
-      recordPulledChanges: vi.fn().mockResolvedValue(undefined),
-      onCursorAdvanced: vi.fn().mockResolvedValue(undefined),
-    }
+    coverage = { recordPulledChanges: vi.fn().mockResolvedValue(undefined) }
     bus = { publishSyncPing: vi.fn() }
     onRemoteChangesApplied = vi.fn()
     puller = new SyncLogPuller({
@@ -84,7 +81,6 @@ describe('SyncLogPuller', () => {
     expect(puller.cursor).toBe(2)
     expect(onRemoteChangesApplied).toHaveBeenCalledWith(ITEM)
     expect(bus.publishSyncPing).toHaveBeenCalledWith([ITEM])
-    expect(coverage.onCursorAdvanced).toHaveBeenCalledWith(2)
   })
 
   it('skips entries it has already processed', async () => {

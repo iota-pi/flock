@@ -53,7 +53,7 @@ Signatures carry no nonce, because replaying a validly signed write does no last
 
 - **A log row** holds Automerge changes, and applying them twice is a no-op.
 - **A tombstone** is terminal, so replaying it changes nothing. A replayed live snapshot can't un-delete an item either, because the driver keeps it deleted (`itemRecords.ts`).
-- **An old snapshot** replaces the server's newer one, since uploads are intentionally last-write-wins. Hydration merges it, so nothing is lost on devices that already have the data. A fresh device could briefly hydrate older data, if the log rows written after that snapshot have expired (30-day TTL). The next manifest sync on any device with newer heads uploads again (S3 in [sync-design.md](sync-design.md)). This is the same recovery a stale concurrent upload already relies on.
+- **An old snapshot** replaces the server's newer one, since uploads are intentionally last-write-wins. Hydration merges it, so nothing is lost on devices that already have the data. A fresh device could briefly hydrate older data, if the log rows written after that snapshot have expired (30-day TTL). The next manifest sync on any device with newer heads uploads again (S2 in [sync-design.md](sync-design.md)). This is the same recovery a stale concurrent upload already relies on.
 - **A signature from a key that's been rotated out** stops working, because only the active kver's key is accepted (see [Enforcement](#server-enforcement)).
 
 So a signature binds its content to the account, the item, the procedure and the data key version. Neither side keeps counters or other state.
@@ -86,8 +86,8 @@ Client and server import the same encoders, so the bytes they sign and verify ca
 
 - **`snapshotBatchSigningBytes(input)`**
   - Starts with the tag `vault-sign-v1/putSnapshots`, then `account`.
-  - Then, for each snapshot in order: `itemId`, `deleted`, `modified`, a SHA-256 hash of `snapshot` (`iv`, `cipher`, `kver`, `format`), and a SHA-256 hash of `heads` (likewise).
-  - It covers exactly the fields `persistSnapshots` stores. `snapshotCursor` and `version` aren't stored, so they aren't signed. A spec checks that the stored record depends only on signed fields, so a field added later can't slip past unsigned.
+  - Then, for each snapshot in order: `itemId`, `deleted`, a SHA-256 hash of `snapshot` (`iv`, `cipher`, `kver`, `format`), and a SHA-256 hash of `heads` (likewise).
+  - It covers exactly the fields `persistSnapshots` stores. `version` isn't stored, so it isn't signed. A spec checks that the stored record depends only on signed fields, so a field added later can't slip past unsigned.
 - **`logPushSigningBytes(input)`**
   - Starts with the tag `vault-sign-v1/pollLog`, then `account`.
   - Then, for each message in order: `itemId` and a SHA-256 hash of `encryptedMessage`, with every field the schema keeps.

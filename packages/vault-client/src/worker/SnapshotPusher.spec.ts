@@ -60,8 +60,6 @@ describe('SnapshotPusher', () => {
         snapshot: {
           itemId: 'item-1' as ItemId,
           snapshot: { cipher: 'abc', iv: '123', kver: '1' },
-          snapshotCursor: 10,
-          modified: 1000,
         },
         heads: ['head-1'],
       }),
@@ -110,8 +108,6 @@ describe('SnapshotPusher', () => {
     snapshot: {
       itemId: 'item-1' as ItemId,
       snapshot: { cipher: OVERSIZED_CIPHER, iv: '123', kver: '1' },
-      snapshotCursor: 10,
-      modified: 1000,
     },
     heads: ['head-1'],
   })
@@ -197,32 +193,13 @@ describe('SnapshotPusher', () => {
     expect(mockTracker.retryNextPoll).not.toHaveBeenCalled()
   })
 
-  it('reports the version the snapshot jumped from, and the log head, for rechecking', async () => {
-    mockApiClient.putSnapshots.mockResolvedValue({
-      success: true,
-      persisted: 1,
-      results: [{ itemId: 'item-1', version: 5 }],
-      logSeq: 42,
-    })
-
-    await push()
-
-    expect(mockOnSnapshotStored).toHaveBeenCalledWith({
-      itemId: 'item-1',
-      version: 5,
-      baseVersion: 1,
-      heads: ['head-1'],
-      logSeq: 42,
-    })
-  })
-
   it('pushes snapshots successfully and reports each stored snapshot', async () => {
     const result = await push()
 
     expect(result).toEqual({ persisted: 1, total: 1, success: true })
     expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
     expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1, 2)
-    expect(mockOnSnapshotStored).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'item-1', heads: ['head-1'] }))
+    expect(mockOnSnapshotStored).toHaveBeenCalledWith({ itemId: 'item-1', heads: ['head-1'] })
     expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith('item-1')
   })
 
@@ -261,8 +238,6 @@ describe('SnapshotPusher', () => {
       snapshot: {
         itemId: itemId as ItemId,
         snapshot: { cipher: OVERSIZED_CIPHER, iv: '123', kver: '1' },
-        snapshotCursor: 10,
-        modified: 1000,
         deleted: true,
       },
       heads: ['head-1'],
@@ -281,8 +256,6 @@ describe('SnapshotPusher', () => {
       expect(payload.snapshots[0]).toEqual({
         itemId: 'item-1',
         deleted: true,
-        modified: 1000,
-        snapshotCursor: 10,
       })
       expect('snapshot' in payload.snapshots[0]).toBe(false)
       expect(mockTracker.recordOversized).not.toHaveBeenCalled()
@@ -303,8 +276,6 @@ describe('SnapshotPusher', () => {
           snapshot: {
             itemId: 'item-2' as ItemId,
             snapshot: { cipher: 'def', iv: '456', kver: '1' },
-            snapshotCursor: 10,
-            modified: 2000,
           },
           heads: ['head-2'],
         }
@@ -414,7 +385,7 @@ describe('SnapshotPusher', () => {
     mockTracker.getDirtyItemIds.mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId])
     mockBuilder.build.mockImplementation(async (itemId: string) => ({
       type: 'success',
-      snapshot: { itemId, snapshot: { cipher: 'c'.repeat(600), iv: '1', kver: '1' }, snapshotCursor: 0, modified: 1000 },
+      snapshot: { itemId, snapshot: { cipher: 'c'.repeat(600), iv: '1', kver: '1' } },
       heads: ['h'],
     }))
     mockApiClient.putSnapshots

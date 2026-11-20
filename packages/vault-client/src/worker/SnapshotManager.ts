@@ -8,8 +8,7 @@ import type { SnapshotBuilder } from './SnapshotBuilder'
 import { SnapshotPusher, type SnapshotPushOutcome } from './SnapshotPusher'
 import type { SnapshotPushResult } from './syncProtocol'
 import type { SyncSessionState } from './SyncSessionState'
-import type { StoredSnapshotRecorder, UploadableSnapshot } from './snapshotUpload'
-import type { StoredSnapshotDetails } from './SnapshotCoverage'
+import type { StoredSnapshotDetails, StoredSnapshotRecorder, UploadableSnapshot } from './snapshotUpload'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 
 export interface SnapshotManagerOptions {
@@ -41,7 +40,6 @@ export class SnapshotManager implements StoredSnapshotRecorder {
       builder: SnapshotBuilder
       pushToLog: (itemIds: ItemId[], signal?: AbortSignal) => Promise<void>
       onSnapshotStored: (details: StoredSnapshotDetails) => void
-      getLatestCursor?: () => number
       eventHub: ClientEventHub
       recoveryManager: RecoveryManager
       apiClient: SyncApiClient
@@ -73,7 +71,6 @@ export class SnapshotManager implements StoredSnapshotRecorder {
       recoveryManager: deps.recoveryManager,
       apiClient: deps.apiClient,
       eventHub: deps.eventHub,
-      getLatestCursor: deps.getLatestCursor,
       maxPayloadBytes: options?.maxPayloadBytes,
     })
   }
@@ -132,8 +129,8 @@ export class SnapshotManager implements StoredSnapshotRecorder {
     return this.pushes > pushesBefore ? this.lastPush : { persisted: 0, total: 0 }
   }
 
-  recordStoredSnapshots(stored: UploadableSnapshot[], versions: Map<ItemId, number>, logSeq: number): void {
-    this.pusher.recordStoredSnapshots(stored, versions, logSeq)
+  recordStoredSnapshots(stored: UploadableSnapshot[], versions: Map<ItemId, number>): void {
+    this.pusher.recordStoredSnapshots(stored, versions)
   }
 
   /** Called once polling has stopped, so no upload is in flight */

@@ -41,7 +41,7 @@ export interface SyncLogPullerDeps {
   session: SyncSessionState
   incoming: Pick<IncomingChanges, 'apply'>
   healer: Pick<GapHealer, 'park' | 'onLogEntry'>
-  coverage: Pick<SnapshotCoverage, 'recordPulledChanges' | 'onCursorAdvanced'>
+  coverage: Pick<SnapshotCoverage, 'recordPulledChanges'>
   /** Tells the account's other tabs which items were pulled */
   bus?: Pick<RealtimeBus, 'publishSyncPing'>
   onKeyVersionMissing?: (kver: string) => void
@@ -198,7 +198,6 @@ export class SyncLogPuller {
 
     await this.deps.coverage.recordPulledChanges(Array.from(this.addedChanges))
     this.addedChanges.clear()
-    await this.deps.coverage.onCursorAdvanced(this.position.cursor)
   }
 
   /** Records that changes the doc lacked were applied, for snapshot coverage */

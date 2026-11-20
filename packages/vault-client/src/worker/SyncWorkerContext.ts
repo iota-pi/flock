@@ -315,8 +315,6 @@ export class SyncWorkerContext {
       serverHeads,
       firstStartState: itemId => firstStart.stateOf(itemId),
       isSnapshotOnly: itemId => changeOutbox.isSnapshotOnly(itemId),
-      readDocHeads: itemId => docStore.readHeads(itemId),
-      requestUpload: itemId => this.requestUpstreamSnapshot(itemId),
     })
 
     const incoming = new IncomingChanges({
@@ -357,7 +355,7 @@ export class SyncWorkerContext {
         )
       },
       onLoad: async () => {
-        await Promise.all([serverHeads.load(), firstStart.load(), snapshotCoverage.load(), gapHealer.load()])
+        await Promise.all([serverHeads.load(), firstStart.load(), gapHealer.load()])
       },
     })
 
@@ -386,9 +384,7 @@ export class SyncWorkerContext {
       onSnapshotStored: details => {
         changeOutbox.confirmSnapshotOnly(details.itemId, details.heads)
         fireAndForget(firstStart.onSnapshotConfirmed(details.itemId, details.heads), 'SyncWorkerContext:onSnapshotConfirmed')
-        fireAndForget(snapshotCoverage.onSnapshotStored(details), 'SyncWorkerContext:onSnapshotStored')
       },
-      getLatestCursor: () => puller.cursor,
       eventHub: clientEventHub,
       recoveryManager,
       apiClient: this.apiClient,

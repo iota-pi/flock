@@ -381,7 +381,7 @@ export class ManifestSyncManager {
    * Raises `baseVersion` to the server's for items whose snapshot this device already has, so that
    * the deltas don't fetch them.
    *
-   * A device that holds changes must upload them if nobody else does (rule S3 of snapshot coverage).
+   * A device that holds changes must upload them if nobody else does (rule S2 of snapshot coverage).
    * So an item whose doc holds this snapshot and more gets a new one, once the author of any pulled
    * changes has had its chance.
    */
@@ -435,7 +435,7 @@ export class ManifestSyncManager {
   }
 
   /**
-   * S3 for the unconfirmed pulls `findSnapshotsCoveredLocally` can't check. A deleted item never
+   * S2 for the unconfirmed pulls `findSnapshotsCoveredLocally` can't check. A deleted item never
    * gets another snapshot, so its record is dropped, which this returns. A snapshot without heads
    * (written before snapshots had them) can't show whether it holds the pulled changes, so once the
    * grace period is over the item is uploaded: the doc holds them, and the new snapshot's heads

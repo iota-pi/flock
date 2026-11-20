@@ -11,7 +11,6 @@ import { createSyncApiClient, RealVaultServer } from './vaultServers'
  * fake has drifted, and the sync integration tests run against it no longer show what the server does.
  */
 
-const DAY = 24 * 60 * 60 * 1000
 
 interface Backend {
   account: string
@@ -69,14 +68,12 @@ function snapshot(itemId: ItemId, content: string, overrides: Partial<VaultSnaps
     itemId,
     snapshot: { iv: 'snapshot-iv', cipher: base64(content), kver: '2', format: 2 },
     heads: { iv: 'heads-iv', cipher: base64(`heads of ${content.slice(0, 20)}`), kver: '2', format: 2 },
-    snapshotCursor: 0,
-    modified: 1000,
     ...overrides,
   }
 }
 
 function tombstone(itemId: ItemId): VaultSnapshotInput {
-  return { itemId, deleted: true, snapshotCursor: 0, modified: 1000 }
+  return { itemId, deleted: true }
 }
 
 function message(itemId: ItemId, content: string) {
@@ -185,7 +182,7 @@ describe.each([
       const first = await put(snapshot(itemId, 'one'))
       const second = await put(snapshot(itemId, 'two'))
 
-      expect(first).toEqual({ success: true, persisted: 1, total: 1, results: [{ itemId, version: 1 }], logSeq: 1 })
+      expect(first).toEqual({ success: true, persisted: 1, total: 1, results: [{ itemId, version: 1 }] })
       expect(second.results).toEqual([{ itemId, version: 2 }])
       expect(await fetchOne(itemId)).toEqual([{
         item: itemId,
@@ -195,11 +192,11 @@ describe.each([
       }])
     })
 
-    it('records its own clock as modifiedAt, never the client\'s', async () => {
+    it('records its own clock as modifiedAt', async () => {
       const itemId = newItemId()
       const before = Date.now()
 
-      await put(snapshot(itemId, 'one', { modified: before - 5 * DAY }))
+      await put(snapshot(itemId, 'one'))
 
       const entry = await manifestEntry(itemId)
       expect(entry?.modifiedAt).toBeGreaterThanOrEqual(before)
@@ -226,7 +223,7 @@ describe.each([
 
       const result = await put(snapshot(small, 'one'), snapshot(large, 'x'.repeat(MAX_ITEM_SIZE_BYTES + 1024)))
 
-      expect(result).toEqual({ success: false, persisted: 1, total: 2, results: [{ itemId: small, version: 1 }], logSeq: 0 })
+      expect(result).toEqual({ success: false, persisted: 1, total: 2, results: [{ itemId: small, version: 1 }] })
       expect(await manifestEntry(large)).toBeUndefined()
     })
 

@@ -11,19 +11,18 @@ import { createLogger } from '../utils/logger'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { encryptSnapshotHeads } from './snapshotHeads'
 import type { SnapshotCoverage } from './SnapshotCoverage'
-import type { BuiltSnapshot } from './snapshotUpload'
 
 const log = createLogger('SnapshotBuilder')
 
 export type BuildSnapshotResult =
-  | { type: 'success'; snapshot: BuiltSnapshot; heads?: string[] }
+  | { type: 'success'; snapshot: VaultSnapshotInput; heads?: string[] }
   | { type: 'not-ready' }
   /** The item can't have a snapshot yet: its changes must reach the log first, or its server heads be known */
   | { type: 'deferred'; reason: 'unpushed' | 'awaitingHeads' }
   | { type: 'error'; reason?: string }
 
 export interface PreparedSnapshotItem {
-  snapshot: BuiltSnapshot
+  snapshot: VaultSnapshotInput
   tick: number
   heads?: string[]
 }
@@ -47,16 +46,11 @@ export function estimateSnapshotSize(snapshot: VaultSnapshotInput): number {
  * for the server to record the tombstone. Used when the full document history
  * is too large to upload.
  */
-export function toTombstoneSnapshot(snapshot: BuiltSnapshot): BuiltSnapshot {
+export function toTombstoneSnapshot(snapshot: VaultSnapshotInput): VaultSnapshotInput {
   if (snapshot.deleted !== true) {
     throw new Error(`Cannot create a tombstone for non-deleted item ${snapshot.itemId}`)
   }
-  return {
-    itemId: snapshot.itemId,
-    snapshotCursor: snapshot.snapshotCursor,
-    modified: snapshot.modified,
-    deleted: true,
-  }
+  return { itemId: snapshot.itemId, deleted: true }
 }
 
 /** Builds an item's encrypted snapshot from its local Automerge doc */
@@ -69,9 +63,9 @@ export class SnapshotBuilder {
   ) {}
 
   /** Reports failures as results; only an abort of `signal` throws */
-  async build(itemId: ItemId, snapshotCursor: number, options?: { signal?: AbortSignal }): Promise<BuildSnapshotResult> {
+  async build(itemId: ItemId, options?: { signal?: AbortSignal }): Promise<BuildSnapshotResult> {
     try {
-      return await this.buildOrThrow(itemId, snapshotCursor, options?.signal)
+      return await this.buildOrThrow(itemId, options?.signal)
     } catch (error: unknown) {
       // The caller stopped; that says nothing about this item
       if (options?.signal?.aborted) {
@@ -90,7 +84,7 @@ export class SnapshotBuilder {
     }
   }
 
-  private async buildOrThrow(itemId: ItemId, snapshotCursor: number, signal?: AbortSignal): Promise<BuildSnapshotResult> {
+  private async buildOrThrow(itemId: ItemId, signal?: AbortSignal): Promise<BuildSnapshotResult> {
     const documentUrl = toAutomergeUrlFromItemId(itemId)
     const lookup = await findWithTimeout(this.repo, documentUrl, SYNC_TIMEOUTS.snapshotDocLookup, signal)
     if (lookup.type === 'timeout') {
@@ -119,7 +113,6 @@ export class SnapshotBuilder {
       return { type: 'deferred', reason: coverage.reason }
     }
 
-    const snapshotTimestamp = Date.now()
     const heads = Automerge.getHeads(doc)
     const binary = Automerge.save(doc)
     if (!binary || binary.byteLength === 0) {
@@ -139,8 +132,6 @@ export class SnapshotBuilder {
       snapshot: {
         itemId,
         snapshot: encryptedDoc,
-        snapshotCursor,
-        modified: snapshotTimestamp,
         deleted: !!itemSnapshot.deleted || undefined,
         ...(encryptedHeads ? { heads: encryptedHeads } : {}),
       },

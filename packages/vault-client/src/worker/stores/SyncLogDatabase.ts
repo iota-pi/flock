@@ -4,14 +4,19 @@ import { createLogger } from '../../utils/logger'
 
 const log = createLogger('SyncLogDatabase')
 
-/** 2 added the `items` store */
-const DB_VERSION = 2
+/** 2 added the `items` store, and 3 removed `snapshot-rechecks` */
+const DB_VERSION = 3
+
+/**
+ * Stores that older versions created. Every device reaches version 3 in the migration app, which
+ * the device level 4 gate sends it to, so this can go when level 4 is retired.
+ */
+const REMOVED_STORES = ['snapshot-rechecks']
 
 const KEY_PATHS: Record<SyncLogStoreName, string> = {
   [SYNC_LOG_STORES.outbox]: 'itemId',
   [SYNC_LOG_STORES.parked]: 'seq',
   [SYNC_LOG_STORES.firstStart]: 'itemId',
-  [SYNC_LOG_STORES.snapshotRechecks]: 'itemId',
   [SYNC_LOG_STORES.unconfirmedPulls]: 'itemId',
   [SYNC_LOG_STORES.items]: 'itemId',
 }
@@ -41,6 +46,11 @@ export class SyncLogDatabase {
       const request = indexedDB.open(getSyncLogDatabaseName(this.accountId), DB_VERSION)
       request.onupgradeneeded = () => {
         const db = request.result
+        for (const name of REMOVED_STORES) {
+          if (db.objectStoreNames.contains(name)) {
+            db.deleteObjectStore(name)
+          }
+        }
         for (const [name, keyPath] of Object.entries(KEY_PATHS)) {
           if (!db.objectStoreNames.contains(name)) {
             db.createObjectStore(name, { keyPath })

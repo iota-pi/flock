@@ -52,7 +52,7 @@ async function withSnapshotResults(input: any, response: any) {
   const persisted = resolved.persisted ?? (resolved.success ? input.snapshots.length : 0)
   const results = resolved.results
     ?? (persisted === input.snapshots.length ? input.snapshots.map((s: any) => ({ itemId: s.itemId, version: 1 })) : [])
-  return { ...resolved, persisted, results, logSeq: 0 }
+  return { ...resolved, persisted, results }
 }
 
 beforeEach(() => {
@@ -199,7 +199,6 @@ describe('ItemReencryptor.run', () => {
         expect.objectContaining({ snapshot: expect.objectContaining({ itemId: 'item-2' }), heads: ['mock-head'] }),
       ],
       new Map([['item-1', 4], ['item-2', 9]]),
-      0,
     )
   })
 
@@ -220,7 +219,6 @@ describe('ItemReencryptor.run', () => {
     expect(recorder.recordStoredSnapshots).toHaveBeenCalledWith(
       [expect.objectContaining({ snapshot: expect.objectContaining({ itemId: 'item-2' }) })],
       new Map([['item-2', 3]]),
-      0,
     )
     expect(result.succeeded).toEqual(['item-2'])
     expect(result.failed).toEqual([

@@ -12,9 +12,7 @@ export const SYNC_LOG_STORES = {
   parked: 'parked',
   /** Items whose server heads aren't known yet (see FirstStart) */
   firstStart: 'first-start',
-  /** Items to check again once the log cursor reaches a seq (rule S2 of snapshot coverage) */
-  snapshotRechecks: 'snapshot-rechecks',
-  /** Items with pulled changes no snapshot has confirmed (rule S3 of snapshot coverage) */
+  /** Items with pulled changes no snapshot has confirmed (rule S2 of snapshot coverage) */
   unconfirmedPulls: 'unconfirmed-pulls',
   /** One record per item of what this device knows of the server's copy (see ItemSyncRecord) */
   items: 'items',

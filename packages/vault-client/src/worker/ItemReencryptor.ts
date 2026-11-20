@@ -380,7 +380,7 @@ export class ItemReencryptor {
   ): Promise<Exclude<BuildSnapshotResult, { type: 'not-ready' | 'deferred' }>> {
     return RetryStrategy.executeWithRetry(
       async () => {
-        const result = await this.deps.builder.build(itemId, 0, { signal })
+        const result = await this.deps.builder.build(itemId, { signal })
         if (result.type === 'not-ready') {
           throw new Error(`Item ${itemId} document or vault was not ready`)
         }
