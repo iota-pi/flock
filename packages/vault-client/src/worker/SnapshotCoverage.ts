@@ -11,27 +11,10 @@ export type CoverageCheck =
   | { covered: true }
   | { covered: false; reason: 'unpushed' | 'awaitingHeads' }
 
-/** A snapshot that replaced another device's: its heads, and the log's head when it was written */
-interface SnapshotRecheck {
-  itemId: ItemId
-  uploadedHeads: string[]
-  logSeq: number
-}
-
 /** An item with pulled changes no snapshot has confirmed */
 export interface UnconfirmedPull {
   itemId: ItemId
   firstSeenAt: number
-}
-
-export interface StoredSnapshotDetails {
-  itemId: ItemId
-  /** The version the server gave the snapshot */
-  version: number
-  /** The version this device knew the item at before the upload */
-  baseVersion: number
-  heads: string[] | undefined
-  logSeq: number
 }
 
 export interface SnapshotCoverageDeps {
@@ -39,34 +22,19 @@ export interface SnapshotCoverageDeps {
   serverHeads: ServerHeads
   firstStartState: (itemId: ItemId) => FirstStartState | undefined
   isSnapshotOnly: (itemId: ItemId) => boolean
-  /** The heads of an item's doc, or null when it can't be loaded */
-  readDocHeads: (itemId: ItemId) => Promise<string[] | null>
-  /** Asks for the item's snapshot to be uploaded again */
-  requestUpload: (itemId: ItemId) => void
 }
 
 /**
  * Keeps each server snapshot a superset of every one it replaced, and every change in some snapshot.
- * Snapshot uploads stay unconditional and last-write-wins, so this is three rules on the client:
+ * Snapshot uploads stay unconditional and last-write-wins, so this is two rules on the client:
  *
  * - **S1, log before snapshot:** `check` lets a snapshot be built only when everything in it is
  *   already in the log.
- * - **S2, recheck after a version jump:** a snapshot that replaced one this device never saw is
- *   uploaded again, if needed, once the log has delivered what the replaced snapshot held.
- * - **S3, backstop at manifest sync:** a device holding changes newer than the server's snapshot
+ * - **S2, backstop at manifest sync:** a device holding changes newer than the server's snapshot
  *   uploads them if nobody else does. `ManifestSyncManager` runs the check, with the records here.
  */
 export class SnapshotCoverage {
-  private readonly rechecks = new Map<ItemId, SnapshotRecheck>()
-
   constructor(private readonly deps: SnapshotCoverageDeps) {}
-
-  async load(): Promise<void> {
-    const stored = await this.deps.db.getAll<SnapshotRecheck>(SYNC_LOG_STORES.snapshotRechecks)
-    for (const recheck of stored) {
-      this.rechecks.set(recheck.itemId, recheck)
-    }
-  }
 
   /**
    * S1. Synchronous, so that a caller can run it in the same section as `Automerge.save`. The two
@@ -86,32 +54,7 @@ export class SnapshotCoverage {
       : { covered: false, reason: 'unpushed' }
   }
 
-  /** S2. A jump means another device wrote in between, and its snapshot is now gone. */
-  async onSnapshotStored({ itemId, version, baseVersion, heads, logSeq }: StoredSnapshotDetails): Promise<void> {
-    if (!heads || version <= baseVersion + 1) return
-    const recheck: SnapshotRecheck = { itemId, uploadedHeads: heads, logSeq }
-    this.rechecks.set(itemId, recheck)
-    await this.deps.db.put(SYNC_LOG_STORES.snapshotRechecks, recheck)
-  }
-
-  /**
-   * S2. Once the cursor reaches `logSeq`, the doc holds every change of the replaced snapshot: by S1
-   * they were in the log before that snapshot was written, which came before this device's write.
-   */
-  async onCursorAdvanced(cursor: number): Promise<void> {
-    for (const recheck of Array.from(this.rechecks.values())) {
-      if (recheck.logSeq > cursor) continue
-      const heads = await this.deps.readDocHeads(recheck.itemId)
-      if (!heads) continue
-      if (!areHeadsEqual(heads, recheck.uploadedHeads)) {
-        this.deps.requestUpload(recheck.itemId)
-      }
-      this.rechecks.delete(recheck.itemId)
-      await this.deps.db.delete(SYNC_LOG_STORES.snapshotRechecks, recheck.itemId)
-    }
-  }
-
-  /** S3. Starts the day an item's author has to upload a snapshot of pulled changes. */
+  /** S2. Starts the day an item's author has to upload a snapshot of pulled changes. */
   async recordPulledChanges(itemIds: ItemId[]): Promise<void> {
     const firstSeenAt = Date.now()
     for (const itemId of itemIds) {
@@ -124,7 +67,7 @@ export class SnapshotCoverage {
     return new Map(records.map(record => [record.itemId, record.firstSeenAt]))
   }
 
-  /** S3. A snapshot's heads now contain these items' docs. */
+  /** S2. A snapshot's heads now contain these items' docs. */
   async confirmPulledChanges(itemIds: ItemId[]): Promise<void> {
     await this.deps.db.delete(SYNC_LOG_STORES.unconfirmedPulls, ...itemIds)
   }

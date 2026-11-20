@@ -8,7 +8,6 @@ function createMockVault(): VaultDriver {
     set: vi.fn(async () => ({ version: 1, storageDelta: 0 })),
     updateAccountData: vi.fn(async () => undefined),
     addStorageUsage: vi.fn(async () => undefined),
-    readLogHead: vi.fn(async () => 7),
   } as unknown as VaultDriver
 }
 
@@ -24,23 +23,19 @@ describe('snapshotService.persistSnapshots', () => {
       snapshots: [
         {
           itemId: 'item-1' as ItemId,
-          modified: 12345,
           snapshot: {
             iv: 'iv-1',
             cipher: 'cipher-1',
           },
-          snapshotCursor: 10,
         },
         {
           itemId: 'item-2' as ItemId,
-          modified: 12346,
           deleted: true,
           snapshot: {
             iv: 'iv-2',
             cipher: 'cipher-2',
             kver: 'k2',
           },
-          snapshotCursor: 25,
         },
       ],
     }
@@ -55,7 +50,6 @@ describe('snapshotService.persistSnapshots', () => {
         { itemId: 'item-1', version: 1 },
         { itemId: 'item-2', version: 1 },
       ],
-      logSeq: 7,
     })
 
     expect(vault.set).toHaveBeenCalledTimes(2)
@@ -94,9 +88,7 @@ describe('snapshotService.persistSnapshots', () => {
       snapshots: [
         {
           itemId: 'item-1' as ItemId,
-          modified: 500,
           deleted: true,
-          snapshotCursor: 10,
         },
       ],
     }, ROOM)
@@ -120,15 +112,11 @@ describe('snapshotService.persistSnapshots', () => {
       snapshots: [
         {
           itemId: 'item-1' as ItemId,
-          modified: 100,
           snapshot: { iv: 'iv-1', cipher: 'c-1' },
-          snapshotCursor: 50,
         },
         {
           itemId: 'item-2' as ItemId,
-          modified: 200,
           snapshot: { iv: 'iv-2', cipher: 'c-2' },
-          snapshotCursor: 90,
         },
       ],
     }
@@ -142,7 +130,6 @@ describe('snapshotService.persistSnapshots', () => {
       results: [
         { itemId: 'item-1', version: 1 },
       ],
-      logSeq: 7,
     })
 
     expect(consoleErrorSpy).toHaveBeenCalledWith(
@@ -164,9 +151,7 @@ describe('snapshotService.persistSnapshots', () => {
       snapshots: [
         {
           itemId: 'item-1' as ItemId,
-          modified: 100,
           snapshot: { iv: 'iv-1', cipher: 'c-1' },
-          snapshotCursor: 15,
         },
       ],
     }
@@ -178,38 +163,10 @@ describe('snapshotService.persistSnapshots', () => {
       persisted: 0,
       total: 1,
       results: [],
-      logSeq: 7,
     })
 
     expect(vault.updateAccountData).not.toHaveBeenCalled()
     consoleErrorSpy.mockRestore()
-  })
-
-  it('reads the log head only after every write has finished', async () => {
-    const vault = createMockVault()
-    let writesInProgress = 0
-    vi.mocked(vault.set).mockImplementation(async () => {
-      writesInProgress += 1
-      await new Promise(resolve => setTimeout(resolve, 5))
-      writesInProgress -= 1
-      return { version: 2, storageDelta: 0 }
-    })
-    vi.mocked(vault.readLogHead).mockImplementation(async () => {
-      expect(writesInProgress).toBe(0)
-      return 12
-    })
-
-    const snapshot = { iv: 'iv', cipher: 'cipher' }
-    const result = await persistSnapshots(vault, {
-      account: 'acct-1',
-      snapshots: [
-        { itemId: 'item-1' as ItemId, modified: 1, snapshot, snapshotCursor: 0 },
-        { itemId: 'item-2' as ItemId, modified: 2, snapshot, snapshotCursor: 0 },
-      ],
-    }, ROOM)
-
-    expect(vault.readLogHead).toHaveBeenCalledWith({ account: 'acct-1' })
-    expect(result.logSeq).toBe(12)
   })
 
   it('handles empty snapshots list', async () => {
@@ -227,7 +184,6 @@ describe('snapshotService.persistSnapshots', () => {
       persisted: 0,
       total: 0,
       results: [],
-      logSeq: 7,
     })
 
     expect(vault.set).not.toHaveBeenCalled()
@@ -248,8 +204,8 @@ describe('snapshotService.persistSnapshots storage quota', () => {
     await persistSnapshots(vault, {
       account: 'acct-1',
       snapshots: [
-        { itemId: 'item-1' as ItemId, modified: 1, snapshot, snapshotCursor: 0 },
-        { itemId: 'item-2' as ItemId, modified: 2, snapshot, snapshotCursor: 0 },
+        { itemId: 'item-1' as ItemId, snapshot },
+        { itemId: 'item-2' as ItemId, snapshot },
       ],
     }, ROOM)
 
@@ -262,7 +218,7 @@ describe('snapshotService.persistSnapshots storage quota', () => {
 
     await persistSnapshots(vault, {
       account: 'acct-1',
-      snapshots: [{ itemId: 'item-1' as ItemId, modified: 1, snapshot, snapshotCursor: 0 }],
+      snapshots: [{ itemId: 'item-1' as ItemId, snapshot }],
     }, ROOM)
 
     expect(vault.addStorageUsage).not.toHaveBeenCalled()
@@ -278,8 +234,8 @@ describe('snapshotService.persistSnapshots storage quota', () => {
     await persistSnapshots(vault, {
       account: 'acct-1',
       snapshots: [
-        { itemId: 'item-1' as ItemId, modified: 1, snapshot, snapshotCursor: 0 },
-        { itemId: 'item-2' as ItemId, modified: 2, snapshot, snapshotCursor: 0 },
+        { itemId: 'item-1' as ItemId, snapshot },
+        { itemId: 'item-2' as ItemId, snapshot },
       ],
     }, ROOM)
 
@@ -293,8 +249,8 @@ describe('snapshotService.persistSnapshots storage quota', () => {
     await expect(persistSnapshots(vault, {
       account: 'acct-1',
       snapshots: [
-        { itemId: 'item-1' as ItemId, modified: 1, deleted: true, snapshotCursor: 0 },
-        { itemId: 'item-2' as ItemId, modified: 2, snapshot, snapshotCursor: 0 },
+        { itemId: 'item-1' as ItemId, deleted: true },
+        { itemId: 'item-2' as ItemId, snapshot },
       ],
     }, full)).rejects.toBeInstanceOf(QuotaExceededError)
 
@@ -306,7 +262,7 @@ describe('snapshotService.persistSnapshots storage quota', () => {
 
     const result = await persistSnapshots(vault, {
       account: 'acct-1',
-      snapshots: [{ itemId: 'item-1' as ItemId, modified: 1, deleted: true, snapshotCursor: 0 }],
+      snapshots: [{ itemId: 'item-1' as ItemId, deleted: true }],
     }, full)
 
     expect(result.success).toBe(true)

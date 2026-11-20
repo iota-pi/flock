@@ -1,23 +1,22 @@
 import type { ItemId, VaultSnapshotInput } from '@vault/shared'
 import type { SyncApiClient } from './SyncApiClient'
 
-/**
- * A snapshot as the client builds it. The server ignores `snapshotCursor` and `modified`, but servers
- * released before it stopped requiring them reject snapshots without them, so they're still sent.
- * The tracker uses `modified` locally.
- */
-export type BuiltSnapshot = VaultSnapshotInput & { snapshotCursor: number; modified: number }
-
 /** A snapshot to upload. `tick` is the dirty tick it was built at, when it was built for a dirty item. */
 export interface UploadableSnapshot {
-  snapshot: BuiltSnapshot
+  snapshot: VaultSnapshotInput
   tick?: number
   heads?: string[]
 }
 
-/** Records snapshots the server stored, with the versions it assigned them and the log's head after them */
+/** A snapshot the server stored, with the heads it holds */
+export interface StoredSnapshotDetails {
+  itemId: ItemId
+  heads: string[] | undefined
+}
+
+/** Records snapshots the server stored, with the versions it assigned them */
 export interface StoredSnapshotRecorder {
-  recordStoredSnapshots(stored: UploadableSnapshot[], versions: Map<ItemId, number>, logSeq: number): void
+  recordStoredSnapshots(stored: UploadableSnapshot[], versions: Map<ItemId, number>): void
 }
 
 export interface SnapshotBatchResult<T> {
@@ -52,7 +51,7 @@ export async function uploadSnapshotBatch<T extends UploadableSnapshot>(
   const versions = new Map(response.results.map(r => [r.itemId, r.version]))
   const stored = batch.filter(item => versions.has(item.snapshot.itemId))
   if (stored.length > 0) {
-    options.recorder?.recordStoredSnapshots(stored, versions, response.logSeq)
+    options.recorder?.recordStoredSnapshots(stored, versions)
   }
 
   return {

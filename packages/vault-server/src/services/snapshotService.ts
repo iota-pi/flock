@@ -10,8 +10,6 @@ export interface PersistSnapshotsResult {
   persisted: number
   total: number
   results: Array<{ itemId: ItemId; version: number }>
-  /** The log's head, read after the writes */
-  logSeq: number
 }
 
 /** The account's storage as it was when the request came in */
@@ -23,7 +21,7 @@ export interface StorageAllowance {
 
 /**
  * Persists a batch of encrypted item snapshots, each written on its own. Logs any write that fails
- * and reports which ones were persisted, with the log's head once the writes are done.
+ * and reports which ones were persisted.
  *
  * An account at its storage quota can still delete items, but a batch that carries any snapshot is
  * turned away whole with `QuotaExceededError`. Rejecting single items instead would get them
@@ -80,13 +78,11 @@ export async function persistSnapshots(
     await vault.addStorageUsage({ account: input.account, bytes: storageDelta })
   }
   const persisted = persistedResults.length
-  const logSeq = await vault.readLogHead({ account: input.account })
 
   return {
     success: persisted === input.snapshots.length,
     persisted,
     total: input.snapshots.length,
     results: persistedResults.map(({ itemId, version }) => ({ itemId, version })),
-    logSeq,
   }
 }

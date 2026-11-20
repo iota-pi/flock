@@ -185,23 +185,8 @@ describe('sync log', () => {
       return { a, b, itemId }
     }
 
-    it('catches up a snapshot that replaced another device\'s (S2)', async () => {
-      const { b, itemId } = await raceSnapshots()
-      const raced = server.items.get(itemId)!.version
-
-      await b.poll()
-      await b.uploadSnapshots()
-
-      expect(server.items.get(itemId)!.version).toBeGreaterThan(raced)
-      server.expireLog()
-      const c = await startDevice('device-c')
-      await c.poll()
-      expect(await c.read(itemId)).toMatchObject({ title: 'from a', body: 'from b' })
-    })
-
-    it('heals the same race from the manifest check alone (S3)', async () => {
-      const { a, b, itemId } = await raceSnapshots()
-      vi.spyOn(b.services.snapshotCoverage, 'onSnapshotStored').mockResolvedValue(undefined)
+    it('heals a snapshot that replaced another device\'s at the replaced author\'s manifest sync (S2)', async () => {
+      const { a, itemId } = await raceSnapshots()
       await a.poll()
 
       await a.manifestSync()
@@ -896,7 +881,7 @@ describe('sync log', () => {
       expect(await a.services.recoveryManager.listRecoveryItems()).toEqual([])
     })
 
-    it('rechecks a rewrite that jumped a version', async () => {
+    it('heals a rewrite that replaced another device\'s snapshot', async () => {
       const a = await startDevice('device-a')
       const b = await startDevice('device-b')
       const itemId = await a.create('item-1', { title: 'first' })
@@ -908,8 +893,9 @@ describe('sync log', () => {
 
       await b.services.itemReencryptor.run()
       server.hiddenSeqs.clear()
-      await b.poll()
-      await b.uploadSnapshots()
+      await a.poll()
+      await a.manifestSync()
+      await a.uploadSnapshots()
 
       server.expireLog()
       const c = await startDevice('device-c')

@@ -10,11 +10,15 @@ import { SizeAwareBatchAccumulator } from '../utils/SizeAwareBatchAccumulator'
 import type { SnapshotTracker } from './SnapshotTracker'
 import { estimateSnapshotSize, type SnapshotBuilder, toTombstoneSnapshot, type PreparedSnapshotItem } from './SnapshotBuilder'
 import { fireAndForget } from '../utils/fireAndForget'
-import { uploadSnapshotBatch, type SnapshotBatchResult, type UploadableSnapshot } from './snapshotUpload'
+import {
+  uploadSnapshotBatch,
+  type SnapshotBatchResult,
+  type StoredSnapshotDetails,
+  type UploadableSnapshot,
+} from './snapshotUpload'
 import { createLogger } from '../utils/logger'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import type { SyncSessionState } from './SyncSessionState'
-import type { StoredSnapshotDetails } from './SnapshotCoverage'
 
 const log = createLogger('SnapshotPusher')
 
@@ -31,7 +35,6 @@ export interface SnapshotPusherOptions {
   recoveryManager: RecoveryManager
   apiClient: SyncApiClient
   eventHub: ClientEventHub
-  getLatestCursor?: () => number
   maxPayloadBytes?: number
 }
 
@@ -84,7 +87,7 @@ export class SnapshotPusher {
 
     let result: SnapshotPushOutcome
     try {
-      result = await this.processSnapshotPush(dirtyItemIds, this.deps.getLatestCursor?.() ?? 0, signal)
+      result = await this.processSnapshotPush(dirtyItemIds, signal)
     } catch (error) {
       if (error instanceof SnapshotsRefusedError) {
         log.warn('The server turned snapshots away; uploading them later', error.cause)
@@ -154,22 +157,18 @@ export class SnapshotPusher {
     }
   }
 
-  private async prepareItemForPush(
-    itemId: ItemId,
-    snapshotCursor: number,
-    signal?: AbortSignal,
-  ): Promise<ItemPreparationResult> {
+  private async prepareItemForPush(itemId: ItemId, signal?: AbortSignal): Promise<ItemPreparationResult> {
     const tick = this.deps.tracker.getDirtyTick(itemId)
     if (tick === undefined) {
       return { type: 'skip' }
     }
 
     // The build bounds its document lookup, so an unreadable document fails here rather than wedging the push
-    let buildResult = await this.deps.builder.build(itemId, snapshotCursor, { signal })
+    let buildResult = await this.deps.builder.build(itemId, { signal })
     if (buildResult.type === 'deferred' && buildResult.reason === 'unpushed') {
       // Changes made since the push that started this upload
       await this.deps.pushToLog([itemId], signal)
-      buildResult = await this.deps.builder.build(itemId, snapshotCursor, { signal })
+      buildResult = await this.deps.builder.build(itemId, { signal })
     }
 
     if (buildResult.type === 'not-ready') {
@@ -218,14 +217,12 @@ export class SnapshotPusher {
   }
 
   /** Records snapshots the server stored, whichever upload sent them */
-  recordStoredSnapshots(stored: UploadableSnapshot[], versions: Map<ItemId, number>, logSeq: number): void {
+  recordStoredSnapshots(stored: UploadableSnapshot[], versions: Map<ItemId, number>): void {
     for (const item of stored) {
       const { itemId } = item.snapshot
       this.consecutiveFailures.reset(itemId)
-      const assignedVersion = versions.get(itemId)
-      const baseVersion = this.deps.tracker.getBaseVersion(itemId)
-      this.deps.tracker.recordSnapshotSuccess(itemId, item.tick, assignedVersion)
-      this.deps.onSnapshotStored({ itemId, version: assignedVersion ?? baseVersion, baseVersion, heads: item.heads, logSeq })
+      this.deps.tracker.recordSnapshotSuccess(itemId, item.tick, versions.get(itemId))
+      this.deps.onSnapshotStored({ itemId, heads: item.heads })
       fireAndForget(
         this.deps.recoveryManager.unquarantine(item.snapshot.itemId),
         'SnapshotPusher:unquarantine',
@@ -259,11 +256,7 @@ export class SnapshotPusher {
     return { success: result.success, persisted: result.persisted }
   }
 
-  private async processSnapshotPush(
-    dirtyItemIds: ItemId[],
-    snapshotCursor: number,
-    signal: AbortSignal,
-  ): Promise<SnapshotPushOutcome> {
+  private async processSnapshotPush(dirtyItemIds: ItemId[], signal: AbortSignal): Promise<SnapshotPushOutcome> {
     let persisted = 0
     let total = 0
     let success = true
@@ -286,7 +279,7 @@ export class SnapshotPusher {
 
     for (const itemId of dirtyItemIds) {
       checkAlive(signal, () => this.deps.session.isOperational)
-      const prepared = await this.prepareItemForPush(itemId, snapshotCursor, signal)
+      const prepared = await this.prepareItemForPush(itemId, signal)
       if (prepared.type === 'fail') {
         success = false
       }

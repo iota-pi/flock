@@ -80,6 +80,6 @@ Each item's server heads, base version and dirty flag live in its own record in 
 
 - **The copy.** `migrateLocalData` (`migrateItemSyncRecords` in `src/migrate/legacy/localData.ts`, after the older layouts have been brought into those keys) builds a record for each item and adds them with the library's `importItemSyncRecords`, which keeps any field a record already has. An item was dirty when its `localModifiedAt` was after its `lastSnapshotAt`. It removes both values only once the records are written, so a failure repeats the copy at the next start.
 - **Why it can't be skipped.** Without its server heads an item pushes its whole history, and without its base version it fetches every snapshot again. The dirty flags are what re-queue snapshots that never went up.
-- **Old builds.** A tab of an older build still writes the whole-account values, which nothing reads. Its dirty items still reach the log through their pending marks, and S3 uploads any snapshot they owe.
+- **Old builds.** A tab of an older build still writes the whole-account values, which nothing reads. Its dirty items still reach the log through their pending marks, and S2 uploads any snapshot they owe.
 
 Still to do: retire the level. That deletes `migrateItemSyncRecords`, `importItemSyncRecords` and the two legacy keys from the migration app, and `FirstStart` and its paths through the engine, the `first-start` store, and the `firstStartReset`, `firstStartSynced` and `walCleared` keys.

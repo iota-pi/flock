@@ -19,7 +19,6 @@ function createContext(overrides?: { authToken?: string, sessionValid?: boolean,
     set: vi.fn(async () => ({ version: 1, storageDelta: 0 })),
     addStorageUsage: vi.fn(async () => undefined),
     updateAccountData: vi.fn(async () => undefined),
-    readLogHead: vi.fn(async () => 0),
   }
 
   return {
@@ -40,22 +39,18 @@ describe('itemsRouter.putSnapshots', () => {
         {
           itemId: 'item-1',
           type: 'todo',
-          modified: 12345,
           snapshot: {
             iv: 'iv-1',
             cipher: 'cipher-1',
           },
-          snapshotCursor: 10,
         },
         {
           itemId: 'item-2',
           type: 'todo',
-          modified: 12346,
           snapshot: {
             iv: 'iv-2',
             cipher: 'cipher-2',
           },
-          snapshotCursor: 20,
         },
       ],
     }
@@ -70,7 +65,6 @@ describe('itemsRouter.putSnapshots', () => {
         { itemId: 'item-1', version: 1 },
         { itemId: 'item-2', version: 1 },
       ],
-      logSeq: 0,
     })
 
     expect(ctx.vault.set).toHaveBeenCalledTimes(2)
@@ -89,16 +83,12 @@ describe('itemsRouter.putSnapshots', () => {
         {
           itemId: 'item-1',
           type: 'todo',
-          modified: 12345,
           snapshot: { iv: 'iv-1', cipher: 'cipher-1' },
-          snapshotCursor: 10,
         },
         {
           itemId: 'item-2',
           type: 'todo',
-          modified: 12346,
           snapshot: { iv: 'iv-2', cipher: 'cipher-2' },
-          snapshotCursor: 20,
         },
       ],
     }
@@ -112,7 +102,6 @@ describe('itemsRouter.putSnapshots', () => {
       results: [
         { itemId: 'item-1', version: 1 },
       ],
-      logSeq: 0,
     })
   })
 
@@ -127,9 +116,7 @@ describe('itemsRouter.putSnapshots', () => {
         {
           itemId: 'item-1',
           type: 'todo',
-          modified: 12345,
           snapshot: { iv: 'iv-1', cipher: 'cipher-1' },
-          snapshotCursor: 10,
         },
       ],
     }
@@ -141,7 +128,6 @@ describe('itemsRouter.putSnapshots', () => {
       persisted: 0,
       total: 1,
       results: [],
-      logSeq: 0,
     })
     expect(ctx.vault.updateAccountData).not.toHaveBeenCalled()
   })
@@ -248,9 +234,7 @@ describe('itemsRouter.fetchSnapshotsByIds', () => {
 describe('itemsRouter.putSnapshots storage quota', () => {
   const snapshots = [{
     itemId: 'item-1' as ItemId,
-    modified: 1,
     snapshot: { iv: 'iv', cipher: 'cipher' },
-    snapshotCursor: 0,
   }]
 
   it('answers TOO_MANY_REQUESTS with QUOTA_EXCEEDED for an account at its quota', async () => {

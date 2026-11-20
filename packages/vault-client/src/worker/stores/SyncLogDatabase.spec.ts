@@ -14,7 +14,7 @@ describe('SyncLogDatabase', () => {
     await database.close()
   })
 
-  it('adds the item records store to a database an older build created, keeping its records', async () => {
+  it('upgrades a database an older build created, keeping its records', async () => {
     const name = getSyncLogDatabaseName('account-1')
     await new Promise<void>((resolve, reject) => {
       const request = indexedDB.open(name, 1)
@@ -39,6 +39,18 @@ describe('SyncLogDatabase', () => {
 
     expect(await database.getAll(SYNC_LOG_STORES.outbox)).toEqual([{ itemId: 'item-1', tick: 1 }])
     expect(await database.getAll(SYNC_LOG_STORES.items)).toEqual([{ itemId: 'item-1', baseVersion: 2 }])
+    await database.close()
+    const storeNames = await new Promise<string[]>((resolve, reject) => {
+      const request = indexedDB.open(name)
+      request.onsuccess = () => {
+        const names = Array.from(request.result.objectStoreNames)
+        request.result.close()
+        resolve(names)
+      }
+      request.onerror = () => reject(request.error)
+    })
+    expect(storeNames).not.toContain('snapshot-rechecks')
+    expect(storeNames).toEqual(expect.arrayContaining(Object.values(SYNC_LOG_STORES)))
   })
 
   it('stores records by item, and parked entries by seq', async () => {

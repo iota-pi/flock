@@ -72,22 +72,20 @@ describe('SnapshotBuilder', () => {
     const deferring = new SnapshotBuilder(mockRepo, keys, passthroughCodec, coverage)
 
 
-    const result = await deferring.build('item-1' as ItemId, 42)
+    const result = await deferring.build('item-1' as ItemId)
 
     expect(result).toEqual({ type: 'deferred', reason: 'unpushed' })
     expect(mockSave).not.toHaveBeenCalled()
   })
 
   it('builds a snapshot successfully under normal conditions', async () => {
-    const result = await new SnapshotBuilder(mockRepo, keys, testCodec, noLogCoverage).build('item-1' as ItemId, 42)
+    const result = await new SnapshotBuilder(mockRepo, keys, testCodec, noLogCoverage).build('item-1' as ItemId)
 
     expect(result).toEqual({
       type: 'success',
       snapshot: {
         itemId: 'item-1',
         snapshot: { iv: 'mock-iv', cipher: 'mock-cipher', kver: '1' },
-        snapshotCursor: 42,
-        modified: expect.any(Number),
         deleted: undefined,
         heads: { iv: 'mock-iv', cipher: 'mock-cipher', kver: '1' },
       },
@@ -118,7 +116,7 @@ describe('SnapshotBuilder', () => {
 
     it('aborts the lookup when the caller aborts', async () => {
       const controller = new AbortController()
-      await builder.build('item-1' as ItemId, 42, { signal: controller.signal })
+      await builder.build('item-1' as ItemId, { signal: controller.signal })
 
       const lookupSignal: AbortSignal = mockRepo.find.mock.calls[0][1].signal
       expect(lookupSignal.aborted).toBe(false)
@@ -129,7 +127,7 @@ describe('SnapshotBuilder', () => {
     it('returns an error when the lookup never settles', async () => {
       mockRepo.find.mockImplementation(pendingFind)
 
-      const resultPromise = builder.build('item-1' as ItemId, 42)
+      const resultPromise = builder.build('item-1' as ItemId)
       await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.snapshotDocLookup - 1)
       let settled = false
       void resultPromise.then(() => { settled = true })
@@ -148,7 +146,7 @@ describe('SnapshotBuilder', () => {
       mockRepo.find.mockImplementation(pendingFind)
       const controller = new AbortController()
 
-      const resultPromise = builder.build('item-1' as ItemId, 42, { signal: controller.signal })
+      const resultPromise = builder.build('item-1' as ItemId, { signal: controller.signal })
       const caught = resultPromise.catch((error: unknown) => error)
       controller.abort()
       expect(await caught).toMatchObject({ name: 'AbortError' })
@@ -160,61 +158,42 @@ describe('SnapshotBuilder', () => {
       controller.abort()
 
       await expect(
-        builder.build('item-1' as ItemId, 42, { signal: controller.signal }),
+        builder.build('item-1' as ItemId, { signal: controller.signal }),
       ).rejects.toMatchObject({ name: 'AbortError' })
       expect(mockRepo.find).not.toHaveBeenCalled()
     })
   })
 
-  it('captures snapshot timestamp prior to async encryption to prevent stale timestamp masking', async () => {
-    vi.useFakeTimers()
-    try {
-      vi.setSystemTime(1000)
-      mockEncryptBytes.mockImplementation(async () => {
-        // Simulate async encryption delay where time advances to T3
-        vi.setSystemTime(3000)
-        return { iv: 'mock-iv', cipher: 'mock-cipher', kver: '1' }
-      })
-
-      const result = await builder.build('item-1' as ItemId, 42)
-      expect(result.type).toBe('success')
-      // Timestamp must be T1 (1000), not T3 (3000)
-      expect((result as Extract<typeof result, { type: 'success' }>).snapshot.modified).toBe(1000)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
   it('returns error if repo.find throws or returns undefined', async () => {
     mockRepo.find.mockRejectedValue(new Error('not found'))
-    let result = await builder.build('item-1' as ItemId, 42)
+    let result = await builder.build('item-1' as ItemId)
     expect(result).toEqual({ type: 'error', reason: 'Document handle not found' })
 
     mockRepo.find.mockResolvedValue(undefined)
-    result = await builder.build('item-1' as ItemId, 42)
+    result = await builder.build('item-1' as ItemId)
     expect(result).toEqual({ type: 'error', reason: 'Document handle not found' })
   })
 
   it('returns not-ready if document handle is not ready', async () => {
     mockHandle.isReady.mockReturnValue(false)
-    const result = await builder.build('item-1' as ItemId, 42)
+    const result = await builder.build('item-1' as ItemId)
     expect(result).toEqual({ type: 'not-ready' })
   })
 
   it('returns error if doc is missing or saving binary is empty', async () => {
     mockHandle.doc.mockReturnValue(undefined)
-    let result = await builder.build('item-1' as ItemId, 42)
+    let result = await builder.build('item-1' as ItemId)
     expect(result).toEqual({ type: 'error', reason: 'Document data not available' })
 
     mockHandle.doc.mockReturnValue({ id: 'item-1' })
     mockSave.mockReturnValue(new Uint8Array([]))
-    result = await builder.build('item-1' as ItemId, 42)
+    result = await builder.build('item-1' as ItemId)
     expect(result).toEqual({ type: 'error', reason: 'Failed to serialize document binary' })
   })
 
   it('returns error if normalizeItemSnapshot returns null', async () => {
     mockNormalizeItemSnapshot.mockReturnValue(null)
-    const result = await builder.build('item-1' as ItemId, 42)
+    const result = await builder.build('item-1' as ItemId)
     expect(result).toEqual({ type: 'error', reason: 'Failed to normalize item snapshot' })
   })
 
@@ -224,7 +203,7 @@ describe('SnapshotBuilder', () => {
       deleted: true,
     })
 
-    const result = await builder.build('item-1' as ItemId, 42)
+    const result = await builder.build('item-1' as ItemId)
     expect(result).toEqual({
       type: 'success',
       snapshot: expect.objectContaining({
@@ -236,17 +215,17 @@ describe('SnapshotBuilder', () => {
 
   it('returns not-ready if encryptBytes throws VaultNotInitializedError or Vault is locked', async () => {
     mockEncryptBytes.mockRejectedValueOnce(new VaultNotInitializedError())
-    let result = await builder.build('item-1' as ItemId, 42)
+    let result = await builder.build('item-1' as ItemId)
     expect(result).toEqual({ type: 'not-ready' })
 
     mockEncryptBytes.mockRejectedValueOnce(new Error('Vault is locked'))
-    result = await builder.build('item-1' as ItemId, 42)
+    result = await builder.build('item-1' as ItemId)
     expect(result).toEqual({ type: 'not-ready' })
   })
 
   it('handles non-transient error by returning error result with reason', async () => {
     mockEncryptBytes.mockRejectedValue(new Error('Non-transient encryption error'))
-    const result = await builder.build('item-1' as ItemId, 42)
+    const result = await builder.build('item-1' as ItemId)
     expect(result).toEqual({
       type: 'error',
       reason: 'Non-transient encryption error',
@@ -288,17 +267,13 @@ describe('toTombstoneSnapshot', () => {
   const base = {
     itemId: 'item-1' as ItemId,
     snapshot: { cipher: 'abc', iv: '123', kver: '1' },
-    snapshotCursor: 7,
-    modified: 1234,
   }
 
-  it('strips the snapshot payload and keeps the other fields', () => {
+  it('strips the snapshot payload and keeps the item ID', () => {
     const tombstone = toTombstoneSnapshot({ ...base, deleted: true })
 
     expect(tombstone).toEqual({
       itemId: 'item-1',
-      snapshotCursor: 7,
-      modified: 1234,
       deleted: true,
     })
     expect('snapshot' in tombstone).toBe(false)
@@ -314,8 +289,6 @@ describe('estimateSnapshotSize', () => {
     const snapshot: VaultSnapshotInput = {
       itemId: 'item-1' as ItemId,
       snapshot: { iv: 'iv-12345678', cipher: 'a'.repeat(100), kver: '1' },
-      snapshotCursor: 1,
-      modified: 1000,
     }
     // 100 (cipher) + 11 (iv) + 6 (itemId) + 128 (base overhead) = 245
     expect(estimateSnapshotSize(snapshot)).toBe(245)
@@ -325,8 +298,6 @@ describe('estimateSnapshotSize', () => {
     const snapshot: VaultSnapshotInput = {
       itemId: '' as ItemId,
       snapshot: { iv: '', cipher: '' },
-      snapshotCursor: 0,
-      modified: 0,
     }
     expect(estimateSnapshotSize(snapshot)).toBe(128)
   })

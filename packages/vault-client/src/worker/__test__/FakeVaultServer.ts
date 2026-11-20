@@ -113,7 +113,7 @@ export class FakeVaultServer implements VaultServerBackend {
     const results = input.snapshots.filter(snapshot => storedSize(snapshot) <= MAX_ITEM_SIZE_BYTES)
       .map(snapshot => ({ itemId: snapshot.itemId, version: this.write(snapshot) }))
     const total = input.snapshots.length
-    return { success: results.length === total, persisted: results.length, total, results, logSeq: this.head }
+    return { success: results.length === total, persisted: results.length, total, results }
   }
 
   /** Writes an item as the server's driver does, returning the version it made (0 for none) */
