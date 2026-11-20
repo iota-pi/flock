@@ -106,6 +106,16 @@ describe('AutomergeRepoManager', () => {
     expect(adapterCloseSpy).toHaveBeenCalledTimes(1)
   })
 
+  // The Repo's throttled saves can still run once it has shut down, and nothing handles their errors
+  it('drops saves that arrive after the repo shut down, instead of writing to the closed database', async () => {
+    const save = vi.spyOn(storage, 'save').mockRejectedValue(new Error('Database is closed'))
+
+    await manager.close()
+
+    await expect(repo.storage.save(['doc-1'], new Uint8Array([1]))).resolves.toBeUndefined()
+    expect(save).not.toHaveBeenCalled()
+  })
+
   it('closes the adapter when clearLocalData is omitted', async () => {
     const adapterCloseSpy = vi.spyOn(storage, 'close').mockResolvedValue(undefined)
 
