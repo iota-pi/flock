@@ -236,6 +236,28 @@ describe('sync model', () => {
       await assertConverged(world, setup.model, observers)
     })
 
+    // Found by the property (seed 24301, path 10:4:4:2:4:4:23:28:30:5:17:1:4:7:7, replay path
+    // 5AFABA/OABA//u:VrD). Creating an item stored its index entry at once but left its doc to the
+    // Repo's throttled save, so a crash in between left C listing an item it had no doc for.
+    it('never indexes a created item whose doc a crash lost', async () => {
+      const setup = await createWorld(3)
+      world = setup.real
+      const [a, , c] = world.devices
+      const itemId = await c.create('item-1')
+      await c.crash()
+      await c.start()
+      // The create counts as stored once it returns, so the item survives the crash
+      expect(await c.liveIds()).toEqual([itemId])
+      expect(await c.heads(itemId)).not.toBeNull()
+      setup.model.items.push(itemId)
+      setup.model.durableCreates.add(itemId)
+      await a.poll()
+
+      await quiesce(world, setup.model)
+      expect(await a.liveIds()).toEqual([itemId])
+      await assertConverged(world, setup.model, observers)
+    })
+
     it('keeps an edit whose author never returns, once the log has expired', async () => {
       const { setup, world: w, a, b, itemId } = await sharedItem()
       await a.edit(itemId, { e1: 1 })

@@ -35,6 +35,7 @@ describe('ItemOperations', () => {
   let removeItemIdsMock: any
   let markDocumentDirtyMock: any
   let getAutomergeItemMock: any
+  let flushToStorageMock: any
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -50,6 +51,7 @@ describe('ItemOperations', () => {
     removeItemIdsMock = vi.fn().mockResolvedValue(undefined)
     markDocumentDirtyMock = vi.fn()
     getAutomergeItemMock = vi.fn()
+    flushToStorageMock = vi.fn().mockResolvedValue(undefined)
 
     deps = {
       accountId: 'account-1',
@@ -57,6 +59,7 @@ describe('ItemOperations', () => {
       docStore: {
         changeDocument: changeDocumentMock,
         getAutomergeItem: getAutomergeItemMock,
+        flushToStorage: flushToStorageMock,
         codec: { ...passthroughCodec, isCorrupt: (doc: VaultDoc) => doc.type === 'error' },
       } as any,
       indexManager: {
@@ -96,6 +99,28 @@ describe('ItemOperations', () => {
       expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-1')
       expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['item-1'])
       expect(emitMock).not.toHaveBeenCalled()
+    })
+
+    it('stores the doc before the index lists it', async () => {
+      changeDocumentMock.mockResolvedValue(true)
+
+      await operations.createItem(testItem)
+
+      expect(flushToStorageMock).toHaveBeenCalledWith(['item-1'])
+      expect(flushToStorageMock.mock.invocationCallOrder[0])
+        .toBeLessThan(addItemIdsMock.mock.invocationCallOrder[0])
+    })
+
+    it('leaves the item out of the index when its doc cannot be stored', async () => {
+      changeDocumentMock.mockResolvedValue(true)
+      flushToStorageMock.mockRejectedValue(new Error('disk full'))
+      getAutomergeItemMock.mockResolvedValue(null)
+
+      await operations.createItem(testItem)
+
+      expect(addItemIdsMock).not.toHaveBeenCalled()
+      expect(markDocumentDirtyMock).not.toHaveBeenCalled()
+      expect(emitMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'mutationFailed' }))
     })
 
     it('emits mutationFailed and itemUpdated with null when changeDocument returns false', async () => {
@@ -278,6 +303,35 @@ describe('ItemOperations', () => {
   })
 
   describe('storeItems', () => {
+    it('stores the docs before the index records them', async () => {
+      backChangesWithDocs({ 'item-del': { id: 'item-del' } })
+
+      await operations.storeItems([
+        { id: 'item-live' as ItemId, text: 'new' } as unknown as VaultDoc,
+        { id: 'item-del' as ItemId, deleted: true } as unknown as VaultDoc,
+      ])
+
+      expect(flushToStorageMock).toHaveBeenCalledWith(['item-live', 'item-del'])
+      const flushedAt = flushToStorageMock.mock.invocationCallOrder[0]
+      expect(flushedAt).toBeLessThan(addItemIdsMock.mock.invocationCallOrder[0])
+      expect(flushedAt).toBeLessThan(removeItemIdsMock.mock.invocationCallOrder[0])
+    })
+
+    it('leaves the index alone and emits the true state when the docs cannot be stored', async () => {
+      backChangesWithDocs({ 'item-del': { id: 'item-del' } })
+      flushToStorageMock.mockRejectedValue(new Error('disk full'))
+
+      await operations.storeItems([
+        { id: 'item-live' as ItemId, text: 'new' } as unknown as VaultDoc,
+        { id: 'item-del' as ItemId, deleted: true } as unknown as VaultDoc,
+      ])
+
+      expect(addItemIdsMock).not.toHaveBeenCalled()
+      expect(removeItemIdsMock).not.toHaveBeenCalled()
+      expect(emitMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'itemUpdated', id: 'item-live' }))
+      expect(emitMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'itemUpdated', id: 'item-del' }))
+    })
+
     it('does not undelete an existing deleted doc', async () => {
       const docs: Record<string, Record<string, unknown>> = {
         'item-del': { id: 'item-del', text: 'old', deleted: true },
