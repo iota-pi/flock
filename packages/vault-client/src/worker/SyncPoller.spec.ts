@@ -18,8 +18,10 @@ describe('SyncPoller', () => {
     cursor: number
     recordOwnPushes: AnyMock
     needsCatchUpManifest: AnyMock
+    onBehindSeen: AnyMock
     onCatchUpManifestSynced: AnyMock
-    takeManifestSyncRequest: AnyMock
+    onRecoveryManifestSynced: AnyMock
+    pendingManifestSync: 'catchUp' | 'recovery' | undefined
     process: AnyMock
   }
   let outbox: { pushPending: AnyMock }
@@ -36,8 +38,10 @@ describe('SyncPoller', () => {
       cursor: 7,
       recordOwnPushes: vi.fn(),
       needsCatchUpManifest: vi.fn().mockReturnValue(false),
-      onCatchUpManifestSynced: vi.fn(),
-      takeManifestSyncRequest: vi.fn().mockReturnValue(false),
+      onBehindSeen: vi.fn(() => { puller.pendingManifestSync = 'catchUp' }),
+      onCatchUpManifestSynced: vi.fn(() => { puller.pendingManifestSync = undefined }),
+      onRecoveryManifestSynced: vi.fn(() => { puller.pendingManifestSync = undefined }),
+      pendingManifestSync: undefined,
       process: vi.fn().mockResolvedValue(undefined),
     }
     outbox = { pushPending: vi.fn().mockResolvedValue(undefined) }
@@ -205,17 +209,33 @@ describe('SyncPoller', () => {
 
       expect(await poller.executePoll()).toBe('success')
 
+      expect(puller.onBehindSeen).toHaveBeenCalledTimes(1)
       expect(syncManifest).toHaveBeenCalledTimes(1)
       expect(apiClient.pollLog).toHaveBeenCalledTimes(2)
       expect(puller.process).toHaveBeenCalledTimes(1)
     })
   })
 
-  it('runs the manifest sync a lost row asked for, whatever the gap since the last one', async () => {
-    puller.takeManifestSyncRequest.mockReturnValueOnce(true)
+  describe('recovering lost rows', () => {
+    beforeEach(() => {
+      puller.process.mockImplementation(async () => { puller.pendingManifestSync = 'recovery' })
+    })
 
-    await poller.executePoll()
+    it('runs the manifest sync a lost row asked for, whatever the gap since the last one', async () => {
+      expect(await poller.executePoll()).toBe('success')
 
-    expect(syncManifest).toHaveBeenCalledTimes(1)
+      expect(syncManifest).toHaveBeenCalledTimes(1)
+      expect(puller.onRecoveryManifestSynced).toHaveBeenCalledTimes(1)
+    })
+
+    it('fails the poll and keeps the request when the manifest isn\'t fetched', async () => {
+      syncManifest.mockResolvedValue(false)
+
+      expect(await poller.executePoll()).toBe('failure')
+
+      expect(puller.onRecoveryManifestSynced).not.toHaveBeenCalled()
+      expect(puller.pendingManifestSync).toBe('recovery')
+      expect(snapshots.pushDue).not.toHaveBeenCalled()
+    })
   })
 })

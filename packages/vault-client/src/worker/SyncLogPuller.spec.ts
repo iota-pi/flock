@@ -199,8 +199,17 @@ describe('SyncLogPuller', () => {
 
       expect(puller.cursor).toBe(3)
       expect(puller.gapRepollDelay).toBeUndefined()
-      expect(puller.takeManifestSyncRequest()).toBe(true)
-      expect(puller.takeManifestSyncRequest()).toBe(false)
+      expect(puller.pendingManifestSync).toBe('recovery')
+    })
+
+    it('keeps asking for the recovery sync until one fetches the manifest', async () => {
+      await puller.process(page([entry(3, { createdAt: NOW - SYNC_TIMEOUTS.gapWait })]))
+      await puller.process(page([entry(4)]))
+
+      expect(puller.pendingManifestSync).toBe('recovery')
+
+      puller.onRecoveryManifestSynced()
+      expect(puller.pendingManifestSync).toBeUndefined()
     })
 
     it('moves past a fresh gap that has lasted the whole wait', async () => {
@@ -209,7 +218,7 @@ describe('SyncLogPuller', () => {
       await puller.process(page([entry(2)], { serverNow: NOW + SYNC_TIMEOUTS.gapWait }))
 
       expect(puller.cursor).toBe(2)
-      expect(puller.takeManifestSyncRequest()).toBe(true)
+      expect(puller.pendingManifestSync).toBe('recovery')
     })
 
     it('expects stale gaps while catching up, and asks for no second manifest sync', async () => {
@@ -229,7 +238,7 @@ describe('SyncLogPuller', () => {
       await fresh.process(page([entry(5, { createdAt: NOW - SYNC_TIMEOUTS.gapWait })]))
 
       expect(fresh.cursor).toBe(5)
-      expect(fresh.takeManifestSyncRequest()).toBe(false)
+      expect(fresh.pendingManifestSync).toBeUndefined()
       await fresh.shutdown({ clearLocalData: true })
     })
   })

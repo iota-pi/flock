@@ -16,25 +16,27 @@ import { classifySyncError } from '../utils/errorClassifier'
 import { fireAndForget } from '../utils/fireAndForget'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { createLogger } from '../utils/logger'
+import {
+  INITIAL_LOG_PULL_STATE,
+  gapRepollDelay,
+  hasImmediatePendingPulls,
+  needsCatchUpManifest,
+  pendingManifestSync,
+  transitionLogPull,
+  type LogPullEffect,
+  type LogPullEvent,
+  type LogPullState,
+} from './logPullState'
 
 const log = createLogger('SyncLogPuller')
 
 const OWN_PUSH_CACHE_MAX = 1000
-const MAX_GAP_REPOLL_MS = 16_000
 
 /** What `pollLog` returns for the log */
 export interface LogPage {
   entries: SyncLogEntry[]
   hasMore: boolean
   serverNow: number
-}
-
-/** A missing seq this device is waiting for */
-interface GapWait {
-  seq: number
-  /** The server's clock when the gap was first seen */
-  firstSeenAt: number
-  repolls: number
 }
 
 export interface SyncLogPullerDeps {
@@ -61,13 +63,8 @@ export interface SyncLogPullerDeps {
  */
 export class SyncLogPuller {
   private position = { cursor: 0, lastPullAt: null as number | null }
-  private hasMore = false
-  private gap: GapWait | null = null
-  /** Whether this device may be behind the log's TTL, until a pull reaches the end of the log */
-  private isCatchingUp = false
-  /** Whether the manifest sync that goes with catching up has run */
-  private hasCaughtUpManifest = false
-  private manifestSyncDue = false
+  /** Where reading stopped, and which manifest sync it waits for (`logPullState.ts`) */
+  private state: LogPullState = INITIAL_LOG_PULL_STATE
   private readonly ownSeqs = new BoundedSet<number>(OWN_PUSH_CACHE_MAX)
   private readonly addedChanges = new Set<ItemId>()
   /** Items log rows were applied to that may not have reached storage under a saved cursor yet */
@@ -139,8 +136,13 @@ export class SyncLogPuller {
     }
     this.ownSeqs.clear()
     this.unflushedItems.clear()
-    this.hasMore = false
-    this.gap = null
+    this.dispatch({ type: 'stop' })
+  }
+
+  private dispatch(event: LogPullEvent): LogPullEffect[] {
+    const { state, effects } = transitionLogPull(this.state, event)
+    this.state = state
+    return effects
   }
 
   /** Remembers this device's own rows, so that their echoes only advance the cursor */
@@ -156,33 +158,37 @@ export class SyncLogPuller {
    * when it's known.
    */
   needsCatchUpManifest(now: number): boolean {
-    if (this.hasCaughtUpManifest) return false
-    const { lastPullAt } = this.position
-    return lastPullAt === null || now - lastPullAt > SYNC_TIMEOUTS.logCatchUpAge
+    return needsCatchUpManifest(this.state, this.position.lastPullAt, now)
   }
 
-  /** Records that the manifest sync ran, so the log can be read */
+  /** Records that the server's clock showed the device is behind, so the page it got was dropped */
+  onBehindSeen(): void {
+    this.dispatch({ type: 'behindSeen' })
+  }
+
+  /** Records that catch-up's manifest sync fetched the manifest, so the log can be read */
   onCatchUpManifestSynced(): void {
-    this.hasCaughtUpManifest = true
-    this.isCatchingUp = true
+    this.dispatch({ type: 'catchUpSynced' })
   }
 
-  /** Takes the request for a manifest sync that a lost row left. The caller runs it. */
-  takeManifestSyncRequest(): boolean {
-    const isDue = this.manifestSyncDue
-    this.manifestSyncDue = false
-    return isDue
+  /** Records that the manifest sync a lost row asked for fetched the manifest */
+  onRecoveryManifestSynced(): void {
+    this.dispatch({ type: 'recoverySynced' })
   }
 
-  /** Only `hasMore` counts: waiting on a gap never polls at once (sync rule 4) */
+  /** The manifest sync the poller has to run, which stays due until one fetches the manifest */
+  get pendingManifestSync(): 'catchUp' | 'recovery' | undefined {
+    return pendingManifestSync(this.state)
+  }
+
+  /** Only more pages count: waiting on a gap never polls at once (sync rule 4) */
   hasImmediatePendingPulls(): boolean {
-    return this.hasMore && this.gap === null
+    return hasImmediatePendingPulls(this.state)
   }
 
   /** How soon to poll again for a gap, if the log has one */
   get gapRepollDelay(): number | undefined {
-    if (!this.gap) return undefined
-    return Math.min(SYNC_TIMEOUTS.gapRepollBase * 2 ** this.gap.repolls, MAX_GAP_REPOLL_MS)
+    return gapRepollDelay(this.state)
   }
 
   /** Applies a page of the log in seq order. Throws, leaving the cursor where it stopped, if storage fails. */
@@ -201,7 +207,7 @@ export class SyncLogPuller {
           stoppedAtGap = true
           break
         }
-        this.gap = null
+        this.dispatch({ type: 'rowRead' })
         if (await this.handleEntry(entry, timedOutKeys)) {
           appliedItems.add(entry.itemId)
           this.unflushedItems.add(entry.itemId)
@@ -209,14 +215,9 @@ export class SyncLogPuller {
         this.position.cursor = entry.seq
       }
 
-      this.hasMore = page.hasMore
-      if (!stoppedAtGap) {
-        this.gap = null
-        if (!page.hasMore) {
-          this.position.lastPullAt = page.serverNow
-          this.isCatchingUp = false
-          this.hasCaughtUpManifest = false
-        }
+      this.dispatch({ type: 'pageRead', stoppedAtGap, hasMore: page.hasMore })
+      if (!stoppedAtGap && !page.hasMore) {
+        this.position.lastPullAt = page.serverNow
       }
     } finally {
       if (this.position.cursor !== start.cursor || this.position.lastPullAt !== start.lastPullAt) {
@@ -236,26 +237,15 @@ export class SyncLogPuller {
     this.addedChanges.add(itemId)
   }
 
-  /**
-   * Decides about a missing seq before `entry`. A fresh gap may be a transaction not fully visible
-   * yet, so it waits. A stale one moves the cursor past the gap and returns true.
-   */
+  /** Decides about a missing seq before `entry`, and returns whether the cursor moved past it */
   private passGap(entry: SyncLogEntry, serverNow: number): boolean {
     const missingSeq = this.position.cursor + 1
-    if (this.gap?.seq !== missingSeq) {
-      this.gap = { seq: missingSeq, firstSeenAt: serverNow, repolls: 0 }
-    } else {
-      this.gap.repolls += 1
-    }
+    const effects = this.dispatch({ type: 'gapFound', missingSeq, nextCreatedAt: entry.createdAt, serverNow })
+    if (!effects.includes('passGap')) return false
 
-    const isStale = serverNow - entry.createdAt >= SYNC_TIMEOUTS.gapWait
-      || serverNow - this.gap.firstSeenAt >= SYNC_TIMEOUTS.gapWait
-    if (!isStale) return false
-
-    if (!this.isCatchingUp) {
+    if (effects.includes('reportLostRows')) {
       // Can't happen by design, so the manifest sync that recovers from it says something went wrong
       log.error(`Log rows ${missingSeq}-${entry.seq - 1} are missing; moving past them`)
-      this.manifestSyncDue = true
     }
     this.position.cursor = entry.seq - 1
     return true
