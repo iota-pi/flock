@@ -1,0 +1,134 @@
+name: Sync Model Exploration
+
+# The PR job replays the same fixed-seed scenarios every time. This one tries new ones each night,
+# with a random seed and many more runs, to find bugs no one has seen yet. A failure prints the
+# seed, path and replay path that reproduce it (see syncModel.integration.spec.ts), which belong in
+# a regression test there.
+on:
+  schedule:
+    # 16:00 UTC, the early hours in Sydney
+    - cron: '0 16 * * *'
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: Seed to replay (leave blank for a random one)
+        required: false
+        default: ''
+      runs:
+        description: Number of random scenarios
+        required: false
+        default: '300'
+
+concurrency:
+  group: sync-model-nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  explore:
+    name: Explore
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    outputs:
+      seed: ${{ steps.seed.outputs.seed }}
+      runs: ${{ steps.seed.outputs.runs }}
+    services:
+      dynamodb:
+        image: amazon/dynamodb-local
+        ports:
+          - 8001:8000
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+
+      - name: Choose seed
+        id: seed
+        env:
+          INPUT_SEED: ${{ inputs.seed }}
+          INPUT_RUNS: ${{ inputs.runs }}
+        run: |
+          set -euo pipefail
+          seed="${INPUT_SEED:-$(( (RANDOM << 15) | RANDOM ))}"
+          runs="${INPUT_RUNS:-300}"
+          if ! [[ "$seed" =~ ^-?[0-9]+$ && "$runs" =~ ^[0-9]+$ ]]; then
+            echo "::error::seed and runs must be integers"
+            exit 1
+          fi
+          echo "seed=$seed" >> "$GITHUB_OUTPUT"
+          echo "runs=$runs" >> "$GITHUB_OUTPUT"
+
+      # Only the property: the regression tests are deterministic and the PR job runs them
+      - name: Run Sync Model Property
+        run: yarn test:sync-model -t 'converges'
+        env:
+          SYNC_MODEL_SEED: ${{ steps.seed.outputs.seed }}
+          SYNC_MODEL_RUNS: ${{ steps.seed.outputs.runs }}
+          # More time to shrink a failure to something readable
+          SYNC_MODEL_SHRINK_MS: '600000'
+
+      - name: Summary
+        if: always()
+        env:
+          SEED: ${{ steps.seed.outputs.seed }}
+          RUNS: ${{ steps.seed.outputs.runs }}
+          OUTCOME: ${{ job.status }}
+        run: |
+          {
+            echo "### Sync model exploration: $OUTCOME"
+            echo
+            echo "Seed \`$SEED\`, $RUNS runs."
+            if [ "$OUTCOME" != "success" ]; then
+              echo
+              echo "Replay with the path and replay path from the counterexample in the log:"
+              echo
+              echo '```'
+              echo "SYNC_MODEL_SEED=$SEED SYNC_MODEL_PATH=<path> SYNC_MODEL_REPLAY_PATH=<replayPath> yarn test:sync-model -t converges"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # A separate job, so the token that can write issues never shares a runner with the dependencies
+  # `explore` installs and runs (checkout also leaves its token in the git config there).
+  # Scheduled runs only: whoever starts one by hand is watching it.
+  report:
+    name: Report Failure
+    needs: explore
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      # One open issue collects every failure until it's closed, rather than one issue a night
+      - name: Open or update the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SEED: ${{ needs.explore.outputs.seed }}
+          RUNS: ${{ needs.explore.outputs.runs }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          label=sync-model-nightly
+          gh label create "$label" --force --color B60205 \
+            --description 'Failures found by the nightly sync model exploration'
+
+          body="$(printf '%s\n' \
+            "The nightly sync model run failed with seed \`${SEED:-unknown}\` (${RUNS:-?} runs): $RUN_URL" \
+            '' \
+            'The counterexample in the log gives the path and replay path. Replay it with:' \
+            '' \
+            '```' \
+            "SYNC_MODEL_SEED=${SEED:-<seed>} SYNC_MODEL_PATH=<path> SYNC_MODEL_REPLAY_PATH=<replayPath> yarn test:sync-model -t converges" \
+            '```' \
+            '' \
+            'Once it is fixed, add the shrunk scenario to the regression tests in `syncModel.integration.spec.ts`.')"
+
+          number="$(gh issue list --label "$label" --state open --limit 1 --json number --jq '.[0].number // empty')"
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body "$body"
+          else
+            gh issue create --title 'Nightly sync model exploration failed' --label "$label" --body "$body"
+          fi

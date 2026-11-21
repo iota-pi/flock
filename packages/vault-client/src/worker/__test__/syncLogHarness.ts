@@ -9,7 +9,8 @@ import { SyncWorkerContext, type SyncWorkerContextConfig } from '../SyncWorkerCo
 import type { VaultDoc } from '../../shared/types'
 import { getSyncMetadataStorage, SYNC_METADATA_KEYS } from '../stores/syncMetadataStorage'
 import { importItemSyncRecords } from '../stores/itemSyncRecords'
-import { createMockLocalForagePool, mockLocalForage } from './testUtils'
+import { createMockLocalForagePool, mockLocalForage, type MockLocalForagePool } from './testUtils'
+import { fence, installCrashFence, unfence } from './crashFence'
 import { createSyncApiClient, type VaultServerBackend } from './vaultServers'
 
 /** A new account's keyring, which starts at v2 (v1 is left for keys that may be password-derived) */
@@ -19,17 +20,23 @@ export async function createAccountKeys(): Promise<Keyring> {
   return keyring
 }
 
-/** Gives a test its own local storage, in which devices are kept apart by their names */
-export function installLocalStorage(): void {
+/**
+ * Gives a test its own local storage, in which devices are kept apart by their names. Device names
+ * must not contain one another, since a crash fences storage by name.
+ */
+export function installLocalStorage(): MockLocalForagePool {
   vi.stubGlobal('indexedDB', new IDBFactory())
   vi.stubGlobal('IDBKeyRange', IDBKeyRange)
   clearAccountStoreInstancesCacheForTesting()
-  mockLocalForage(createMockLocalForagePool().createInstance)
+  const pool = createMockLocalForagePool()
+  mockLocalForage(pool.createInstance)
+  installCrashFence(pool)
   // Polls run when a test says so, so that it can decide what each device has seen. Coming back
   // online would otherwise start one alongside the test's own, and both would push the same change.
   vi.spyOn(SyncOrchestrator.prototype, 'start').mockResolvedValue(undefined)
   vi.spyOn(SyncOrchestrator.prototype, 'flush').mockImplementation(() => {})
   vi.spyOn(SyncOrchestrator.prototype, 'onOnlineStateChange').mockImplementation(() => {})
+  return pool
 }
 
 export interface DeviceOptions {
@@ -78,6 +85,58 @@ export class Device {
   async restart(): Promise<void> {
     await this.stop()
     await this.start()
+  }
+
+  /**
+   * Stops the device as a dying tab does: nothing it hasn't stored yet reaches its storage, including
+   * whatever `inFlight` (an operation it was in the middle of) goes on to write. `start` brings it back
+   * on whatever it had stored.
+   */
+  async crash(inFlight?: Promise<unknown>): Promise<void> {
+    fence(this.name)
+    try {
+      await this.context.shutdown()
+    } catch {
+      // Its writes fail now, which is all a crash needs of it
+    }
+    try {
+      await inFlight
+    } catch {
+      // As above
+    } finally {
+      unfence(this.name)
+    }
+  }
+
+  get isOnline(): boolean {
+    return this.context.session.isOnline
+  }
+
+  setOnline(isOnline: boolean): void {
+    this.context.setOnlineState(isOnline)
+  }
+
+  /** The heads of the item's doc, or null when this device has none */
+  async heads(id: ItemId): Promise<string[] | null> {
+    return this.services.docStore.readHeads(id)
+  }
+
+  async liveIds(): Promise<ItemId[]> {
+    return this.services.indexManager.listItemIds()
+  }
+
+  async tombstoneIds(): Promise<ItemId[]> {
+    return this.services.indexManager.listTombstoneIds()
+  }
+
+  /** Writes these items' docs to storage now, rather than on the Repo's throttle */
+  async flushDocs(ids: ItemId[]): Promise<void> {
+    await this.services.docStore.flushToStorage(ids)
+  }
+
+  /** The items this device has set aside for manual recovery */
+  async quarantined(): Promise<ItemId[]> {
+    return (await this.services.recoveryManager.listRecoveryItems()).map(entry => entry.itemId)
   }
 
   /** Takes this device back to how the old build left it, whose sync state can't be trusted */

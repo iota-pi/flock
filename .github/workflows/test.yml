@@ -29,8 +29,27 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
 
+      # The sync model has a job of its own, so its slow property doesn't hold up everything else
       - name: Run Tests
-        run: yarn test run
+        run: yarn test run --exclude '**/syncModel.integration.spec.ts'
+
+  sync-model:
+    name: Sync Model
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      dynamodb:
+        image: amazon/dynamodb-local
+        ports:
+          - 8001:8000
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+
+      # A fixed seed, so a PR only fails for scenarios that passed on master. The nightly
+      # Sync Model Exploration workflow tries new ones.
+      - name: Run Sync Model Tests
+        run: yarn test:sync-model
 
   typecheck:
     name: Type Check

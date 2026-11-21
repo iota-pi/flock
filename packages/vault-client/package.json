@@ -37,6 +37,7 @@
   "devDependencies": {
     "@vault/server": "workspace:*",
     "fake-indexeddb": "^6",
+    "fast-check": "^4.10.2",
     "typescript": "^6.0.3",
     "vitest": "^4.1.7"
   }

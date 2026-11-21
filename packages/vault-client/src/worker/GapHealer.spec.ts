@@ -19,6 +19,7 @@ describe('GapHealer', () => {
   let db: SyncLogDatabase
   let keys: { hasKey: AnyMock; decryptBytes: AnyMock }
   let docStore: { getMissingDeps: AnyMock }
+  let indexManager: { listTombstoneIds: AnyMock }
   let incoming: { apply: AnyMock }
   let recoveryManager: {
     quarantine: AnyMock
@@ -35,6 +36,7 @@ describe('GapHealer', () => {
       db,
       keys: keys as unknown as KeyProvider,
       docStore: docStore as unknown as GapHealerDeps['docStore'],
+      indexManager: indexManager as unknown as GapHealerDeps['indexManager'],
       incoming: incoming as unknown as GapHealerDeps['incoming'],
       recoveryManager: recoveryManager as unknown as GapHealerDeps['recoveryManager'],
       fetchSnapshots,
@@ -53,6 +55,7 @@ describe('GapHealer', () => {
       decryptBytes: vi.fn(async () => new Uint8Array([1])),
     }
     docStore = { getMissingDeps: vi.fn().mockResolvedValue([]) }
+    indexManager = { listTombstoneIds: vi.fn().mockResolvedValue([]) }
     incoming = { apply: vi.fn().mockResolvedValue(true) }
     recoveryManager = {
       quarantine: vi.fn().mockResolvedValue(undefined),
@@ -217,6 +220,28 @@ describe('GapHealer', () => {
       await healer.runDue()
       expect(recoveryManager.resolveQuarantines).toHaveBeenCalledWith([ITEM], new Set(['missingChanges']))
       expect(await parked()).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('drops a deleted item\'s rows and never quarantines it, though its dependencies never come', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      incoming.apply.mockResolvedValue(false)
+      await healer.park(entry(1), 'missingDeps')
+      await healer.runDue()
+      expect(await parked()).toHaveLength(1)
+
+      indexManager.listTombstoneIds.mockResolvedValue([ITEM])
+      vi.advanceTimersByTime(SYNC_TIMEOUTS.missingChangesQuarantine)
+      healer.onManifestSynced()
+      await healer.runDue()
+
+      expect(recoveryManager.quarantine).not.toHaveBeenCalled()
+      expect(recoveryManager.resolveQuarantines).toHaveBeenCalledWith([ITEM], new Set(['missingChanges']))
+      expect(await parked()).toEqual([])
+      expect(onHealingChange).toHaveBeenLastCalledWith(false)
     } finally {
       vi.useRealTimers()
     }

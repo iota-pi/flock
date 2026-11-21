@@ -21,6 +21,7 @@
     "start": "docker compose up -d && concurrently -n \"APP,API\" -c \"cyan,magenta\" \"yarn dev\" \"yarn dev:vault\"",
     "preview": "vite preview",
     "test": "vitest",
+    "test:sync-model": "vitest run packages/vault-client/src/worker/syncModel.integration.spec.ts",
     "coverage": "vitest run --coverage",
     "e2e": "cypress run --browser chrome"
   },

@@ -44,6 +44,7 @@ describe('ManifestHydrator', () => {
     }
     mockDocStore = {
       hydrateAutomergeDocumentBinary: vi.fn(),
+      flushToStorage: vi.fn().mockResolvedValue(undefined),
     }
     mockIndexManager = {
       addItemIds: vi.fn().mockResolvedValue(undefined),
@@ -398,6 +399,52 @@ describe('ManifestHydrator', () => {
         { markDirty: false },
       )
       expect(mockSnapshotTracker.importVersions).toHaveBeenCalledWith([['item-1', 1]])
+    })
+
+    describe('storing hydrated docs (rule 1)', () => {
+      const params = () => ({
+        missingIds: ['item-new' as ItemId, 'item-known' as ItemId],
+        manifest: [
+          { itemId: 'item-new' as ItemId, version: 2, modifiedAt: 1000 },
+          { itemId: 'item-known' as ItemId, version: 5, modifiedAt: 1000 },
+        ],
+        knownSet: new Set(['item-known' as ItemId]),
+        tombstoneSet: new Set<ItemId>(),
+      })
+
+      beforeEach(() => {
+        mockApiClient.fetchSnapshotsByIds.mockResolvedValue({
+          items: [
+            { item: 'item-new', snapshot: { iv: 'iv', cipher: 'c' } },
+            { item: 'item-known', snapshot: { iv: 'iv', cipher: 'c' } },
+          ],
+        })
+        mockDecryptBytes.mockResolvedValue(new Uint8Array([1]))
+        mockDocStore.hydrateAutomergeDocumentBinary.mockResolvedValue({ hasLocalChanges: false })
+      })
+
+      it('stores every doc the batch changed before listing them or recording their versions', async () => {
+        const order: string[] = []
+        mockDocStore.flushToStorage.mockImplementation(async () => { order.push('flush') })
+        mockIndexManager.addItemIds.mockImplementation(async () => { order.push('index') })
+        mockSnapshotTracker.importVersions.mockImplementation(async () => { order.push('versions') })
+
+        const result = await hydrator.fetchAndHydrateRemoteItems(params())
+
+        expect(result).toEqual({ added: ['item-new', 'item-known'], hasFailures: false })
+        expect(mockDocStore.flushToStorage).toHaveBeenCalledWith(['item-new', 'item-known'])
+        expect(order).toEqual(['flush', 'index', 'versions'])
+      })
+
+      it('records nothing, and fails the sync, when the docs can\'t be stored', async () => {
+        mockDocStore.flushToStorage.mockRejectedValue(new Error('QuotaExceededError'))
+
+        const result = await hydrator.fetchAndHydrateRemoteItems(params())
+
+        expect(result).toEqual({ added: [], hasFailures: true })
+        expect(mockIndexManager.addItemIds).not.toHaveBeenCalled()
+        expect(mockSnapshotTracker.importVersions).not.toHaveBeenCalled()
+      })
     })
 
     it('reports decryption failure to onDecryptionFailure', async () => {
