@@ -26,6 +26,10 @@ const LOG_CURSOR_SAVE_DELAY_MS = 1500
  * - `SYNC_MODEL_SEED`, `SYNC_MODEL_PATH` and `SYNC_MODEL_REPLAY_PATH` (the `replayPath` in the
  *   counterexample) replay a reported failure. `SYNC_MODEL_SHRINK_MS` gives shrinking longer.
  * - `SYNC_MODEL_RUNS` runs more (or fewer) random scenarios.
+ *
+ * CI runs this file in its own job (`yarn test:sync-model`) with the fixed seed below, so a PR only
+ * fails on scenarios that already passed on master. The nightly Sync Model Exploration workflow
+ * tries a random seed with many more runs.
  */
 const DEVICES = 3
 const SEED = Number(process.env.SYNC_MODEL_SEED ?? 0x5eed)
@@ -34,9 +38,11 @@ const REPLAY_PATH = process.env.SYNC_MODEL_REPLAY_PATH
 const RUNS = Number(process.env.SYNC_MODEL_RUNS ?? 20)
 /** Shrinking re-runs whole scenarios, so it stops here and reports the smallest failure it has */
 const SHRINK_TIME_LIMIT = Number(process.env.SYNC_MODEL_SHRINK_MS ?? 2 * 60 * 1000)
+/** A scenario takes a few seconds on a CI runner, so this leaves room for slow ones, then shrinking */
+const TIMEOUT = Math.max(10 * 60 * 1000, RUNS * 15 * 1000 + SHRINK_TIME_LIMIT)
 
 describe('sync model', () => {
-  it('converges, losing nothing a device stored, whatever the devices do', { timeout: 10 * 60 * 1000 }, async () => {
+  it('converges, losing nothing a device stored, whatever the devices do', { timeout: TIMEOUT }, async () => {
     const commands = fc.commands([commandArbitrary(DEVICES)], { maxCommands: 60, size: 'max', replayPath: REPLAY_PATH })
     // Each scenario checks itself, and throws (failing the property) if anything didn't converge
     await expect(fc.assert(

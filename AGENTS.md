@@ -9,6 +9,7 @@ Flock is a personal pastoral-care (PRM) PWA. It is local-first and works offline
 ```bash
 yarn start            # Docker DynamoDB + Vite + local API server
 yarn test run         # Vitest once (plain `yarn test` watches)
+yarn test:sync-model  # Only the sync model property test (slow; CI runs it in its own job)
 yarn typecheck
 yarn lint
 yarn initdb           # Create local DynamoDB tables (DYNAMODB_ENDPOINT=http://localhost:8000)
@@ -17,7 +18,7 @@ yarn e2e              # Cypress (needs `yarn start` running)
 
 `docker compose up -d` runs two DynamoDB Locals: `dynamodb` (port 8000) keeps `yarn start`'s data, and `dynamodb-test` (port 8001) is in memory for unit tests, which create its tables themselves (`vitest.dynamodb.ts`). Tests always use 8001 (or `TEST_DYNAMODB_ENDPOINT`), whatever `DYNAMODB_ENDPOINT` says.
 
-CI runs `test run`, `typecheck` and `lint` on every PR, so run all three before calling work done.
+CI runs `test run`, `typecheck` and `lint` on every PR, so run all three before calling work done. CI runs the sync model test (`packages/vault-client/src/worker/syncModel.integration.spec.ts`) as a separate job with a fixed seed, and a nightly workflow runs it with a random seed and many more runs.
 
 ## Style
 
