@@ -81,7 +81,7 @@
     "@aws-sdk/lib-dynamodb": "3.1164.0",
     "@eslint/js": "^10.0.1",
     "@sentry/cli": "^3.8.2",
-    "@stylistic/eslint-plugin": "^5.5.0",
+    "@stylistic/eslint-plugin": "^6.0.0",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.8",
