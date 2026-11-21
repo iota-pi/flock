@@ -329,6 +329,7 @@ export class SyncWorkerContext {
       db: syncLogDatabase,
       keys,
       docStore,
+      indexManager,
       incoming,
       recoveryManager,
       fetchSnapshots: (itemIds, signal) => this.services.manifestSyncManager.fetchSnapshots(itemIds, signal),

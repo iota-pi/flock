@@ -240,16 +240,30 @@ export class ManifestHydrator {
       this.deps.onMigrationRequired?.()
     }
 
-    if (hydratedIds.length > 0) {
-      await this.deps.indexManager.addItemIds(hydratedIds)
-    }
-
     if (snapshots.length > 0) {
       await this.deps.storeItems(snapshots, { markDirty: false })
     }
 
     if (legacySnapshots.length > 0) {
       await this.deps.storeItems(legacySnapshots, { markDirty: true })
+    }
+
+    // The docs must be in storage before the index lists them or their base versions say this device
+    // has the snapshot. Otherwise a crash before the Repo's throttled save leaves an item whose
+    // snapshot is never fetched again (rule 1).
+    const changedIds = [...new Set<ItemId>([
+      ...hydratedIds,
+      ...versionUpdates.map(([itemId]) => itemId),
+    ])]
+    try {
+      await this.deps.docStore.flushToStorage(changedIds)
+    } catch (error) {
+      log.error('Failed to store hydrated docs; will fetch them again at the next sync', { error })
+      return { added: [], hasFailures: true }
+    }
+
+    if (hydratedIds.length > 0) {
+      await this.deps.indexManager.addItemIds(hydratedIds)
     }
 
     if (versionUpdates.length > 0) {

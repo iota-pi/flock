@@ -135,6 +135,9 @@ export class ItemOperations {
     if (result !== 'applied') {
       throw new DocumentCreateRefusedError(`Failed to create document ${item.id}`)
     }
+    // The doc must be in storage before the index lists it. Otherwise a crash before the Repo's
+    // throttled save leaves an indexed item with no doc, which can never be pushed (rule 1).
+    await this.deps.docStore.flushToStorage([item.id])
     await this.deps.indexManager.addItemIds([item.id])
     this.deps.markDocumentDirty(item.id)
     this.deps.bus?.publishSyncPing([item.id])
@@ -178,6 +181,18 @@ export class ItemOperations {
       } catch {
         failedItems.push(item)
       }
+    }
+
+    // As in `createDocumentOrThrow`, the docs reach storage before the index records them
+    try {
+      await this.deps.docStore.flushToStorage([...succeededActiveIds, ...succeededDeletedIds])
+    } catch (error) {
+      log.error('Failed to store docs; leaving them out of the index', { error })
+      failedItems.push(...items.filter(item => (
+        succeededActiveIds.includes(item.id) || succeededDeletedIds.includes(item.id)
+      )))
+      succeededActiveIds.length = 0
+      succeededDeletedIds.length = 0
     }
 
     if (succeededDeletedIds.length > 0) {
