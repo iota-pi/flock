@@ -146,6 +146,15 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     return true
   }
 
+  /**
+   * Writes the loaded docs of these items to storage now, rather than on the Repo's throttle. Throws
+   * if any save fails.
+   */
+  async flushToStorage(itemIds: ItemId[]): Promise<void> {
+    if (itemIds.length === 0) return
+    await this.deps.repo.flush(itemIds.map(itemId => this.resolveDocumentId(itemId).documentId))
+  }
+
   private async timedFind(
     url: AutomergeUrl,
     timeoutMs: number,

@@ -4,11 +4,13 @@ import type { KeyProvider } from '../keys/Keyring'
 import type { GapHealer, ParkReason } from './GapHealer'
 import type { IncomingChanges } from './IncomingChanges'
 import type { RealtimeBus } from './RealtimeBus'
+import type { AutomergeDocStore } from './docStore'
 import type { SnapshotCoverage } from './SnapshotCoverage'
 import type { SyncSessionState } from './SyncSessionState'
 import type { LogCursorStore } from './stores/LogCursorStore'
 import type { LogPushResult } from './ChangeOutbox'
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
+import { AsyncMutex } from '../utils/AsyncMutex'
 import { BoundedSet } from '../utils/BoundedSet'
 import { classifySyncError } from '../utils/errorClassifier'
 import { fireAndForget } from '../utils/fireAndForget'
@@ -37,6 +39,8 @@ interface GapWait {
 
 export interface SyncLogPullerDeps {
   cursorStore: Pick<LogCursorStore, 'load' | 'save'>
+  /** Writes pulled docs to storage, which has to happen before the cursor moves past their rows */
+  docs: Pick<AutomergeDocStore, 'flushToStorage'>
   keys: KeyProvider
   session: SyncSessionState
   incoming: Pick<IncomingChanges, 'apply'>
@@ -66,6 +70,10 @@ export class SyncLogPuller {
   private manifestSyncDue = false
   private readonly ownSeqs = new BoundedSet<number>(OWN_PUSH_CACHE_MAX)
   private readonly addedChanges = new Set<ItemId>()
+  /** Items log rows were applied to that may not have reached storage under a saved cursor yet */
+  private readonly unflushedItems = new Set<ItemId>()
+  /** Saves run one at a time, so a slow flush can't let an older cursor overwrite a newer one */
+  private readonly saveMutex = new AsyncMutex()
 
   // A pull that finishes after shutdown mustn't save, since shutdown may be clearing local data
   private readonly saveDebounced = debounce(() => {
@@ -94,21 +102,43 @@ export class SyncLogPuller {
     }
   }
 
+  /**
+   * Saves the cursor once the docs its rows were applied to are in storage (sync rule 1). If a doc
+   * fails to save, the stored cursor stays behind, and those rows are pulled and applied again.
+   */
   private async save(): Promise<void> {
-    try {
-      await this.deps.cursorStore.save(this.position)
-    } catch (error) {
-      log.error('Failed to save the log cursor', error)
-    }
+    await this.saveMutex.runExclusive(async () => {
+      // Taken together, so every row under this cursor was applied to one of these items
+      const position = { ...this.position }
+      const items = Array.from(this.unflushedItems)
+      try {
+        await this.deps.docs.flushToStorage(items)
+      } catch (error) {
+        log.error('Failed to store pulled docs; not saving the log cursor', error)
+        return
+      }
+      for (const itemId of items) {
+        this.unflushedItems.delete(itemId)
+      }
+      try {
+        await this.deps.cursorStore.save(position)
+      } catch (error) {
+        log.error('Failed to save the log cursor', error)
+      }
+    })
   }
 
   /** Saves the cursor, unless local data is being cleared. Called once, by the context's lifecycle. */
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
     this.saveDebounced.cancel()
-    if (!options?.clearLocalData) {
+    if (options?.clearLocalData) {
+      // A debounced save already running mustn't write while local data is cleared
+      await this.saveMutex.waitForIdle()
+    } else {
       await this.save()
     }
     this.ownSeqs.clear()
+    this.unflushedItems.clear()
     this.hasMore = false
     this.gap = null
   }
@@ -174,6 +204,7 @@ export class SyncLogPuller {
         this.gap = null
         if (await this.handleEntry(entry, timedOutKeys)) {
           appliedItems.add(entry.itemId)
+          this.unflushedItems.add(entry.itemId)
         }
         this.position.cursor = entry.seq
       }

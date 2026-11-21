@@ -42,7 +42,7 @@ There's no write-ahead log and no sync protocol against a pretend peer. The doc 
 
 ### Inbound: `SyncLogPuller`
 
-For each entry, in seq order: check contiguity, skip an own echo, decrypt, apply, then advance the cursor (debounced).
+For each entry, in seq order: check contiguity, skip an own echo, decrypt, apply, then advance the cursor. The cursor is saved debounced, and only once `repo.flush` has written the docs its rows were applied to, so a stored cursor never covers a change the device didn't store (rule 1). If a doc fails to save, the stored cursor stays behind and those rows are applied again.
 
 - **Own echoes** are seqs this device pushed, kept in a bounded set. They only advance the cursor, and they don't count as "another device" for clearing a `pullDecryption` quarantine.
 - **Decryption always comes first.** `loadIncremental` applies what it can of truncated or garbage bytes rather than throwing, so AES-GCM authentication is what rejects a damaged row.

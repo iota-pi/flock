@@ -339,6 +339,7 @@ export class SyncWorkerContext {
 
     const puller = new SyncLogPuller({
       cursorStore: new LogCursorStore(accountId),
+      docs: docStore,
       keys,
       session,
       incoming,

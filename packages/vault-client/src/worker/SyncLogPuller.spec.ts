@@ -29,6 +29,7 @@ describe('SyncLogPuller', () => {
   let session: SyncSessionState
   let stored: { cursor: number; lastPullAt: number | null }
   let cursorStore: { load: AnyMock; save: AnyMock }
+  let docs: { flushToStorage: AnyMock }
   let keys: { hasKey: AnyMock; decryptBytes: AnyMock; waitForKey: AnyMock }
   let incoming: { apply: AnyMock }
   let healer: { park: AnyMock; onLogEntry: AnyMock }
@@ -46,6 +47,7 @@ describe('SyncLogPuller', () => {
         stored = { ...position }
       }),
     }
+    docs = { flushToStorage: vi.fn().mockResolvedValue(undefined) }
     keys = {
       hasKey: vi.fn().mockReturnValue(true),
       decryptBytes: vi.fn(async () => new Uint8Array([1, 2, 3])),
@@ -58,6 +60,7 @@ describe('SyncLogPuller', () => {
     onRemoteChangesApplied = vi.fn()
     puller = new SyncLogPuller({
       cursorStore: cursorStore as unknown as SyncLogPullerDeps['cursorStore'],
+      docs,
       keys: keys as unknown as KeyProvider,
       session,
       incoming: incoming as unknown as SyncLogPullerDeps['incoming'],
@@ -213,6 +216,7 @@ describe('SyncLogPuller', () => {
       stored = { cursor: 0, lastPullAt: null }
       const fresh = new SyncLogPuller({
         cursorStore: cursorStore as unknown as SyncLogPullerDeps['cursorStore'],
+        docs,
         keys: keys as unknown as KeyProvider,
         session,
         incoming: incoming as unknown as SyncLogPullerDeps['incoming'],
@@ -235,6 +239,7 @@ describe('SyncLogPuller', () => {
       stored = { cursor: 3, lastPullAt: null }
       const fresh = new SyncLogPuller({
         cursorStore: cursorStore as unknown as SyncLogPullerDeps['cursorStore'],
+        docs,
         keys: keys as unknown as KeyProvider,
         session,
         incoming: incoming as unknown as SyncLogPullerDeps['incoming'],
@@ -281,6 +286,53 @@ describe('SyncLogPuller', () => {
     await puller.loadState()
 
     expect(puller.cursor).toBe(2)
+  })
+
+  describe('saving the cursor', () => {
+    it('stores the docs pulled rows were applied to before saving the cursor', async () => {
+      const order: string[] = []
+      docs.flushToStorage.mockImplementation(async (itemIds: ItemId[]) => {
+        order.push(`flush:${itemIds.join(',')}`)
+      })
+      cursorStore.save.mockImplementation(async (position: typeof stored) => {
+        order.push(`save:${position.cursor}`)
+        stored = { ...position }
+      })
+      const other = 'item-2' as ItemId
+      puller.recordOwnPushes([{ itemId: other, seq: 3 }])
+
+      await puller.process(page([entry(1), entry(2, { itemId: other }), entry(3, { itemId: other })]))
+      await puller.shutdown()
+
+      expect(order).toEqual([`flush:${ITEM},${other}`, 'save:3'])
+    })
+
+    it("doesn't save the cursor if a doc fails to store, and stores it again next time", async () => {
+      docs.flushToStorage.mockRejectedValueOnce(new Error('QuotaExceededError'))
+      await puller.process(page([entry(1)]))
+      await puller.shutdown()
+
+      expect(cursorStore.save).not.toHaveBeenCalled()
+      expect(stored.cursor).toBe(0)
+
+      await puller.process(page([entry(2)]))
+      await puller.shutdown()
+
+      expect(docs.flushToStorage).toHaveBeenLastCalledWith([ITEM])
+      expect(stored.cursor).toBe(2)
+    })
+
+    it("doesn't store a doc again once a saved cursor covers it", async () => {
+      await puller.process(page([entry(1)]))
+      await puller.shutdown()
+      puller.recordOwnPushes([{ itemId: ITEM, seq: 2 }])
+
+      await puller.process(page([entry(2)]))
+      await puller.shutdown()
+
+      expect(docs.flushToStorage).toHaveBeenLastCalledWith([])
+      expect(stored.cursor).toBe(2)
+    })
   })
 
   it('saves nothing on a shutdown that clears local data', async () => {
