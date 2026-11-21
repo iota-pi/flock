@@ -19,7 +19,14 @@ export interface SyncPollerDeps {
   session: SyncSessionState
   puller: Pick<
     SyncLogPuller,
-    'cursor' | 'recordOwnPushes' | 'needsCatchUpManifest' | 'onCatchUpManifestSynced' | 'takeManifestSyncRequest' | 'process'
+    | 'cursor'
+    | 'recordOwnPushes'
+    | 'needsCatchUpManifest'
+    | 'onBehindSeen'
+    | 'onCatchUpManifestSynced'
+    | 'onRecoveryManifestSynced'
+    | 'pendingManifestSync'
+    | 'process'
   >
   /** Read from the finished services: the outbox pushes through this poller */
   getOutbox: () => Pick<ChangeOutbox, 'pushPending'>
@@ -37,8 +44,6 @@ export class SyncPoller {
   private readonly exchangeMutex = new AsyncMutex()
   /** Exchanges completed, so that a poll that pushed nothing still reads the log */
   private exchanges = 0
-  /** Set when the server's clock shows this device has to catch up before reading the page it got */
-  private isCatchUpDue = false
 
   constructor(private readonly deps: SyncPollerDeps) {}
 
@@ -64,14 +69,12 @@ export class SyncPoller {
         await this.exchange([], async () => {}, signal)
       }
 
-      if (this.isCatchUpDue) {
-        this.isCatchUpDue = false
+      if (this.deps.puller.pendingManifestSync === 'catchUp') {
         await this.runCatchUpManifest(signal)
         await this.exchange([], async () => {}, signal)
       }
-
-      if (this.deps.puller.takeManifestSyncRequest()) {
-        await this.deps.syncManifest(signal)
+      if (this.deps.puller.pendingManifestSync === 'recovery') {
+        await this.runRecoveryManifest(signal)
       }
       await this.deps.healer.runDue(signal)
       await this.deps.firstStart.runDue(signal)
@@ -106,6 +109,14 @@ export class SyncPoller {
     this.deps.puller.onCatchUpManifestSynced()
   }
 
+  /** Recovers what lost log rows held. The request stays until a sync fetches the manifest (rule 4). */
+  private async runRecoveryManifest(signal: AbortSignal): Promise<void> {
+    if (!await this.deps.syncManifest(signal)) {
+      throw new Error('Recovering lost log rows needs the manifest, which could not be fetched')
+    }
+    this.deps.puller.onRecoveryManifestSynced()
+  }
+
   /**
    * Sends `push` in one `pollLog` and reads the log. `onResults` runs before the entries are applied.
    * A page the device can't read yet is dropped, and read again once it has caught up.
@@ -128,7 +139,7 @@ export class SyncPoller {
       this.exchanges += 1
 
       if (this.deps.puller.needsCatchUpManifest(response.serverNow)) {
-        this.isCatchUpDue = true
+        this.deps.puller.onBehindSeen()
         return
       }
       await this.deps.puller.process(response)

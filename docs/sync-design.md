@@ -53,10 +53,12 @@ For each entry, in seq order: check contiguity, skip an own echo, decrypt, apply
 
 ### Gaps
 
+Where reading stopped (at a gap, with more pages, or neither) and which manifest sync it waits for (catch-up or recovery) are one state value in `logPullState.ts`, moved by the pure `transitionLogPull`. Its spec is a table of transitions.
+
 A gap is a missing seq between the cursor and the next visible row.
 
 - **Fresh gap.** The next visible row is under `gapWait` (30s) old by the server's clock (`serverNow − createdAt`), so the missing row may be part of a transaction that isn't fully visible yet. The cursor stays, and the orchestrator re-polls after 1s, 2s, 4s and so on, up to 16s. The poll still reports `'success'`.
-- **Stale gap.** The next visible row is older than that, or a fresh gap has lasted that long. The row was lost, which can't happen by design, so the puller logs an error, moves past it and asks for a manifest sync now, ignoring `manifestSyncMinGap`. Missing-dependency checks catch the items affected.
+- **Stale gap.** The next visible row is older than that, or a fresh gap has lasted that long. The row was lost, which can't happen by design, so the puller logs an error, moves past it and asks for a manifest sync now, ignoring `manifestSyncMinGap`. Missing-dependency checks catch the items affected. The request stays until a manifest sync fetches the manifest: a poll whose sync couldn't fetch it fails (rule 4) and asks again next time.
 - **Catch-up.** A device with no finished pull, or whose last one was more than `logCatchUpAge` (25 days) before `serverNow`, may be behind the TTL. It runs the same manifest sync before it reads, because the first visible row may still look contiguous. The poller checks the local clock first, and the server's once it has a response: a page that shows the device is behind is dropped and read again afterwards, because the manifest sync can't run inside an exchange. Until its first pull with `hasMore` false, a stale gap is expected, so it causes no error and no second manifest sync. Fresh gaps still wait.
 
 ### Parked entries and the `GapHealer`

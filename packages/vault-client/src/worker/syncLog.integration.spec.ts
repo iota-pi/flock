@@ -586,7 +586,7 @@ describe('sync log', () => {
 
       expect(syncNow).toHaveBeenCalledTimes(1)
       expect(b.services.puller.cursor).toBe(server.head)
-      expect(b.services.puller.takeManifestSyncRequest()).toBe(false)
+      expect(b.services.puller.pendingManifestSync).toBeUndefined()
     })
 
     it('still waits on a fresh gap while catching up', async () => {
