@@ -360,6 +360,8 @@ export class ManifestSyncManager {
       for (const [id] of deltas.deletedVersionUpdates) {
         this.deps.snapshotManager.tracker.deleteDirtyItem(id)
       }
+      // The tombstones must be stored before the base version says this device has them (rule 1)
+      await this.deps.docStore.flushToStorage(deltas.locallyTombstonedSnapshots.map(item => item.id))
       await this.deps.snapshotManager.tracker.importVersions(deltas.deletedVersionUpdates)
     }
 
@@ -414,6 +416,9 @@ export class ManifestSyncManager {
       localState.localVersionsMap.set(itemId, { baseVersion: version, isDirty })
     }
     if (covered.length > 0) {
+      // The doc may hold the snapshot only in memory, such as changes pulled moments ago. Saving an
+      // unchanged doc is a no-op.
+      await this.deps.docStore.flushToStorage(covered.map(({ itemId }) => itemId))
       await this.deps.snapshotManager.tracker.importVersions(covered.map(({ itemId, version }) => [itemId, version]))
       for (const { itemId, heads } of covered) {
         this.deps.onSnapshotCovered?.(itemId, heads)

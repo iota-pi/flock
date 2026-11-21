@@ -1,6 +1,7 @@
 import type { ItemId, SyncLogEntry } from '@vault/shared'
 import type { KeyProvider } from '../keys/Keyring'
 import type { AutomergeDocStore } from './docStore'
+import type { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import type { IncomingChanges } from './IncomingChanges'
 import type { RecoveryManager } from './RecoveryManager'
 import type { SyncLogDatabase } from './stores/SyncLogDatabase'
@@ -42,6 +43,7 @@ export interface GapHealerDeps {
   db: SyncLogDatabase
   keys: KeyProvider
   docStore: Pick<AutomergeDocStore, 'getMissingDeps'>
+  indexManager: Pick<AutomergeIndexManager, 'listTombstoneIds'>
   incoming: Pick<IncomingChanges, 'apply'>
   recoveryManager: Pick<RecoveryManager, 'quarantine' | 'reportDecryptionFailure' | 'resolveQuarantines'>
   /** Fetches items' snapshots and merges them into their docs */
@@ -152,11 +154,29 @@ export class GapHealer {
     }
 
     const parked = await this.deps.db.getAll<ParkedEntry>(SYNC_LOG_STORES.parked)
+    const tombstones = new Set(await this.deps.indexManager.listTombstoneIds())
     for (const [itemId, item] of due) {
+      if (tombstones.has(itemId)) {
+        await this.dropDeleted(itemId, parked)
+        continue
+      }
       const entries = parked.filter(entry => entry.itemId === itemId).sort((a, b) => a.seq - b.seq)
       await this.healItem(itemId, item, entries)
     }
     this.reportHealing()
+  }
+
+  /**
+   * A deleted item needs none of its parked rows, since deletes are terminal, and what they depend
+   * on may never come (say, its create row expired and the server's tombstone has no snapshot)
+   */
+  private async dropDeleted(itemId: ItemId, parked: ParkedEntry[]): Promise<void> {
+    const seqs = parked.filter(entry => entry.itemId === itemId).map(entry => entry.seq)
+    if (seqs.length > 0) {
+      await this.deps.db.delete(SYNC_LOG_STORES.parked, ...seqs)
+    }
+    this.items.delete(itemId)
+    await this.deps.recoveryManager.resolveQuarantines([itemId], MISSING_CHANGES_KINDS)
   }
 
   private async healItem(itemId: ItemId, item: HealingItem, entries: ParkedEntry[]): Promise<void> {

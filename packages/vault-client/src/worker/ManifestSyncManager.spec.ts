@@ -76,6 +76,7 @@ describe('ManifestSyncManager', () => {
 
     const mockDocStore = {
       hydrateAutomergeDocumentBinary: mockHydrateAutomergeDocumentBinary,
+      flushToStorage: vi.fn().mockResolvedValue(undefined),
     } as any
 
     const mockIndexManager = {
