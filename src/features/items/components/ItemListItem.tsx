@@ -259,11 +259,11 @@ export function ItemListItem(props: ItemListItemProps) {
       >
         {checkboxSide !== 'right' && checkbox}
 
-        {showIcons && icon && (
+        {showIcons && icon ? (
           <StyledListItemIcon faded={faded}>
             {icon}
           </StyledListItemIcon>
-        )}
+        ) : null}
 
         <div
           style={{
@@ -301,7 +301,7 @@ export function ItemListItem(props: ItemListItemProps) {
           )}
         </div>
 
-        {actionIcon && (
+        {actionIcon ? (
           <div style={{ marginLeft }}>
             <IconButton
               aria-label="List item action"
@@ -316,7 +316,7 @@ export function ItemListItem(props: ItemListItemProps) {
               {actionIcon}
             </IconButton>
           </div>
-        )}
+        ) : null}
 
         {checkboxSide === 'right' && checkbox}
       </StyledListItem>

@@ -1,4 +1,3 @@
-import { createRequire } from 'node:module'
 import { defineConfig, globalIgnores } from 'eslint/config'
 import eslint from '@eslint/js'
 import tseslint from 'typescript-eslint'
@@ -6,12 +5,8 @@ import importPlugin from 'eslint-plugin-import-x'
 import stylistic from '@stylistic/eslint-plugin'
 import reactHooks from 'eslint-plugin-react-hooks'
 import vitest from '@vitest/eslint-plugin'
-import react from 'eslint-plugin-react'
+import eslintReact from '@eslint-react/eslint-plugin'
 import jsxA11y from 'eslint-plugin-jsx-a11y'
-
-// eslint-plugin-react's `version: 'detect'` calls context.getFilename(), which
-// ESLint 10 removed, so pass the installed React version explicitly.
-const reactVersion = createRequire(import.meta.url)('react/package.json').version
 
 // The vault library's packages (see docs/vault-extraction.md)
 const VAULT_PACKAGES = ['vault-shared', 'vault-client', 'vault-server']
@@ -109,18 +104,10 @@ export default defineConfig([
     plugins: {
       '@stylistic': stylistic,
       'react-hooks': reactHooks,
-      react,
       vitest,
       'jsx-a11y': jsxA11y,
     },
-    settings: {
-      react: {
-        version: reactVersion,
-      },
-    },
     rules: {
-      ...react.configs.flat.recommended.rules,
-      ...react.configs.flat['jsx-runtime'].rules,
       ...reactHooks.configs.recommended.rules,
       ...vitest.configs.recommended.rules,
       ...jsxA11y.flatConfigs.recommended.rules,
@@ -149,6 +136,7 @@ export default defineConfig([
   },
   {
     files: ['**/*.ts', '**/*.tsx'],
+    extends: [eslintReact.configs['recommended-type-checked']],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
@@ -169,6 +157,20 @@ export default defineConfig([
       '@typescript-eslint/dot-notation': 'error',
       '@typescript-eslint/consistent-type-imports': ['error', { fixStyle: 'inline-type-imports' }],
       '@typescript-eslint/no-import-type-side-effects': 'error',
+      // eslint-plugin-react-hooks (the React team's plugin) already reports these
+      '@eslint-react/rules-of-hooks': 'off',
+      '@eslint-react/exhaustive-deps': 'off',
+      '@eslint-react/error-boundaries': 'off',
+      '@eslint-react/purity': 'off',
+      '@eslint-react/set-state-in-effect': 'off',
+      '@eslint-react/set-state-in-render': 'off',
+      '@eslint-react/static-components': 'off',
+      '@eslint-react/unsupported-syntax': 'off',
+      '@eslint-react/use-memo': 'off',
+      // Matches any `createContext()` call, including tRPC's request context in server specs
+      '@eslint-react/naming-convention-context-name': 'off',
+      // Index-based keys are deliberate where rows have no stable identity of their own
+      '@eslint-react/no-array-index-key': 'off',
     },
   },
   {
@@ -251,6 +253,8 @@ export default defineConfig([
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/dot-notation': 'off',
+      // Specs stub hooks with plain functions that must keep the hook's name
+      '@eslint-react/no-unnecessary-use-prefix': 'off',
       'vitest/expect-expect': [
         'error',
         {
