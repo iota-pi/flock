@@ -106,9 +106,7 @@ export const FIRST_START_MAX_ATTEMPTS = 3
 export const GAP_HEAL_DELAYS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000] as const
 
 export const SYNC_BATCH_SIZES = {
-  /** Number of items whose changes are read and pushed at a time */
-  pollChunk: 5,
-  /** Most log rows in one push, which the server appends in one transaction */
+  /** Most log rows in one push, which the server appends in one transaction. Pushes fill to this or `logPushChars`. */
   logPushRows: 99,
   /** Most ciphertext characters in one push, under the server's transaction limit */
   logPushChars: 3 * 1024 * 1024,
