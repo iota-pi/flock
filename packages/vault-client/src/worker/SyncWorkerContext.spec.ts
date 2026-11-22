@@ -148,6 +148,7 @@ beforeEach(() => {
         load: vi.fn().mockResolvedValue(undefined),
         getDirtyItemIds: vi.fn().mockReturnValue([]),
         save: vi.fn().mockResolvedValue(undefined),
+        flushPendingSave: vi.fn(),
       }
 
       constructor(readonly deps: unknown) {}
@@ -521,6 +522,16 @@ describe('SyncWorkerContext', () => {
         vi.useRealTimers()
       }
     })
+  })
+
+  it('saves the dirty flags and flushes the log push when the page is hidden, without forcing snapshots up', () => {
+    const { orchestrator, snapshotManager } = context.services
+
+    context.onPageHidden()
+
+    expect(snapshotManager.tracker.flushPendingSave).toHaveBeenCalledTimes(1)
+    expect(orchestrator.flush).toHaveBeenCalled()
+    expect(snapshotManager.flushPendingSnapshots).not.toHaveBeenCalled()
   })
 
   it('wires manifestSyncManager into orchestrator on construction', () => {

@@ -220,6 +220,17 @@ describe('SnapshotTracker', () => {
       expect(tracker.nextDueAt).toBe(SYNC_TIMEOUTS.snapshotMaxWait)
     })
 
+    it('makes items an earlier session left dirty due soon after startup, however later edits come', async () => {
+      store.records.set('item-flagged' as ItemId, { itemId: 'item-flagged' as ItemId, dirty: true })
+      await tracker.load()
+      expect(tracker.nextDueAt).toBe(SYNC_TIMEOUTS.restoredSnapshotDelay)
+
+      vi.setSystemTime(SYNC_TIMEOUTS.restoredSnapshotDelay / 2)
+      tracker.markItemDirty('item-1' as ItemId)
+
+      expect(tracker.nextDueAt).toBe(SYNC_TIMEOUTS.restoredSnapshotDelay)
+    })
+
     it('markItemDirty respects custom debounce delay (e.g. 2000ms)', () => {
       tracker.markItemDirty('item-1' as ItemId, 2000)
 
@@ -263,7 +274,7 @@ describe('SnapshotTracker', () => {
     expect(tracker['oversizedItems'].has('item-oversized' as ItemId)).toBe(true)
     expect(tracker['oversizedItems'].has('item-rate-limited' as ItemId)).toBe(false)
 
-    // The restored items go up once the debounce elapses
+    // The restored items go up after the restored delay, capped at this tracker's 1s debounce
     expect(tracker.nextDueAt).toBe(Date.now() + 1000)
     expect(onDueChanged).toHaveBeenCalled()
   })

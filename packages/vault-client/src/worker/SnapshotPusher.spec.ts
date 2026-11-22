@@ -798,8 +798,8 @@ describe('SnapshotPusher', () => {
         await expect(uploadNow()).resolves.toEqual({ persisted: 0, total: 0, success: false })
         expect(tracker.isDue()).toBe(false)
 
-        // A new edit is due no sooner than the quota delay allows
-        tracker.markItemDirty('item-2' as ItemId)
+        // A new edit, even one requested at once, is due no sooner than the quota delay allows
+        tracker.markItemDirty('item-2' as ItemId, 0)
         expect(tracker.nextDueAt).toBe(1000 + SYNC_TIMEOUTS.snapshotQuotaRetry)
 
         vi.setSystemTime(1000 + SYNC_TIMEOUTS.snapshotQuotaRetry)

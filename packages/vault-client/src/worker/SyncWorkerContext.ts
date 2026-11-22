@@ -956,6 +956,16 @@ export class SyncWorkerContext {
     }
   }
 
+  /**
+   * Saves the dirty flags now, in any tab, so the startup audit finds them if the page is closed, and
+   * flushes the log push. Snapshots aren't forced up: the log already delivers the change.
+   */
+  onPageHidden(): void {
+    const { orchestrator, snapshotManager } = this.services
+    snapshotManager.tracker.flushPendingSave()
+    orchestrator.flush()
+  }
+
   /** Records that the user is using this tab, and tells the account's other tabs */
   reportActivity(): void {
     this._services?.foregroundTracker.recordActivity()
