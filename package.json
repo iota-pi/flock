@@ -26,9 +26,6 @@
     "e2e": "cypress run --browser chrome"
   },
   "dependencies": {
-    "@automerge/automerge": "^3.5.0",
-    "@automerge/automerge-repo": "2.6.0-alpha.3",
-    "@automerge/automerge-repo-network-broadcastchannel": "2.6.0-alpha.3",
     "@emotion/react": "^11.11.1",
     "@emotion/styled": "^11.11.0",
     "@fastify/auth": "^5.1.2",

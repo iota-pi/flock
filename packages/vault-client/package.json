@@ -11,7 +11,8 @@
     "./worker": "./src/worker/index.ts",
     "./storageNames": "./src/shared/storageNames.ts",
     "./kdfWorker": "./src/kdfWorker.ts",
-    "./databaseExists": "./src/utils/databaseExists.ts"
+    "./databaseExists": "./src/utils/databaseExists.ts",
+    "./automergeWasm": "./src/shared/automergeWasm.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -19,7 +20,7 @@
   "dependencies": {
     "@automerge/automerge": "^3.5.0",
     "@automerge/automerge-repo": "2.6.0-alpha.3",
-    "@automerge/automerge-repo-network-broadcastchannel": "^2.6.0-alpha.3",
+    "@automerge/automerge-repo-network-broadcastchannel": "2.6.0-alpha.3",
     "@trpc/client": "^11.28.2",
     "@trpc/server": "^11.28.2",
     "@vault/shared": "workspace:*",
@@ -39,6 +40,7 @@
     "fake-indexeddb": "^6",
     "fast-check": "^4.10.2",
     "typescript": "^6.0.3",
+    "vite": "8.3.8",
     "vitest": "^4.1.7"
   }
 }

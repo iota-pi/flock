@@ -1,7 +1,7 @@
 // Vite turns this import into the built worker's URL; the rule checks the worker source's exports
 // eslint-disable-next-line import-x/default
 import vaultWorkerUrl from './vault.worker.ts?worker&url'
-import automergeWasmUrl from '@automerge/automerge/automerge.wasm?url'
+import { automergeWasmUrl } from '@vault/client/automergeWasm'
 
 let prefetched = false
 

@@ -81,6 +81,23 @@ const vaultClientMainThreadImportPatterns = [
   },
 ]
 
+const baseImportPatterns = [
+  { regex: '^@mui/[^/]+$' },
+  { regex: '^vitest$', allowTypeImports: true },
+  { regex: 'docstore/core$', allowTypeImports: true, message: "Import from 'docstore/core' is restricted (functions are internal to docstore module)" },
+]
+
+const baseImportPaths = [
+  { name: 'react', importNames: ['lazy'], message: "Use `lazy` from 'src/utils/lazy' so tests can wait for lazy loads." },
+]
+
+// Automerge belongs to @vault/client. The root package doesn't depend on it, but it's hoisted into
+// node_modules, so without this rule an import from Flock would still resolve.
+const appImportPatterns = [
+  ...baseImportPatterns,
+  { regex: '^@automerge/', message: 'Automerge is internal to @vault/client. Use its entry points instead.' },
+]
+
 export default defineConfig([
   globalIgnores([
     'node_modules',
@@ -119,19 +136,7 @@ export default defineConfig([
       'import-x/no-rename-default': 'off',
       '@stylistic/semi': ['error', 'never'],
       '@stylistic/indent': ['error', 2],
-      "no-restricted-imports": [
-        "error",
-        {
-          "patterns": [
-            { "regex": "^@mui/[^/]+$" },
-            { "regex": "^vitest$", allowTypeImports: true },
-            { "regex": "docstore/core$", allowTypeImports: true, message: "Import from 'docstore/core' is restricted (functions are internal to docstore module)" },
-          ],
-          "paths": [
-            { "name": "react", "importNames": ["lazy"], "message": "Use `lazy` from 'src/utils/lazy' so tests can wait for lazy loads." },
-          ],
-        },
-      ],
+      'no-restricted-imports': ['error', { patterns: baseImportPatterns, paths: baseImportPaths }],
     },
   },
   {
@@ -201,6 +206,12 @@ export default defineConfig([
       'import-x/no-extraneous-dependencies': ['error', { packageDir: `./packages/${name}` }],
     },
   })),
+  {
+    files: ['src/**/*.{ts,tsx}', 'cypress/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': ['error', { patterns: appImportPatterns, paths: baseImportPaths }],
+    },
+  },
   {
     files: ['src/**/*.{ts,tsx}'],
     ignores: [`${MIGRATE_PATH}/**`],

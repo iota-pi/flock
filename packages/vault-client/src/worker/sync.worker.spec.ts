@@ -43,7 +43,6 @@ const mockRepoFind = vi.fn().mockImplementation(() => Promise.resolve({
 }))
 
 const workerConfig: SyncWorkerConfig = {
-  automergeWasmUrl: 'mock-wasm-url',
   endpoint: '',
   storageNames: getVaultStorageNames(),
 }

@@ -3,8 +3,8 @@
  * nothing a person typed can be found anywhere the app stores data on the device.
  *
  * A byte search only proves this if unencrypted chunks would contain the text. Automerge compresses
- * larger columns, so `src/app/vault/localEncryptionControl.spec.ts` checks that a short name like this
- * one appears verbatim in Automerge's saved chunks.
+ * larger columns, so `packages/vault-client/src/worker/localEncryption/localEncryptionControl.spec.ts`
+ * checks that a short name like this one appears verbatim in Automerge's saved chunks.
  */
 
 const encoder = new TextEncoder()
