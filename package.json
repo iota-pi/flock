@@ -36,7 +36,7 @@
     "@fastify/cors": "^11.4.1",
     "@fontsource/roboto": "^5.3.0",
     "@formkit/auto-animate": "^0.10.2",
-    "@hookform/resolvers": "^5.2.2",
+    "@hookform/resolvers": "^7.0.6",
     "@mui/icons-material": "^9.5.0",
     "@mui/material": "^9.5.0",
     "@mui/x-date-pickers": "^9.17.0",
