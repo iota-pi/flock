@@ -167,7 +167,12 @@ export default $config({
       permissions: [
         // DeleteItem and BatchWriteItem are for deleting an account
         dynamoAccess(accountsTable, ["GetItem", "PutItem", "UpdateItem", "DeleteItem"]),
-        dynamoAccess(itemsTable, ["Query", "BatchGetItem", "UpdateItem", "BatchWriteItem"]),
+        // Indexes for fetchManifest's query of ManifestIndex
+        dynamoAccess(
+          itemsTable,
+          ["Query", "BatchGetItem", "UpdateItem", "BatchWriteItem"],
+          { indexes: true },
+        ),
         // The head row's update and the message puts in each append's transaction
         dynamoAccess(syncLogTable, ["GetItem", "Query", "PutItem", "UpdateItem", "BatchWriteItem"]),
         dynamoAccess(loginThrottleTable, ["GetItem", "UpdateItem"]),
