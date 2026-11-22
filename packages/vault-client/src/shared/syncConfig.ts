@@ -43,11 +43,14 @@ export const SYNC_TIMEOUTS = {
    * (its own request is about to be granted, or is retrying after a lock error)
    */
   leadershipSettle: 5000,
-  /** Default interval between periodic server manifest reconciliations */
+  /**
+   * The poll's manifest phase runs at most this often unasked, counting from the last sync that
+   * fetched the manifest, so one with item failures retries hourly rather than at every poll
+   */
   manifestSyncInterval: 60 * 60 * 1000,
   /**
-   * A manifest sync (other than a forced one) is skipped this soon after the last clean one. Shorter
-   * than `manifestSyncInterval`, which fires just under an interval after the last one finished.
+   * A `due` manifest sync is skipped this soon after the last clean one, unless the device has no
+   * items. `now` and `force` syncs ignore it.
    */
   manifestSyncMinGap: 50 * 60 * 1000,
   /** Delay before auto-restarting worker after crash */

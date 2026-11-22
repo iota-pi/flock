@@ -7,12 +7,9 @@ import type { StoreItemsOptions } from './ItemOperations'
 import type { SyncDomain } from './domain'
 import type { RecoveryManager } from './RecoveryManager'
 import type { SyncSessionState } from './SyncSessionState'
-import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { AbortableRun } from '../utils/AbortableRun'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
-import { isAuthError } from '../utils/errorClassifier'
-import { errorMessage } from '../utils/errorMessage'
 import { calculateSyncDeltas, type QuarantinedItem, type SyncDeltas } from './calculateSyncDeltas'
 import { ManifestHydrator } from './ManifestHydrator'
 import { findSnapshotsCoveredLocally } from './findSnapshotsCoveredLocally'
@@ -24,6 +21,7 @@ import { createLogger } from '../utils/logger'
 const log = createLogger('ManifestSyncManager')
 
 const MANIFEST_SYNC_MIN_GAP_MS = SYNC_TIMEOUTS.manifestSyncMinGap
+const MANIFEST_SYNC_INTERVAL_MS = SYNC_TIMEOUTS.manifestSyncInterval
 const UPSTREAM_SNAPSHOT_DEBOUNCE_MS = SYNC_TIMEOUTS.upstreamSnapshotDebounce
 const PULLED_CHANGES_GRACE_MS = SYNC_TIMEOUTS.pulledChangesGrace
 
@@ -66,15 +64,46 @@ export interface ManifestSyncManagerDeps {
 
 export type SyncResult = { added: ItemId[], success: boolean }
 
+/**
+ * How strongly a manifest sync is wanted, weakest first. `due` is skipped within `manifestSyncMinGap`
+ * of the last clean sync (unless the device has no items), `now` ignores that gap, and `force` also
+ * fetches quarantined items and every item the server has a newer copy of.
+ */
+export type ManifestMode = 'due' | 'now' | 'force'
+
+/** What a manifest sync came to, and whether it fetched the manifest (a skipped one didn't) */
+export type ManifestPhaseResult = SyncResult & { fetchedManifest: boolean }
+
+/** A caller waiting on a manifest sync. A phase at its mode or a stronger one sets `result`. */
+export interface ManifestSyncTicket {
+  readonly mode: ManifestMode
+  result?: ManifestPhaseResult
+}
+
+const MODE_STRENGTH: Record<ManifestMode, number> = { due: 0, now: 1, force: 2 }
+
+function strongerMode(a: ManifestMode | undefined, b: ManifestMode | undefined): ManifestMode | undefined {
+  if (a === undefined) return b
+  if (b === undefined) return a
+  return MODE_STRENGTH[b] > MODE_STRENGTH[a] ? b : a
+}
+
+const NOT_SYNCED: ManifestPhaseResult = { added: [], success: false, fetchedManifest: false }
+
 export class ManifestSyncManager {
   private readonly hydrator: ManifestHydrator
   private isShutdown = false
 
   private readonly isAlive = () => !this.isShutdown
   private readonly syncRun = new AbortableRun(this.isAlive)
-  private readonly syncGuard = new SingleFlightGuard<SyncResult>()
-  /** Whether the last sync run reached the end with a fetched manifest */
-  private fetchedManifest = false
+
+  /** A sync asked for by an event (promotion, coming online, foreground), kept until a phase serves it */
+  private requested: ManifestMode | undefined
+  private readonly tickets = new Set<ManifestSyncTicket>()
+  /** The persisted time of the last clean sync, once read */
+  private lastCleanAt: number | undefined
+  /** When a sync last fetched the manifest, clean or not, so one with item failures retries hourly */
+  private lastAttemptAt = 0
 
   constructor(private readonly deps: ManifestSyncManagerDeps) {
     this.hydrator = new ManifestHydrator({
@@ -105,40 +134,85 @@ export class ManifestSyncManager {
     this.abort()
   }
 
-  /** Resolves once the sync in flight, if any, has settled */
-  async waitForIdle(): Promise<void> {
-    await this.syncGuard.waitForRunning()
+  /** Asks the next poll's manifest phase for a sync at `mode` or stronger, kept until one fetches the manifest */
+  request(mode: ManifestMode): void {
+    this.requested = strongerMode(this.requested, mode)
   }
 
   /**
-   * Runs a sync, or shares the one in flight. A forced sync waits for that one instead, because it
-   * may not have been forced. Does nothing outside the leader.
+   * Registers a caller that waits for the next sync at `mode` or stronger. Unlike `request`, a ticket
+   * lapses at `closeTicket`, so a sync that never ran isn't left asked for.
    */
-  async sync(force = false, signal?: AbortSignal): Promise<SyncResult> {
-    if (!this.canSync) return { added: [], success: false }
-    if (force) {
-      await this.syncGuard.waitForRunning()
-      if (!this.canSync) return { added: [], success: false }
+  openTicket(mode: ManifestMode): ManifestSyncTicket {
+    const ticket: ManifestSyncTicket = { mode }
+    this.tickets.add(ticket)
+    return ticket
+  }
+
+  /** Withdraws a ticket, returning the result of the sync that served it, or a failure if none did */
+  closeTicket(ticket: ManifestSyncTicket): ManifestPhaseResult {
+    this.tickets.delete(ticket)
+    return ticket.result ?? NOT_SYNCED
+  }
+
+  /**
+   * When the poll's manifest phase next has work, for scheduling polls: now while a sync is asked for,
+   * otherwise `manifestSyncMinGap` after the last clean sync or `manifestSyncInterval` after the last
+   * one that fetched the manifest, whichever is later. Undefined outside the leader, and before the
+   * last clean sync's time has been read.
+   */
+  getDueAt(now = Date.now()): number | undefined {
+    if (!this.canSync) return undefined
+    if (this.requested !== undefined || this.tickets.size > 0) return now
+    return this.periodicDueAt
+  }
+
+  private get periodicDueAt(): number | undefined {
+    if (this.lastCleanAt === undefined) return undefined
+    return Math.max(this.lastCleanAt + MANIFEST_SYNC_MIN_GAP_MS, this.lastAttemptAt + MANIFEST_SYNC_INTERVAL_MS)
+  }
+
+  /**
+   * The poll's manifest phase. Runs a sync at the strongest mode asked for (by `request`, an open
+   * ticket or `minMode`), or a `due` one if the periodic sync is due, and returns null if none is.
+   * A manifest that can't be fetched throws, which fails the poll (rule 4), and what was asked for stays
+   * asked for. Items that fail to hydrate don't throw: they are left for the next sync.
+   */
+  async runPhase(signal?: AbortSignal, minMode?: ManifestMode): Promise<ManifestPhaseResult | null> {
+    if (!this.canSync) return null
+    this.lastCleanAt ??= await this.deps.indexManager.getLastManifestSyncTime()
+    checkAlive(signal, this.isAlive)
+
+    let mode = strongerMode(this.requested, minMode)
+    for (const ticket of this.tickets) {
+      mode = strongerMode(mode, ticket.mode)
     }
-    return this.syncGuard.run(() => this.executeSync(force, signal))
+    const periodicDueAt = this.periodicDueAt
+    if (mode === undefined && periodicDueAt !== undefined && Date.now() >= periodicDueAt) {
+      mode = 'due'
+    }
+    if (mode === undefined) return null
+    const strength = MODE_STRENGTH[mode]
+
+    const served = Array.from(this.tickets).filter(ticket => MODE_STRENGTH[ticket.mode] <= strength)
+    const requested = this.requested
+    this.requested = undefined
+    let result: ManifestPhaseResult
+    try {
+      result = await this.executeSync(mode, signal)
+    } catch (error) {
+      this.requested = strongerMode(this.requested, requested)
+      throw error
+    }
+    for (const ticket of served) {
+      ticket.result = result
+      this.tickets.delete(ticket)
+    }
+    return result
   }
 
   private get canSync(): boolean {
     return !this.isShutdown && this.deps.session.isLeader
-  }
-
-  /**
-   * Runs a sync now, whenever the last one was, and returns whether it fetched the manifest. A sync
-   * that merged only some items counts: those items are left for the next one. It waits for a sync
-   * in flight rather than sharing it, because that one may have skipped itself.
-   */
-  async syncNow(signal?: AbortSignal): Promise<boolean> {
-    if (!this.canSync) return false
-    await this.syncGuard.waitForRunning()
-    if (!this.canSync) return false
-    this.fetchedManifest = false
-    await this.syncGuard.run(() => this.executeSync(false, signal, { ignoreMinGap: true }))
-    return this.fetchedManifest
   }
 
   /** Fetches items' snapshots and merges them into their docs, away from any manifest sync */
@@ -156,39 +230,17 @@ export class ManifestSyncManager {
     }, signal)
   }
 
-  private shouldSkipSync(force: boolean, hasKnownItems: boolean, timeSinceLastSync: number): boolean {
+  private shouldSkipSync(mode: ManifestMode, hasKnownItems: boolean, timeSinceLastSync: number): boolean {
     if (this.deps.fetchManifestEverySync) return false
-    return !force && hasKnownItems && timeSinceLastSync < MANIFEST_SYNC_MIN_GAP_MS
+    return mode === 'due' && hasKnownItems && timeSinceLastSync < MANIFEST_SYNC_MIN_GAP_MS
   }
 
-  private async fetchRemoteManifest(
-    signal: AbortSignal,
-    hasKnownItems: boolean,
-  ): Promise<{ manifest: ManifestEntry[] } | null> {
+  /** Throws if the manifest can't be fetched, so the poll fails and backs off (rule 4) */
+  private async fetchRemoteManifest(signal: AbortSignal): Promise<ManifestEntry[]> {
     checkAlive(signal, this.isAlive)
-
-    try {
-      const manifestResponse = await this.deps.apiClient.fetchManifest({ account: this.deps.accountId }, { signal })
-      return { manifest: manifestResponse.manifest }
-    } catch (e) {
-      if (signal.aborted || isAbortError(e) || !this.isAlive()) {
-        return null
-      }
-      if (isAuthError(e)) {
-        if (hasKnownItems) {
-          log.info('No auth token, using local data only')
-        } else {
-          log.warn('No API auth token found and no local data, cannot sync manifest from server')
-        }
-        return null
-      }
-      if (hasKnownItems) {
-        log.warn('Failed to fetch manifest, falling back to local data', e)
-        return null
-      }
-      // Logged by handleSyncError
-      throw new Error(`[ManifestSyncManager] Failed to fetch manifest: ${errorMessage(e)}`, { cause: e })
-    }
+    const manifestResponse = await this.deps.apiClient.fetchManifest({ account: this.deps.accountId }, { signal })
+    this.lastAttemptAt = Date.now()
+    return manifestResponse.manifest
   }
 
   private async collectLocalSyncState(signal: AbortSignal) {
@@ -212,33 +264,44 @@ export class ManifestSyncManager {
   }
 
   private async checkGating(
-    force: boolean,
+    mode: ManifestMode,
     signal: AbortSignal,
   ): Promise<{ skip: boolean; hasKnownItems: boolean; knownItemIds: ItemId[] }> {
     checkAlive(signal, this.isAlive)
     const knownItemIds = await this.deps.indexManager.listItemIds()
+    // Read every time: another tab may have synced while this one wasn't leading
     const lastManifestSyncTime = await this.deps.indexManager.getLastManifestSyncTime()
     checkAlive(signal, this.isAlive)
+    this.lastCleanAt = lastManifestSyncTime
 
     const hasKnownItems = knownItemIds.length > 0
     const timeSinceLastSync = lastManifestSyncTime > 0 ? Date.now() - lastManifestSyncTime : Infinity
-    const skip = this.shouldSkipSync(force, hasKnownItems, timeSinceLastSync)
+    const skip = this.shouldSkipSync(mode, hasKnownItems, timeSinceLastSync)
 
     return { skip, hasKnownItems, knownItemIds }
   }
 
-  /** Uploads directly rather than with a poll: a manifest sync often runs inside one */
+  /**
+   * Uploads every dirty item's snapshot through the snapshot phase's upload. The manifest sync is
+   * itself a phase of the poll, so nothing else is uploading.
+   */
   private async flushPendingSnapshotsSafely(signal: AbortSignal): Promise<void> {
+    const { snapshotManager } = this.deps
+    if (snapshotManager.tracker.dirtyCount === 0) return
     try {
-      await this.deps.snapshotManager.uploadNow(signal)
+      snapshotManager.tracker.requestNow()
+      await snapshotManager.pushDue(signal)
     } catch (flushErr) {
+      if (signal.aborted || isAbortError(flushErr)) throw flushErr
       log.warn('Failed to flush pending snapshots before sync', flushErr)
     }
   }
 
   private async recordSyncCompletion(hasFailures: boolean): Promise<void> {
     if (!hasFailures) {
-      await this.deps.indexManager.updateLastManifestSyncTime(Date.now())
+      const now = Date.now()
+      await this.deps.indexManager.updateLastManifestSyncTime(now)
+      this.lastCleanAt = now
     } else {
       log.warn(
         'Some batches or items failed to sync; lastManifestSyncTime not updated to allow retry',
@@ -246,103 +309,78 @@ export class ManifestSyncManager {
     }
   }
 
-  private handleSyncError(e: unknown, hasKnownItems: boolean): SyncResult {
-    if (isAbortError(e)) {
-      return { added: [], success: false }
-    }
-    if (hasKnownItems) {
-      log.warn('Manifest sync failed, falling back to local data', e)
-      return { added: [], success: false }
-    }
-    log.error('Manifest sync failed', e)
-    throw new Error(`[ManifestSyncManager] Manifest sync failed: ${errorMessage(e)}`, { cause: e })
-  }
+  private async executeSync(mode: ManifestMode, outerSignal?: AbortSignal): Promise<ManifestPhaseResult> {
+    const force = mode === 'force'
+    return this.syncRun.run(async signal => {
+      const gating = await this.checkGating(mode, signal)
+      if (gating.skip) {
+        // Only a sync without failures records the time that lets later syncs be skipped
+        this.deps.onSyncedWithoutFailures?.()
+        return { added: [], success: true, fetchedManifest: false }
+      }
 
-  private async executeSync(
-    force = false,
-    outerSignal?: AbortSignal,
-    options: { ignoreMinGap?: boolean } = {},
-  ): Promise<SyncResult> {
-    let hasKnownItems = false
-    try {
-      return await this.syncRun.run(async signal => {
-        const gating = await this.checkGating(force || options.ignoreMinGap === true, signal)
-        hasKnownItems = gating.hasKnownItems
-        if (gating.skip) {
-          // Only a sync without failures records the time that lets later syncs be skipped
-          this.deps.onSyncedWithoutFailures?.()
-          return { added: [], success: true }
-        }
+      // Flushed first so the manifest includes them; otherwise they look missing and are pushed again
+      await this.flushPendingSnapshotsSafely(signal)
+      checkAlive(signal, this.isAlive)
 
-        // Flushed first so the manifest includes them; otherwise they look missing and are pushed again
-        await this.flushPendingSnapshotsSafely(signal)
+      const manifest = await this.fetchRemoteManifest(signal)
+      checkAlive(signal, this.isAlive)
+
+      const localState = await this.collectLocalSyncState(signal)
+      checkAlive(signal, this.isAlive)
+
+      if (!force) {
+        await this.skipSnapshotsCoveredLocally(manifest, gating.knownItemIds, localState, signal)
         checkAlive(signal, this.isAlive)
+      }
 
-        const remoteData = await this.fetchRemoteManifest(signal, hasKnownItems)
-        if (!remoteData) {
-          return { added: [], success: false }
-        }
+      // Step 1: Calculate sync deltas
+      const deltas = calculateSyncDeltas({
+        manifest,
+        force,
+        knownItemIds: gating.knownItemIds,
+        tombstoneItemIds: localState.tombstoneItemIds,
+        quarantinedMap: localState.quarantinedMap,
+        localVersionsMap: localState.localVersionsMap,
+      })
+
+      // Step 2: Push local updates
+      await this.pushLocalUpdates(deltas)
+      checkAlive(signal, this.isAlive)
+
+      let added: ItemId[] = []
+      let hasFailures = false
+
+      // Step 3: Fetch and hydrate remote items
+      if (deltas.missingIds.length > 0) {
+        const hydrationResult = await this.hydrator.fetchAndHydrateRemoteItems(
+          {
+            missingIds: deltas.missingIds,
+            manifest,
+            knownSet: deltas.knownSet,
+            tombstoneSet: deltas.tombstoneSet,
+          },
+          signal,
+        )
+        added = hydrationResult.added
+        hasFailures = hydrationResult.hasFailures
         checkAlive(signal, this.isAlive)
+      }
 
-        const localState = await this.collectLocalSyncState(signal)
-        checkAlive(signal, this.isAlive)
+      await this.notifyManifestProcessed(manifest)
+      checkAlive(signal, this.isAlive)
 
-        if (!force) {
-          await this.skipSnapshotsCoveredLocally(remoteData.manifest, gating.knownItemIds, localState, signal)
-          checkAlive(signal, this.isAlive)
-        }
+      await this.migrateLegacySettings()
+      checkAlive(signal, this.isAlive)
 
-        // Step 1: Calculate sync deltas
-        const deltas = calculateSyncDeltas({
-          manifest: remoteData.manifest,
-          force,
-          knownItemIds: gating.knownItemIds,
-          tombstoneItemIds: localState.tombstoneItemIds,
-          quarantinedMap: localState.quarantinedMap,
-          localVersionsMap: localState.localVersionsMap,
-        })
+      await this.recordSyncCompletion(hasFailures)
 
-        // Step 2: Push local updates
-        await this.pushLocalUpdates(deltas)
-        checkAlive(signal, this.isAlive)
+      if (!hasFailures) {
+        this.deps.onSyncedWithoutFailures?.()
+      }
 
-        let added: ItemId[] = []
-        let hasFailures = false
-
-        // Step 3: Fetch and hydrate remote items
-        if (deltas.missingIds.length > 0) {
-          const hydrationResult = await this.hydrator.fetchAndHydrateRemoteItems(
-            {
-              missingIds: deltas.missingIds,
-              manifest: remoteData.manifest,
-              knownSet: deltas.knownSet,
-              tombstoneSet: deltas.tombstoneSet,
-            },
-            signal,
-          )
-          added = hydrationResult.added
-          hasFailures = hydrationResult.hasFailures
-          checkAlive(signal, this.isAlive)
-        }
-
-        await this.notifyManifestProcessed(remoteData.manifest)
-        checkAlive(signal, this.isAlive)
-        this.fetchedManifest = true
-
-        await this.migrateLegacySettings()
-        checkAlive(signal, this.isAlive)
-
-        await this.recordSyncCompletion(hasFailures)
-
-        if (!hasFailures) {
-          this.deps.onSyncedWithoutFailures?.()
-        }
-
-        return { added, success: !hasFailures }
-      }, outerSignal)
-    } catch (e) {
-      return this.handleSyncError(e, hasKnownItems)
-    }
+      return { added, success: !hasFailures, fetchedManifest: true }
+    }, outerSignal)
   }
 
   private async pushLocalUpdates(deltas: SyncDeltas): Promise<void> {

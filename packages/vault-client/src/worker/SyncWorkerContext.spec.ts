@@ -174,6 +174,8 @@ beforeEach(() => {
       onActivity = vi.fn()
       onSnapshotDue = vi.fn()
       pollNow = vi.fn().mockResolvedValue(undefined)
+      syncManifest = vi.fn().mockResolvedValue({ added: [], success: true, fetchedManifest: true })
+      isAuthPaused = false
     },
   })
   spyOnExports(itemOperationsModule, {
@@ -192,7 +194,7 @@ beforeEach(() => {
   spyOnExports(manifestSyncManagerModule, {
     ManifestSyncManager: class MockManifestSyncManager {
       shutdown = vi.fn()
-      sync = vi.fn().mockResolvedValue({ added: [], success: true })
+      runPhase = vi.fn().mockResolvedValue(null)
     },
   })
   spyOnExports(openLocalStorageModule, {
@@ -549,14 +551,41 @@ describe('SyncWorkerContext', () => {
 
       await context.bootstrapItems()
 
-      expect(context.services.manifestSyncManager.sync).toHaveBeenCalledTimes(1)
+      expect(context.services.orchestrator.syncManifest).toHaveBeenCalledWith('due')
+    })
+
+    describe('when the manifest could not be fetched at session start', () => {
+      beforeEach(() => {
+        context.session.setLeader(true)
+        vi.mocked(context.services.orchestrator.syncManifest)
+          .mockResolvedValue({ added: [], success: false, fetchedManifest: false })
+      })
+
+      it('fails so that starting up is retried, on a device with no items', async () => {
+        Object.assign(context.services.indexManager, { listItemIds: vi.fn().mockResolvedValue([]) })
+
+        await expect(context.bootstrapItems()).rejects.toThrow(/Could not load/)
+      })
+
+      it('carries on with the items a device already has', async () => {
+        Object.assign(context.services.indexManager, { listItemIds: vi.fn().mockResolvedValue(['item-1' as ItemId]) })
+
+        await expect(context.bootstrapItems()).resolves.toBeUndefined()
+      })
+
+      it('leaves an expired session to the sign-in prompt', async () => {
+        Object.assign(context.services.indexManager, { listItemIds: vi.fn().mockResolvedValue([]) })
+        Object.assign(context.services.orchestrator, { isAuthPaused: true })
+
+        await expect(context.bootstrapItems()).resolves.toBeUndefined()
+      })
     })
 
     it('leaves loading items to the leader in another tab', async () => {
       await context.bootstrapItems()
 
       expect(context.services.orchestrator.settleLeadership).toHaveBeenCalledTimes(1)
-      expect(context.services.manifestSyncManager.sync).not.toHaveBeenCalled()
+      expect(context.services.orchestrator.syncManifest).not.toHaveBeenCalled()
     })
 
     it('takes over syncing before a full resync', async () => {
@@ -564,7 +593,7 @@ describe('SyncWorkerContext', () => {
 
       expect(context.services.orchestrator.claimLeader).toHaveBeenCalledTimes(1)
       expect(context.session.isLeader).toBe(true)
-      expect(context.services.manifestSyncManager.sync).toHaveBeenCalledWith(true)
+      expect(context.services.orchestrator.syncManifest).toHaveBeenCalledWith('force')
       expect(context.services.orchestrator.flush).toHaveBeenCalled()
     })
 
@@ -580,7 +609,7 @@ describe('SyncWorkerContext', () => {
       vi.mocked(context.services.orchestrator.claimLeader).mockImplementation(() => {})
 
       await expect(context.fullResync()).rejects.toThrow(/could not take over/)
-      expect(context.services.manifestSyncManager.sync).not.toHaveBeenCalled()
+      expect(context.services.orchestrator.syncManifest).not.toHaveBeenCalled()
     })
   })
 

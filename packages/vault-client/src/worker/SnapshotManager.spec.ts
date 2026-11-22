@@ -228,50 +228,6 @@ describe('SnapshotManager', () => {
     expect(manager.tracker.getDirtyItemIds()).toContain('item-1')
   })
 
-  // A manifest sync often runs inside a poll, which waiting for a poll would deadlock
-  it('uploads now without a poll, for a manifest sync', async () => {
-    mockPutSnapshots.mockResolvedValue({ success: true, persisted: 1 })
-    const runPollNow = vi.fn().mockResolvedValue(undefined)
-    const direct = new SnapshotManager({
-      ...context as any,
-      session: new SyncSessionState({ isLeader: true }),
-      db: records.db,
-      builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec, noLogCoverage),
-      runPollNow,
-    })
-    direct.tracker.markItemDirty('item-1' as ItemId)
-
-    await expect(direct.uploadNow(new AbortController().signal)).resolves.toEqual({ persisted: 1, total: 1, success: true })
-
-    expect(runPollNow).not.toHaveBeenCalled()
-    expect(direct.tracker.dirtyCount).toBe(0)
-  })
-
-  it('uploads now only after the poll phase in flight, never alongside it', async () => {
-    let releaseFirst!: () => void
-    mockPutSnapshots
-      .mockImplementationOnce(() => new Promise(resolve => {
-        releaseFirst = () => resolve({ success: true, persisted: 1 })
-      }))
-      .mockResolvedValue({ success: true, persisted: 1 })
-    manager.tracker.markItemDirty('item-1' as ItemId, 0)
-    const phase = poll(manager)
-    await vi.advanceTimersByTimeAsync(0)
-    expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-
-    manager.tracker.markItemDirty('item-2' as ItemId)
-    const direct = manager.uploadNow(new AbortController().signal)
-    await vi.advanceTimersByTimeAsync(0)
-    expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-
-    releaseFirst()
-    await phase
-    await direct
-
-    expect(mockPutSnapshots).toHaveBeenCalledTimes(2)
-    expect(mockPutSnapshots.mock.calls[1][0].snapshots.map((s: any) => s.itemId)).toEqual(['item-2'])
-  })
-
   it('does not run a poll to flush when nothing is dirty', async () => {
     const runPollNow = vi.fn().mockResolvedValue(undefined)
     const idle = new SnapshotManager({

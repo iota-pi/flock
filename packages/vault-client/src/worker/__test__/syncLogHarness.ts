@@ -179,9 +179,15 @@ export class Device {
     await this.services.snapshotManager.flushPendingSnapshots()
   }
 
-  /** A manifest sync now, whenever the last one ran */
+  /** A poll whose manifest phase syncs now, whenever the last sync ran */
   async manifestSync(): Promise<void> {
-    await this.services.manifestSyncManager.syncNow()
+    const { manifestSyncManager } = this.services
+    const ticket = manifestSyncManager.openTicket('now')
+    try {
+      await this.poll()
+    } finally {
+      manifestSyncManager.closeTicket(ticket)
+    }
   }
 
   /** Everything a device does in a normal stretch of being online */

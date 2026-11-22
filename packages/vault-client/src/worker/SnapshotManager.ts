@@ -9,7 +9,6 @@ import { SnapshotPusher, type SnapshotPushOutcome } from './SnapshotPusher'
 import type { SnapshotPushResult } from './syncProtocol'
 import type { SyncSessionState } from './SyncSessionState'
 import type { StoredSnapshotDetails, StoredSnapshotRecorder, UploadableSnapshot } from './snapshotUpload'
-import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 
 export interface SnapshotManagerOptions {
   maxPayloadBytes?: number
@@ -29,8 +28,6 @@ export class SnapshotManager implements StoredSnapshotRecorder {
   private readonly runPollNow: () => Promise<void>
   private lastPush: SnapshotPushResult = { persisted: 0, total: 0 }
   private pushes = 0
-  /** The poll's phase and a manifest sync's upload never run at once */
-  private readonly uploadGuard = new SingleFlightGuard<SnapshotPushOutcome>()
 
   constructor(
     deps: {
@@ -86,11 +83,11 @@ export class SnapshotManager implements StoredSnapshotRecorder {
   }
 
   /**
-   * The poll's snapshot phase. Throws to fail the poll; see `SnapshotPusher.pushDue`. Joins an upload
-   * already running for a manifest sync.
+   * The poll's snapshot phase, and the manifest phase's upload before it fetches the manifest. Both
+   * run inside the poll, so never at once. Throws to fail the poll; see `SnapshotPusher.pushDue`.
    */
   async pushDue(signal: AbortSignal): Promise<SnapshotPushOutcome> {
-    const result = await this.uploadGuard.run(() => this.pusher.pushDue(signal))
+    const result = await this.pusher.pushDue(signal)
     if (result.total > 0 || !result.success) {
       this.lastPush = { persisted: result.persisted, total: result.total }
       this.pushes += 1
@@ -99,23 +96,8 @@ export class SnapshotManager implements StoredSnapshotRecorder {
   }
 
   /**
-   * Uploads every dirty item's snapshot now, without a poll, after any upload in flight. For a
-   * manifest sync, which often runs inside a poll, so it can't wait for one. Throws if a request fails.
-   */
-  async uploadNow(signal: AbortSignal): Promise<SnapshotPushOutcome> {
-    if (!this.session.isOperational || this.tracker.dirtyCount === 0) {
-      return { persisted: 0, total: 0, success: true }
-    }
-    while (this.uploadGuard.isRunning) {
-      await this.uploadGuard.waitForRunning()
-    }
-    this.tracker.requestNow()
-    return this.pushDue(signal)
-  }
-
-  /**
    * Uploads every dirty item's snapshot now, with a poll, such as when the page may be closing. Never
-   * call it from inside a poll, which it would wait for: use `uploadNow` there.
+   * call it from inside a poll, which it would wait for.
    */
   async flushPendingSnapshots(): Promise<SnapshotPushResult> {
     // Saved first, and in any tab: a follower can't push, but its edits must still survive the page closing

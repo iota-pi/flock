@@ -561,11 +561,11 @@ describe('sync log', () => {
       await a.sync()
       server.expireLog(server.head - 1)
       server.clock = () => start + 28 * DAY + SYNC_TIMEOUTS.gapWait
-      const syncNow = vi.spyOn(b.services.manifestSyncManager, 'syncNow')
+      const runPhase = vi.spyOn(b.services.manifestSyncManager, 'runPhase')
 
       expect(await b.poll()).toBe('success')
 
-      expect(syncNow).toHaveBeenCalledTimes(1)
+      expect(runPhase.mock.calls.filter(([, minMode]) => minMode === 'now')).toHaveLength(1)
       expect((await b.read(itemId))?.title).toBe('after the TTL')
       expect(b.services.puller.cursor).toBe(server.head)
     })
@@ -581,10 +581,10 @@ describe('sync log', () => {
       server.clock = () => start + SYNC_TIMEOUTS.gapWait
 
       const b = await startDevice('device-b')
-      const syncNow = vi.spyOn(b.services.manifestSyncManager, 'syncNow')
+      const runPhase = vi.spyOn(b.services.manifestSyncManager, 'runPhase')
       expect(await b.poll()).toBe('success')
 
-      expect(syncNow).toHaveBeenCalledTimes(1)
+      expect(runPhase.mock.calls.filter(([, minMode]) => minMode === 'now')).toHaveLength(1)
       expect(b.services.puller.cursor).toBe(server.head)
       expect(b.services.puller.pendingManifestSync).toBeUndefined()
     })
