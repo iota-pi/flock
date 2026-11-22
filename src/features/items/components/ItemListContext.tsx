@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react'
+import { createContext, use } from 'react'
 import type { ReactNode } from 'react'
 
 type ItemListContextValue = {
@@ -33,12 +33,12 @@ export function ItemListContextProvider(
   { value, children }: { value: ItemListContextValue; children: ReactNode },
 ) {
   return (
-    <ItemListContext.Provider value={value}>
+    <ItemListContext value={value}>
       {children}
-    </ItemListContext.Provider>
+    </ItemListContext>
   )
 }
 
 export function useItemListContext(): ItemListContextValue {
-  return useContext(ItemListContext)
+  return use(ItemListContext)
 }

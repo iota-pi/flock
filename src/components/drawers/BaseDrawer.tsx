@@ -1,5 +1,4 @@
 import {
-  createRef,
   type KeyboardEvent as ReactKeyboardEvent,
   type PropsWithChildren,
   useCallback,
@@ -181,7 +180,7 @@ function BaseDrawer({
   )
 
   const prevKey = usePrevious(itemKey)
-  const containerRef = createRef<HTMLDivElement>()
+  const containerRef = useRef<HTMLDivElement>(null)
   useEffect(
     () => {
       if (itemKey !== prevKey) {
@@ -241,7 +240,7 @@ function BaseDrawer({
               )}
             </Box>
 
-            {(showBackButton || headerActions) && (
+            {showBackButton || headerActions ? (
               <TopRightActionsHolder>
                 {headerActions}
                 {showBackButton && (
@@ -250,7 +249,7 @@ function BaseDrawer({
                   </IconButton>
                 )}
               </TopRightActionsHolder>
-            )}
+            ) : null}
 
             {children}
           </>

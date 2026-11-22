@@ -330,8 +330,8 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             const { key, ...props } = getItemProps({ index })
             return (
               <Chip
-                {...props}
                 key={key}
+                {...props}
                 label={getName(option)}
                 icon={getIcon(option.type)}
               />

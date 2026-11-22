@@ -26,14 +26,14 @@ function EverythingSearch({
   onSelect,
 }: Props) {
   const setDrawer = useAppStore(state => state.setDrawer)
-  const searchInput = useRef<HTMLInputElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const focusSearch = useCallback(
     () => {
-      if (searchInput.current) {
-        searchInput.current.focus()
+      if (searchInputRef.current) {
+        searchInputRef.current.focus()
       }
     },
-    [searchInput],
+    [searchInputRef],
   )
   useHotkeys('/', focusSearch, { keyup: true, keydown: false })
 
@@ -73,7 +73,7 @@ function EverythingSearch({
     <Search
       forceDarkTheme
       inputIcon={SearchIcon}
-      inputRef={searchInput}
+      inputRef={searchInputRef}
       placeholder={label}
       onCreate={handleCreate}
       onSelect={handleSelect}

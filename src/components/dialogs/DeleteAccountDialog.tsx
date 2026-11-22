@@ -74,8 +74,8 @@ function DeleteAccountContent({ onClose }: { onClose: () => void }) {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [acknowledged, setAcknowledged] = useState(false)
-  const authToken = useRef('')
-  const outcome = useRef<DeletionOutcome>({ itemsLeft: false, accountLeft: false, localFailed: false })
+  const authTokenRef = useRef('')
+  const outcomeRef = useRef<DeletionOutcome>({ itemsLeft: false, accountLeft: false, localFailed: false })
 
   async function exportBackup() {
     try {
@@ -89,19 +89,19 @@ function DeleteAccountContent({ onClose }: { onClose: () => void }) {
     setPhase({ name: 'working', step: 'local' })
     try {
       // Once the account record is gone, the server would take any request for it as an expired session
-      await removeVaultFromDevice({ accountDeleted: !outcome.current.accountLeft })
+      await removeVaultFromDevice({ accountDeleted: !outcomeRef.current.accountLeft })
     } catch (error) {
       log.error('Failed to remove local data after deleting the account', error)
-      outcome.current.localFailed = true
+      outcomeRef.current.localFailed = true
     }
-    setMessage(describeDeletionOutcome(outcome.current))
+    setMessage(describeDeletionOutcome(outcomeRef.current))
     onClose()
   }
 
   async function deleteAccountRecord() {
     setPhase({ name: 'working', step: 'account' })
     try {
-      await deleteServerAccount(account, authToken.current)
+      await deleteServerAccount(account, authTokenRef.current)
     } catch (error) {
       log.error('Failed to delete the account record', error)
       setPhase({ name: 'accountFailed' })
@@ -113,7 +113,7 @@ function DeleteAccountContent({ onClose }: { onClose: () => void }) {
   async function deleteItems() {
     setPhase({ name: 'working', step: 'items' })
     try {
-      await deleteServerData(account, authToken.current)
+      await deleteServerData(account, authTokenRef.current)
     } catch (error) {
       log.error("Failed to delete the account's data", error)
       setPhase({ name: 'itemsFailed' })
@@ -125,7 +125,7 @@ function DeleteAccountContent({ onClose }: { onClose: () => void }) {
   async function start() {
     setPhase({ name: 'working', step: 'password' })
     try {
-      authToken.current = await startAccountDeletion(account, password)
+      authTokenRef.current = await startAccountDeletion(account, password)
     } catch (error) {
       log.warn('Could not start deleting the account', error)
       setPhase({
@@ -179,7 +179,7 @@ function DeleteAccountContent({ onClose }: { onClose: () => void }) {
             data-cy="delete-account-continue"
             fullWidth
             onClick={() => {
-              outcome.current.itemsLeft = true
+              outcomeRef.current.itemsLeft = true
               void deleteAccountRecord()
             }}
             variant="outlined"
@@ -214,7 +214,7 @@ function DeleteAccountContent({ onClose }: { onClose: () => void }) {
             data-cy="delete-account-continue"
             fullWidth
             onClick={() => {
-              outcome.current.accountLeft = true
+              outcomeRef.current.accountLeft = true
               void removeFromDevice()
             }}
             variant="outlined"

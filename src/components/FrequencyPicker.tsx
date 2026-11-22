@@ -130,11 +130,11 @@ function FrequencyPicker({
         flexGrow: fullWidth ? 1 : undefined,
         width: fullWidth ? '100%' : undefined
       }}>
-      {icon && (
+      {icon ? (
         <IconHolder color={focused ? 'primary' : undefined}>
           {icon}
         </IconHolder>
-      )}
+      ) : null}
       <Grid
         container
         spacing={2}

@@ -28,8 +28,8 @@ export default function SearchableRow(
 
   return (
     <li
-      {...optionProps}
       key={option.id}
+      {...optionProps}
       style={style}
       ref={measureRef}
       data-index={index}

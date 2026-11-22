@@ -101,11 +101,11 @@ function CollapsibleSection({
           {content}
         </Box>
       </StyledAccordionDetails>
-      {actions && (
+      {actions ? (
         <AccordionActions>
           {actions}
         </AccordionActions>
-      )}
+      ) : null}
     </StyledAccordion>
   )
 }

@@ -47,8 +47,8 @@ function RootLayout() {
   const small = useMediaQuery<Theme>(theme => theme.breakpoints.down('md'))
   const xs = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'))
 
-  const [rawMiniMenu, setMiniMenu] = useState<boolean>()
-  const [rawOpenMenu, setOpenMenu] = useState<boolean>()
+  const [rawMiniMenu, setRawMiniMenu] = useState<boolean>()
+  const [rawOpenMenu, setRawOpenMenu] = useState<boolean>()
   const defaultMini = small && !xs
   const defaultOpen = !xs
   const miniMenu = rawMiniMenu === undefined ? defaultMini : rawMiniMenu
@@ -56,13 +56,13 @@ function RootLayout() {
   const floatingMenu = xs
 
   const handleToggleMiniMenu = useCallback(
-    () => setMiniMenu(m => (
+    () => setRawMiniMenu(m => (
       m !== undefined && miniMenu !== defaultMini ? undefined : !miniMenu
     )),
     [defaultMini, miniMenu],
   )
   const handleToggleShowMenu = useCallback(
-    () => setOpenMenu(o => (
+    () => setRawOpenMenu(o => (
       o !== undefined && openMenu !== defaultOpen ? undefined : !openMenu
     )),
     [defaultOpen, openMenu],
@@ -70,7 +70,7 @@ function RootLayout() {
   const handleMenuClick = useCallback(
     () => {
       if (floatingMenu) {
-        setOpenMenu(undefined)
+        setRawOpenMenu(undefined)
       }
     },
     [floatingMenu],
