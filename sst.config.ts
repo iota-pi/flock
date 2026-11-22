@@ -65,13 +65,13 @@ export default $config({
       fields: {
         account: "string",
         item: "string",
-        modifiedAt: "number",
       },
       primaryIndex: { hashKey: "account", rangeKey: "item" },
       globalIndexes: {
-        AccountModifiedIndex: {
+        ManifestIndex: {
           hashKey: "account",
-          rangeKey: "modifiedAt",
+          rangeKey: "item",
+          projection: ["version", "modifiedAt", "metadata", "deleted", "heads"],
         },
       },
       transform: {

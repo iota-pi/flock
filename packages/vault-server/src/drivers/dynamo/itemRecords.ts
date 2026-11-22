@@ -11,6 +11,7 @@ import { buildUpdateParams, partitionKeyCondition, projection, RawUpdateValue } 
 import { sendBatchWithRetry } from './batchRetry'
 import { fromStoredItem, storedItemSize, toStoredItem, validateItem } from './items'
 import { queryAll, sendConditional, type DynamoContext } from './commands'
+import { MANIFEST_INDEX } from './tables'
 
 const FETCH_BATCH_SIZE = 100
 
@@ -164,6 +165,7 @@ export async function fetchManifest({ client, tables }: DynamoContext, { account
   const manifest: ManifestEntry[] = []
   const records = queryAll(client, {
     TableName: tables.items,
+    IndexName: MANIFEST_INDEX.name,
     ...partitionKeyCondition('account', account),
     ...projection(['item', 'version', 'modifiedAt', 'metadata.modified', 'metadata.deleted', 'deleted', 'heads']),
   })

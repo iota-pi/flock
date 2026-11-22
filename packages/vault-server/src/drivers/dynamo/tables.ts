@@ -27,6 +27,16 @@ function toGlobalSecondaryIndex({ name, partitionKey, attributes }: AccountIndex
   }
 }
 
+/**
+ * The items table's index for the manifest, keyed like the table but holding only what the manifest
+ * reads. A query is billed by the size of the records it reads, so querying the table itself would
+ * read every snapshot in the account. Deployments declare the same index in their infrastructure.
+ */
+export const MANIFEST_INDEX = {
+  name: 'ManifestIndex',
+  attributes: ['version', 'modifiedAt', 'metadata', 'deleted', 'heads'],
+}
+
 /** The key schemas of the vault's tables, and the app's account indexes, for creating them */
 export function getVaultTableDefinitions(
   tables: VaultTableNames,
@@ -43,6 +53,14 @@ export function getVaultTableDefinitions(
         { AttributeName: 'account', AttributeType: 'S' },
         { AttributeName: 'item', AttributeType: 'S' },
       ],
+      GlobalSecondaryIndexes: [{
+        IndexName: MANIFEST_INDEX.name,
+        KeySchema: [
+          { AttributeName: 'account', KeyType: 'HASH' },
+          { AttributeName: 'item', KeyType: 'RANGE' },
+        ],
+        Projection: { ProjectionType: 'INCLUDE', NonKeyAttributes: [...MANIFEST_INDEX.attributes] },
+      }],
     },
     {
       TableName: tables.accounts,

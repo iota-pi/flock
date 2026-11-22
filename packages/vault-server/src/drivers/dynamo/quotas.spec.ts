@@ -179,4 +179,20 @@ describe('init with account indexes', () => {
       NonKeyAttributes: ['reminderTime'],
     })
   })
+
+  it('gives the items table an index holding only what the manifest reads', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    const driver = new DynamoDriver({ tables }).connect()
+    await driver.init()
+
+    const { Table } = await driver.client.send(new DescribeTableCommand({ TableName: tables.items }))
+    expect(Table?.GlobalSecondaryIndexes).toMatchObject([{
+      IndexName: 'ManifestIndex',
+      KeySchema: [{ AttributeName: 'account', KeyType: 'HASH' }, { AttributeName: 'item', KeyType: 'RANGE' }],
+      Projection: {
+        ProjectionType: 'INCLUDE',
+        NonKeyAttributes: ['version', 'modifiedAt', 'metadata', 'deleted', 'heads'],
+      },
+    }])
+  })
 })

@@ -49,6 +49,7 @@ describe('DynamoDriver.fetchManifest', () => {
     expect(command).toBeInstanceOf(QueryCommand)
     expect(command.input).toMatchObject({
       TableName: driver.tables.items,
+      IndexName: 'ManifestIndex',
       KeyConditionExpression: 'account = :account',
       ExpressionAttributeNames: {
         '#item': 'item',
