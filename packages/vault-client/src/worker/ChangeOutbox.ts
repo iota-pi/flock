@@ -1,4 +1,4 @@
-import { chunk, debounce } from 'lodash-es'
+import { debounce } from 'lodash-es'
 import { MAX_INCREMENTAL_MESSAGE_BYTES, type ItemId, type SyncLogMessage } from '@vault/shared'
 import type { KeyProvider } from '../keys/Keyring'
 import type { AutomergeDocStore } from './docStore'
@@ -120,6 +120,10 @@ function groupIntoRows(changes: Uint8Array[]): Uint8Array[] {
   }
   if (current.length > 0) rows.push(current)
   return rows.map(concatenate)
+}
+
+function messageChars(messages: SyncLogMessage[]): number {
+  return messages.reduce((total, message) => total + message.encryptedMessage.cipher.length, 0)
 }
 
 /** Splits rows, in order, into requests the server can append in one transaction */
@@ -244,7 +248,8 @@ export class ChangeOutbox {
   }
 
   /**
-   * Pushes what the given items have after their server heads, a few items at a time. Does nothing
+   * Pushes what the given items have after their server heads, preparing items until the next would
+   * overfill a request, so each request carries as many items as one transaction can. Does nothing
    * until first start allows it. Throws if a push fails, leaving the rest for the next one.
    */
   async pushItems(itemIds: ItemId[], signal?: AbortSignal): Promise<void> {
@@ -253,15 +258,29 @@ export class ChangeOutbox {
     await this.fillInCreatedAt(marks)
     const marksById = new Map(marks.map(mark => [mark.itemId, mark]))
 
-    for (const group of chunk(itemIds, SYNC_BATCH_SIZES.pollChunk)) {
+    let batch: PreparedPush[] = []
+    let rows = 0
+    let chars = 0
+    for (const itemId of itemIds) {
       checkAlive(signal, () => !this.deps.session.isShutdown)
-      const prepared: PreparedPush[] = []
-      for (const itemId of group) {
-        const push = await this.preparePush(itemId, marksById.get(itemId))
-        if (push) prepared.push(push)
+      const push = await this.preparePush(itemId, marksById.get(itemId))
+      if (!push) continue
+      const pushChars = messageChars(push.messages)
+      const isFull = (
+        rows + push.messages.length > SYNC_BATCH_SIZES.logPushRows
+        || chars + pushChars > SYNC_BATCH_SIZES.logPushChars
+      )
+      if (batch.length > 0 && isFull) {
+        await this.sendSettingAsideRefused(batch, signal)
+        batch = []
+        rows = 0
+        chars = 0
       }
-      await this.sendSettingAsideRefused(prepared, signal)
+      batch.push(push)
+      rows += push.messages.length
+      chars += pushChars
     }
+    await this.sendSettingAsideRefused(batch, signal)
   }
 
   /**
@@ -282,9 +301,10 @@ export class ChangeOutbox {
         this.deps.requestSnapshot(itemId)
         return
       }
-      for (const push of prepared) {
-        await this.sendSettingAsideRefused([push], signal)
-      }
+      // A full request holds dozens of items, so halve it rather than resend them one at a time
+      const half = Math.ceil(prepared.length / 2)
+      await this.sendSettingAsideRefused(prepared.slice(0, half), signal)
+      await this.sendSettingAsideRefused(prepared.slice(half), signal)
     }
   }
 

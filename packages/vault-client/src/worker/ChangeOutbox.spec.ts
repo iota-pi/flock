@@ -255,6 +255,70 @@ describe('ChangeOutbox', () => {
     expect(serverHeads.get(ITEM)).toEqual(['head-2'])
   })
 
+  describe('filling requests', () => {
+    const items = (count: number): ItemId[] => Array.from({ length: count }, (_, index) => `item-${index}` as ItemId)
+
+    it('sends many small items in one request', async () => {
+      const itemIds = items(40)
+      await outbox.markAll(itemIds)
+
+      await outbox.pushPending()
+
+      expect(exchange).toHaveBeenCalledTimes(1)
+      expect(exchange.mock.calls[0][0]).toHaveLength(40)
+      expect(await outbox.listPending()).toEqual([])
+    })
+
+    it('starts a new request at the row limit, never splitting an item across two', async () => {
+      docStore.readChangesSince.mockResolvedValue({
+        changes: [bytes(MAX_INCREMENTAL_MESSAGE_BYTES), bytes(MAX_INCREMENTAL_MESSAGE_BYTES)],
+        heads: ['head-2'],
+      })
+      const itemIds = items(60)
+
+      await outbox.pushItems(itemIds)
+
+      const sizes = exchange.mock.calls.map(([push]) => push.length)
+      expect(sizes.every(size => size <= SYNC_BATCH_SIZES.logPushRows && size % 2 === 0)).toBe(true)
+      expect(sizes.reduce((total, size) => total + size, 0)).toBe(120)
+      expect(itemIds.every(itemId => serverHeads.get(itemId)?.[0] === 'head-2')).toBe(true)
+    })
+
+    it('starts a new request before the ciphertext limit', async () => {
+      const rowsPerItem = 3
+      docStore.readChangesSince.mockResolvedValue({
+        changes: Array.from({ length: rowsPerItem }, () => bytes(MAX_INCREMENTAL_MESSAGE_BYTES)),
+        heads: ['head-2'],
+      })
+      const itemIds = items(Math.ceil(SYNC_BATCH_SIZES.logPushChars / (MAX_INCREMENTAL_MESSAGE_BYTES * rowsPerItem)) + 1)
+
+      await outbox.pushItems(itemIds)
+
+      expect(exchange.mock.calls.length).toBeGreaterThan(1)
+      for (const [push] of exchange.mock.calls) {
+        const chars = push.reduce((total, message) => total + message.encryptedMessage.cipher.length, 0)
+        expect(chars).toBeLessThanOrEqual(SYNC_BATCH_SIZES.logPushChars)
+      }
+    })
+
+    it('stops between requests when aborted', async () => {
+      docStore.readChangesSince.mockResolvedValue({
+        changes: [bytes(MAX_INCREMENTAL_MESSAGE_BYTES), bytes(MAX_INCREMENTAL_MESSAGE_BYTES)],
+        heads: ['head-2'],
+      })
+      const controller = new AbortController()
+      exchange.mockImplementation(async (push, onResults) => {
+        await acknowledge(push, onResults)
+        controller.abort()
+      })
+
+      await expect(outbox.pushItems(items(8), controller.signal)).rejects.toThrow()
+
+      expect(exchange).toHaveBeenCalledTimes(1)
+      expect(exchange.mock.calls[0][0].length).toBeLessThan(16)
+    })
+  })
+
   describe('a request the server refuses', () => {
     const OTHER = 'item-2' as ItemId
     const refused = Object.assign(new Error('Invalid input'), { data: { code: 'BAD_REQUEST', httpStatus: 400 } })
@@ -281,6 +345,20 @@ describe('ChangeOutbox', () => {
       exchange.mockClear()
       await outbox.pushPending()
       expect(exchange).not.toHaveBeenCalled()
+    })
+
+    it('finds the refused item among a full request by halving it', async () => {
+      exchange.mockImplementation(refuseItem)
+      const others = Array.from({ length: 31 }, (_, index) => `other-${index}` as ItemId)
+      await outbox.markAll([...others, ITEM])
+
+      await outbox.pushPending()
+
+      expect(outbox.isSnapshotOnly(ITEM)).toBe(true)
+      expect(others.every(itemId => serverHeads.get(itemId)?.[0] === 'head-2')).toBe(true)
+      expect(await outbox.listPending()).toEqual([ITEM])
+      // 32 items take a refused request per halving down to ITEM, and one accepted request per other half
+      expect(exchange.mock.calls.length).toBeLessThanOrEqual(1 + 2 * Math.log2(32))
     })
 
     it('still fails the push on an outage, which a later poll retries', async () => {

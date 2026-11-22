@@ -20,7 +20,6 @@ describe('syncConfig', () => {
 
   describe('SYNC_BATCH_SIZES', () => {
     it('defines expected batch size values', () => {
-      expect(SYNC_BATCH_SIZES.pollChunk).toBe(5)
       expect(SYNC_BATCH_SIZES.logPushRows).toBe(99)
       expect(SYNC_BATCH_SIZES.reencryptChunk).toBe(10)
       expect(SYNC_BATCH_SIZES.itemUpdateBatchMax).toBe(50)
