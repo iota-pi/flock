@@ -96,6 +96,34 @@ describe('GapHealer', () => {
     expect(onHealingChange).toHaveBeenLastCalledWith(false)
   })
 
+  it('reads the parked rows twice per run, however many items are due', async () => {
+    const items = ['item-a', 'item-b', 'item-c'] as ItemId[]
+    for (const [index, itemId] of items.entries()) {
+      await healer.park({ ...entry(index + 1), itemId }, 'missingDeps')
+    }
+    const getAll = vi.spyOn(db, 'getAll')
+
+    await healer.runDue()
+
+    expect(getAll).toHaveBeenCalledTimes(2)
+    expect(await parked()).toEqual([])
+    expect(recoveryManager.resolveQuarantines).toHaveBeenCalledTimes(items.length)
+  })
+
+  it('keeps an item that a pull parks another row for during the run', async () => {
+    await healer.park(entry(1), 'missingDeps')
+    incoming.apply.mockImplementationOnce(async () => {
+      await healer.park(entry(2), 'missingDeps')
+      return true
+    })
+
+    await healer.runDue()
+
+    expect((await parked()).map(row => row.seq)).toEqual([2])
+    expect(recoveryManager.resolveQuarantines).not.toHaveBeenCalled()
+    expect(onHealingChange).toHaveBeenLastCalledWith(true)
+  })
+
   it('does not fetch a snapshot for a missing key', async () => {
     keys.hasKey.mockReturnValue(false)
     await healer.park(entry(1, '2'), 'missingKey')

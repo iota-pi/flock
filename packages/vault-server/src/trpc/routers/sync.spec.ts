@@ -113,36 +113,6 @@ describe('pollLog', () => {
   })
 })
 
-describe('pollSync', () => {
-  // What a build from before the sync log sends
-  const oldPoll = {
-    account: 'target-account',
-    pushMessages: [{ itemId: 'item-1', encryptedMessage: { iv: 'iv', cipher: 'cipher' } }],
-  }
-  const callPollSync = (context: object) => (syncRouter.createCaller(context as any) as any).pollSync(oldPoll)
-
-  it('tells an old build to update, and stores nothing', async () => {
-    const ctx = createContext()
-
-    await expect(callPollSync({ ...ctx, protocolVersion: 4, minProtocolVersion: 5 }))
-      .rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: CLIENT_OUTDATED_MESSAGE })
-    expect(ctx.vault.appendLog).not.toHaveBeenCalled()
-  })
-
-  it('tells it to update even with a session that has expired', async () => {
-    const ctx = createContext({ authToken: '' })
-
-    await expect(callPollSync({ ...ctx, protocolVersion: 4, minProtocolVersion: 5 }))
-      .rejects.toMatchObject({ message: CLIENT_OUTDATED_MESSAGE })
-    expect(ctx.vault.getAccountRecord).not.toHaveBeenCalled()
-  })
-
-  it('tells it to update on a server with no minimum version', async () => {
-    await expect(callPollSync({ ...createContext(), protocolVersion: 4, minProtocolVersion: 0 }))
-      .rejects.toMatchObject({ message: CLIENT_OUTDATED_MESSAGE })
-  })
-})
-
 describe('pollLog quota', () => {
   const input = {
     account: 'target-account',

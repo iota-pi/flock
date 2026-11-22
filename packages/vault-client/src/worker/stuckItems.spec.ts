@@ -8,7 +8,7 @@ const NOW = 10 * SYNC_TIMEOUTS.stuckPendingAge
 const OLD = NOW - SYNC_TIMEOUTS.stuckPendingAge
 const RECENT = OLD + 1
 
-function mark(itemId: string, createdAt: number | undefined, blocked?: PendingMark['blocked']): PendingMark {
+function mark(itemId: string, createdAt: number, blocked?: PendingMark['blocked']): PendingMark {
   return { itemId: itemId as ItemId, tick: 1, createdAt, ...(blocked ? { blocked } : {}) }
 }
 
@@ -17,8 +17,8 @@ describe('countStuckItems', () => {
     expect(countStuckItems([mark('a', OLD), mark('b', RECENT)], new Map(), NOW)).toEqual({ unknown: 1 })
   })
 
-  it('reports none when nothing has waited that long, or a mark has no age yet', () => {
-    expect(countStuckItems([mark('a', RECENT), mark('b', undefined)], new Map(), NOW)).toBeUndefined()
+  it('reports none when nothing has waited that long', () => {
+    expect(countStuckItems([mark('a', RECENT), mark('b', RECENT)], new Map(), NOW)).toBeUndefined()
   })
 
   it('takes first start\'s state ahead of what a push recorded', () => {

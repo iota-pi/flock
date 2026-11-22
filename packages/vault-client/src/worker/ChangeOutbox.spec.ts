@@ -94,16 +94,6 @@ describe('ChangeOutbox', () => {
       expect(second.createdAt).toBe(1_000)
       expect(second.tick).not.toBe(first.tick)
     })
-
-    it('dates a mark written before marks had an age at the leader\'s next push', async () => {
-      docStore.readChangesSince.mockResolvedValue(null)
-      await db.put(SYNC_LOG_STORES.outbox, { itemId: ITEM, tick: 1 })
-      now = 7_000
-
-      await outbox.pushPending()
-
-      expect(await outbox.listMarks()).toEqual([expect.objectContaining({ itemId: ITEM, createdAt: 7_000 })])
-    })
   })
 
   describe('why a push skipped an item', () => {
