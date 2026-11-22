@@ -39,6 +39,7 @@ const mockSyncApi = {
   reencryptAllItems: vi.fn().mockResolvedValue({ succeeded: [], failed: [] }),
   flushSync: vi.fn().mockResolvedValue(undefined),
   pushSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
+  onPageHidden: vi.fn().mockResolvedValue(undefined),
   retrySave: vi.fn().mockResolvedValue({ success: true }),
   claimLeader: vi.fn().mockResolvedValue(undefined),
   setVisibility: vi.fn().mockResolvedValue(undefined),
@@ -313,13 +314,14 @@ describe('SyncBridge', () => {
     documentRemoveSpy.mockRestore()
   })
 
-  it('triggers pushSnapshots when document becomes hidden', async () => {
+  it('tells the worker when the document becomes hidden, without forcing snapshots up', async () => {
     await SyncBridge.initialize('test-account')
 
     const visibilitySpy = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
     document.dispatchEvent(new Event('visibilitychange'))
 
-    expect(mockSyncApi.pushSnapshots).toHaveBeenCalledTimes(1)
+    expect(mockSyncApi.onPageHidden).toHaveBeenCalledTimes(1)
+    expect(mockSyncApi.pushSnapshots).not.toHaveBeenCalled()
 
     visibilitySpy.mockRestore()
   })

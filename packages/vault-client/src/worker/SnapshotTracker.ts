@@ -220,7 +220,8 @@ export class SnapshotTracker {
       }
       if (auditCount > 0) {
         log.info(`Startup audit restored ${auditCount} un-snapshotted items to dirty queue`)
-        this.scheduleDue()
+        // Due soon, however later edits come: a fresh debounce could put them off session after session
+        this.scheduleDue(Math.min(SYNC_TIMEOUTS.restoredSnapshotDelay, this.debounceDelayMs))
       }
     } catch (error) {
       if (isAbortError(error) || this.deps.session.isShutdown) return

@@ -116,7 +116,7 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
             await this.handleReconnect()
           },
           onVisibilityHidden: () => {
-            this.withSyncApi(api => fireAndForget(api.pushSnapshots(), 'SyncBridge:pushSnapshots'))
+            this.withSyncApi(api => fireAndForget(api.onPageHidden(), 'SyncBridge:onPageHidden'))
           },
           onVisibilityChange: (visible, returned) => {
             this.withSyncApi(api => fireAndForget(api.setVisibility(visible, returned), 'SyncBridge:setVisibility'))

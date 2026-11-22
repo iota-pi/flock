@@ -40,6 +40,11 @@ export interface SyncApi<TDoc extends VaultDoc = VaultDoc, TMeta extends VaultMe
   flushSync: () => Promise<void>
   fullResync: () => Promise<boolean>
   pushSnapshots: () => Promise<SnapshotPushResult>
+  /**
+   * Called when the page is hidden and may be closed: saves the dirty flags now and flushes the log
+   * push. Snapshots go up only if they're already due.
+   */
+  onPageHidden: () => Promise<void>
   /** Tries to push pending changes (briefly), then counts what still hasn't reached the server */
   getUnsyncedChanges: () => Promise<UnsyncedChanges>
   retrySave: () => Promise<RetrySaveResult>
