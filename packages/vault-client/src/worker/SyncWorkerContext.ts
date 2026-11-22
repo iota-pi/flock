@@ -283,7 +283,10 @@ export class SyncWorkerContext {
       docStore,
       recoveryManager,
       serverHeads,
-      syncManifest: signal => this.services.manifestSyncManager.syncNow(signal),
+      syncManifest: async signal => {
+        const result = await this.services.manifestSyncManager.runPhase(signal, 'now')
+        return result?.fetchedManifest ?? false
+      },
       fetchSnapshots: (itemIds, signal) => this.services.manifestSyncManager.fetchSnapshots(itemIds, signal),
       onKeyVersionMissing: this.emitKeyVersionMissing,
       onWorkDue: () => this._services?.orchestrator.flush(),
@@ -369,7 +372,7 @@ export class SyncWorkerContext {
       firstStart,
       healer: gapHealer,
       apiClient: this.apiClient,
-      syncManifest: signal => this.services.manifestSyncManager.syncNow(signal),
+      runManifestPhase: (signal, minMode) => this.services.manifestSyncManager.runPhase(signal, minMode),
       getSnapshots: () => this.services.snapshotManager,
     })
 
@@ -553,7 +556,7 @@ export class SyncWorkerContext {
       docStore,
       recoveryManager,
       snapshotManager,
-      manifestSyncManager,
+      syncManifest: mode => orchestrator.syncManifest(mode),
       itemOperations,
       becomeLeader: () => this.becomeLeader(),
       onLocalCopyDiscarded: documentId => this.unreadableDocuments.delete(documentId),
@@ -911,20 +914,27 @@ export class SyncWorkerContext {
   }
 
   /**
-   * Loads the account's items from the server when a session starts. Only the leader talks to the
-   * server, so another tab has nothing to do: the leader's docs reach it through shared storage and
-   * the broadcast channel. A tab that becomes the leader later syncs then.
+   * Loads the account's items from the server when a session starts, with a poll that runs a manifest
+   * sync. Only the leader talks to the server, so another tab has nothing to do: the leader's docs
+   * reach it through shared storage and the broadcast channel. A tab that becomes the leader later
+   * syncs then. Throws if a device with no items couldn't fetch the manifest, unless the session has
+   * expired, so that starting up is retried; a device with items carries on with them.
    */
   async bootstrapItems(): Promise<void> {
-    if (!(await this.services.orchestrator.settleLeadership())) return
-    await this.services.manifestSyncManager.sync()
+    const { orchestrator, indexManager } = this.services
+    if (!(await orchestrator.settleLeadership())) return
+    const result = await orchestrator.syncManifest('due')
+    if (result.fetchedManifest || result.success || orchestrator.isAuthPaused) return
+    if ((await indexManager.listItemIds()).length === 0) {
+      throw new Error('Could not load the account\'s items from the server')
+    }
   }
 
   /** Fetches every item the server has a newer copy of, quarantined ones too. Returns whether it all merged. */
   async fullResync(): Promise<boolean> {
     this.becomeLeader()
-    const { manifestSyncManager, orchestrator } = this.services
-    const result = await manifestSyncManager.sync(true)
+    const { orchestrator } = this.services
+    const result = await orchestrator.syncManifest('force')
     if (result.success) {
       orchestrator.flush()
     }

@@ -24,6 +24,8 @@ export type WaitReason =
   | 'gap'
   /** Snapshot uploads are due */
   | 'snapshot'
+  /** A manifest sync is due */
+  | 'manifest'
   /** The user became active, which brought an idle poll forward */
   | 'activity'
 
@@ -91,6 +93,8 @@ export interface PollContext {
   isOperational: boolean
   cadence: PollCadence
   snapshotDueAt: number | undefined
+  /** When the poll's manifest phase next has work */
+  manifestDueAt: number | undefined
   /** Returns [0, 1), for jitter and for picking intervals from a range */
   random: () => number
 }
@@ -123,8 +127,12 @@ function jitter(delayMs: number, ctx: PollContext): number {
   return RetryStrategy.applyJitter(delayMs, { ...POLL_JITTER, randomFn: ctx.random })
 }
 
+function dueDelay(dueAt: number | undefined, ctx: PollContext): number | undefined {
+  return dueAt === undefined ? undefined : Math.max(0, dueAt - ctx.now)
+}
+
 function snapshotDueDelay(ctx: PollContext): number | undefined {
-  return ctx.snapshotDueAt === undefined ? undefined : Math.max(0, ctx.snapshotDueAt - ctx.now)
+  return dueDelay(ctx.snapshotDueAt, ctx)
 }
 
 /** A flush to honour once polling starts, from the phase before it */
@@ -216,14 +224,20 @@ function onPollFinished(
 
   // A gap never counts as immediate: it waits its own delay, when that's sooner than the cadence
   const gapDelay = result === 'success' ? event.gapRepollDelay : undefined
-  // Snapshots wait out failure backoff with everything else
+  // Snapshot uploads and manifest syncs wait out failure backoff with everything else
   const snapshotDelay = result === 'failure' ? undefined : snapshotDueDelay(ctx)
+  const manifestDelay = result === 'failure' ? undefined : dueDelay(ctx.manifestDueAt, ctx)
   const regular = regularDelay(attempt, ctx)
-  if (gapDelay !== undefined && gapDelay < regular.delayMs && (snapshotDelay === undefined || gapDelay <= snapshotDelay)) {
+  const isFirst = (delay: number | undefined, ...others: (number | undefined)[]): delay is number =>
+    delay !== undefined && delay < regular.delayMs && others.every(other => other === undefined || delay <= other)
+  if (isFirst(gapDelay, snapshotDelay, manifestDelay)) {
     return wait(jitter(gapDelay, ctx), 'gap')
   }
-  if (snapshotDelay !== undefined && snapshotDelay < regular.delayMs) {
+  if (isFirst(snapshotDelay, manifestDelay)) {
     return wait(snapshotDelay, 'snapshot')
+  }
+  if (isFirst(manifestDelay)) {
+    return wait(manifestDelay, 'manifest')
   }
   return wait(regular.isSpread ? regular.delayMs : jitter(regular.delayMs, ctx), attempt > 0 ? 'backoff' : 'cadence')
 }

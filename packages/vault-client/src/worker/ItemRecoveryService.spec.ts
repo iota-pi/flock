@@ -9,7 +9,7 @@ describe('ItemRecoveryService', () => {
   let mockDocStore: any
   let mockRecoveryManager: any
   let mockSnapshotManager: any
-  let mockManifestSyncManager: any
+  let syncManifest: any
   let mockItemOperations: any
   let onLocalCopyDiscarded: Mock<(documentId: DocumentId) => void>
   let becomeLeader: Mock<() => void>
@@ -33,9 +33,7 @@ describe('ItemRecoveryService', () => {
       },
       flushPendingSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
     }
-    mockManifestSyncManager = {
-      sync: vi.fn().mockResolvedValue({ success: true }),
-    }
+    syncManifest = vi.fn().mockResolvedValue({ added: [], success: true, fetchedManifest: true })
     mockItemOperations = {
       recreateOversizedItem: vi.fn().mockResolvedValue('item-new'),
     }
@@ -46,7 +44,7 @@ describe('ItemRecoveryService', () => {
       docStore: mockDocStore,
       recoveryManager: mockRecoveryManager,
       snapshotManager: mockSnapshotManager,
-      manifestSyncManager: mockManifestSyncManager,
+      syncManifest,
       itemOperations: mockItemOperations,
       becomeLeader,
       onLocalCopyDiscarded,
@@ -63,7 +61,7 @@ describe('ItemRecoveryService', () => {
       expect(mockRepoManager.repo.delete).toHaveBeenCalledWith(documentId)
       expect(mockRepoManager.storage.removeRange).toHaveBeenCalledWith([documentId])
       expect(onLocalCopyDiscarded).toHaveBeenCalledWith(documentId)
-      expect(mockManifestSyncManager.sync).toHaveBeenCalledWith(true)
+      expect(syncManifest).toHaveBeenCalledWith('force')
       expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith(itemId)
     })
 
@@ -83,7 +81,7 @@ describe('ItemRecoveryService', () => {
 
       expect(mockRepoManager.repo.delete).not.toHaveBeenCalled()
       expect(mockRepoManager.storage.removeRange).not.toHaveBeenCalled()
-      expect(mockManifestSyncManager.sync).not.toHaveBeenCalled()
+      expect(syncManifest).not.toHaveBeenCalled()
     })
 
     it('keeps the item quarantined when the server has no copy to replace it with', async () => {
@@ -95,7 +93,7 @@ describe('ItemRecoveryService', () => {
     })
 
     it('keeps the item quarantined when the sync fails', async () => {
-      mockManifestSyncManager.sync.mockResolvedValueOnce({ success: false })
+      syncManifest.mockResolvedValueOnce({ added: [], success: false, fetchedManifest: false })
 
       await expect(service.replaceFromServer('item-1' as ItemId)).rejects.toThrow(/could not be downloaded/)
 

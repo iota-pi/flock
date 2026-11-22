@@ -2,11 +2,15 @@ import type { Mock } from 'vitest'
 import type { ItemId, SyncLogMessage } from '@vault/shared'
 import { SyncPoller, type SyncPollerDeps } from './SyncPoller'
 import { SyncSessionState } from './SyncSessionState'
+import { AuthError } from './SyncApiClient'
 
 type AnyMock = Mock<(...args: any[]) => any>
 
 const ITEM = 'item-1' as ItemId
 const MESSAGE: SyncLogMessage = { itemId: ITEM, encryptedMessage: { iv: 'iv', cipher: 'cipher', kver: '1' } }
+
+const FETCHED = { added: [], success: true, fetchedManifest: true }
+const NOT_FETCHED = { added: [], success: false, fetchedManifest: false }
 
 function response(overrides: Record<string, unknown> = {}) {
   return { pushResults: [], entries: [], hasMore: false, serverNow: 1000, ...overrides }
@@ -28,9 +32,12 @@ describe('SyncPoller', () => {
   let firstStart: { ensureSynced: AnyMock; runDue: AnyMock }
   let healer: { runDue: AnyMock }
   let apiClient: { pollLog: AnyMock }
-  let syncManifest: AnyMock
+  let runManifestPhase: AnyMock
   let snapshots: { pushDue: AnyMock }
   let poller: SyncPoller
+
+  /** Manifest syncs asked for at once (catch-up or recovery), rather than the periodic phase */
+  const manifestSyncsNow = () => runManifestPhase.mock.calls.filter(([, minMode]) => minMode === 'now').length
 
   beforeEach(() => {
     session = new SyncSessionState({ isLeader: true })
@@ -48,7 +55,8 @@ describe('SyncPoller', () => {
     firstStart = { ensureSynced: vi.fn().mockResolvedValue(undefined), runDue: vi.fn().mockResolvedValue(undefined) }
     healer = { runDue: vi.fn().mockResolvedValue(undefined) }
     apiClient = { pollLog: vi.fn().mockResolvedValue(response()) }
-    syncManifest = vi.fn().mockResolvedValue(true)
+    // Runs only when asked for one, as catch-up and recovery do
+    runManifestPhase = vi.fn(async (_signal: AbortSignal, minMode?: string) => (minMode ? FETCHED : null))
     snapshots = { pushDue: vi.fn().mockResolvedValue({ persisted: 0, total: 0, success: true }) }
     poller = new SyncPoller({
       accountId: 'account-1',
@@ -58,7 +66,7 @@ describe('SyncPoller', () => {
       firstStart,
       healer,
       apiClient,
-      syncManifest,
+      runManifestPhase,
       getSnapshots: () => snapshots,
     })
   })
@@ -70,7 +78,7 @@ describe('SyncPoller', () => {
     expect(apiClient.pollLog).not.toHaveBeenCalled()
   })
 
-  it('finishes first start, pushes, reads the log after the cursor, heals, fetches what first start waits for, then uploads snapshots', async () => {
+  it('finishes first start, pushes, reads the log after the cursor, runs the manifest phase, heals, fetches what first start waits for, then uploads snapshots', async () => {
     const order: string[] = []
     firstStart.ensureSynced.mockImplementation(async () => { order.push('firstStart') })
     outbox.pushPending.mockImplementation(async () => { order.push('push') })
@@ -78,13 +86,17 @@ describe('SyncPoller', () => {
       order.push('pollLog')
       return response()
     })
+    runManifestPhase.mockImplementation(async () => {
+      order.push('manifest')
+      return null
+    })
     healer.runDue.mockImplementation(async () => { order.push('heal') })
     firstStart.runDue.mockImplementation(async () => { order.push('firstStartFetch') })
     snapshots.pushDue.mockImplementation(async () => { order.push('snapshots') })
 
     expect(await poller.executePoll()).toBe('success')
 
-    expect(order).toEqual(['firstStart', 'push', 'pollLog', 'heal', 'firstStartFetch', 'snapshots'])
+    expect(order).toEqual(['firstStart', 'push', 'pollLog', 'manifest', 'heal', 'firstStartFetch', 'snapshots'])
     expect(apiClient.pollLog).toHaveBeenCalledWith(
       { account: 'account-1', push: [], after: 7 },
       { signal: expect.any(AbortSignal) },
@@ -97,6 +109,29 @@ describe('SyncPoller', () => {
     await poller.executePoll(controller.signal)
 
     expect(snapshots.pushDue).toHaveBeenCalledWith(controller.signal)
+  })
+
+  it('runs the manifest phase with the poll\'s signal, so aborting the poll aborts it', async () => {
+    const controller = new AbortController()
+
+    await poller.executePoll(controller.signal)
+
+    expect(runManifestPhase).toHaveBeenCalledWith(controller.signal)
+  })
+
+  // Rule 4: reporting success would reset backoff
+  it('fails the poll, without uploading snapshots, when the manifest phase throws', async () => {
+    runManifestPhase.mockRejectedValue(new Error('Network down'))
+
+    expect(await poller.executePoll()).toBe('failure')
+
+    expect(snapshots.pushDue).not.toHaveBeenCalled()
+  })
+
+  it('reports an expired session from the manifest phase as an auth failure', async () => {
+    runManifestPhase.mockRejectedValue(new AuthError('expired'))
+
+    expect(await poller.executePoll()).toBe('auth-failure')
   })
 
   it('reads the log only once when a push already did', async () => {
@@ -181,9 +216,10 @@ describe('SyncPoller', () => {
     it('runs a manifest sync before reading the log', async () => {
       puller.needsCatchUpManifest.mockReturnValueOnce(true)
       const order: string[] = []
-      syncManifest.mockImplementation(async () => {
+      runManifestPhase.mockImplementation(async (_signal: AbortSignal, minMode?: string) => {
+        if (!minMode) return null
         order.push('manifest')
-        return true
+        return FETCHED
       })
       apiClient.pollLog.mockImplementation(async () => {
         order.push('pollLog')
@@ -198,7 +234,7 @@ describe('SyncPoller', () => {
 
     it('fails the poll when the manifest can\'t be fetched', async () => {
       puller.needsCatchUpManifest.mockReturnValueOnce(true)
-      syncManifest.mockResolvedValue(false)
+      runManifestPhase.mockResolvedValue(NOT_FETCHED)
 
       expect(await poller.executePoll()).toBe('failure')
       expect(apiClient.pollLog).not.toHaveBeenCalled()
@@ -210,7 +246,7 @@ describe('SyncPoller', () => {
       expect(await poller.executePoll()).toBe('success')
 
       expect(puller.onBehindSeen).toHaveBeenCalledTimes(1)
-      expect(syncManifest).toHaveBeenCalledTimes(1)
+      expect(manifestSyncsNow()).toBe(1)
       expect(apiClient.pollLog).toHaveBeenCalledTimes(2)
       expect(puller.process).toHaveBeenCalledTimes(1)
     })
@@ -224,12 +260,12 @@ describe('SyncPoller', () => {
     it('runs the manifest sync a lost row asked for, whatever the gap since the last one', async () => {
       expect(await poller.executePoll()).toBe('success')
 
-      expect(syncManifest).toHaveBeenCalledTimes(1)
+      expect(manifestSyncsNow()).toBe(1)
       expect(puller.onRecoveryManifestSynced).toHaveBeenCalledTimes(1)
     })
 
     it('fails the poll and keeps the request when the manifest isn\'t fetched', async () => {
-      syncManifest.mockResolvedValue(false)
+      runManifestPhase.mockResolvedValue(NOT_FETCHED)
 
       expect(await poller.executePoll()).toBe('failure')
 

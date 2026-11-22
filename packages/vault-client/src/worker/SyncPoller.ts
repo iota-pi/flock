@@ -2,6 +2,7 @@ import type { SyncLogMessage } from '@vault/shared'
 import type { ChangeOutbox, LogPushResult } from './ChangeOutbox'
 import type { FirstStart } from './FirstStart'
 import type { GapHealer } from './GapHealer'
+import type { ManifestMode, ManifestPhaseResult } from './ManifestSyncManager'
 import type { SyncApiClient } from './SyncApiClient'
 import type { SyncLogPuller } from './SyncLogPuller'
 import type { SyncSessionState } from './SyncSessionState'
@@ -33,8 +34,11 @@ export interface SyncPollerDeps {
   firstStart: Pick<FirstStart, 'ensureSynced' | 'runDue'>
   healer: Pick<GapHealer, 'runDue'>
   apiClient: Pick<SyncApiClient, 'pollLog'>
-  /** Runs a manifest sync now, returning whether it fetched the manifest */
-  syncManifest: (signal?: AbortSignal) => Promise<boolean>
+  /**
+   * The manifest phase: runs a manifest sync if one is asked for, at least `minMode`, or due, and
+   * returns null if none ran. Throws if the manifest can't be fetched.
+   */
+  runManifestPhase: (signal: AbortSignal, minMode?: ManifestMode) => Promise<ManifestPhaseResult | null>
   /** Uploads the snapshots that are due, throwing if a request fails. Read from the finished services. */
   getSnapshots: () => { pushDue: (signal: AbortSignal) => Promise<unknown> }
 }
@@ -52,9 +56,10 @@ export class SyncPoller {
   }
 
   /**
-   * Pushes pending changes, reads the log, then uploads the snapshots that are due, after the pushes
-   * that must precede them (S1). Aborting `signal` cancels the poll, which then reports
-   * `'no-poll'`. Polls go through the untracked client, so they don't show as activity in the sync status.
+   * Pushes pending changes, reads the log, runs the manifest sync if it's due, then uploads the
+   * snapshots that are due, after the pushes that must precede them (S1). Aborting `signal` cancels
+   * the poll, which then reports `'no-poll'`. Polls go through the untracked client, so they don't
+   * show as activity in the sync status.
    */
   async executePoll(signal: AbortSignal = new AbortController().signal): Promise<PollOutcome> {
     if (!this.isOperational) return 'no-poll'
@@ -76,6 +81,8 @@ export class SyncPoller {
       if (this.deps.puller.pendingManifestSync === 'recovery') {
         await this.runRecoveryManifest(signal)
       }
+      // After catch-up or recovery has run one, the periodic sync isn't due
+      await this.deps.runManifestPhase(signal)
       await this.deps.healer.runDue(signal)
       await this.deps.firstStart.runDue(signal)
       await this.deps.getSnapshots().pushDue(signal)
@@ -102,8 +109,13 @@ export class SyncPoller {
     }
   }
 
+  private async fetchManifestNow(signal: AbortSignal): Promise<boolean> {
+    const result = await this.deps.runManifestPhase(signal, 'now')
+    return result?.fetchedManifest ?? false
+  }
+
   private async runCatchUpManifest(signal: AbortSignal): Promise<void> {
-    if (!await this.deps.syncManifest(signal)) {
+    if (!await this.fetchManifestNow(signal)) {
       throw new Error('Catching up needs the manifest, which could not be fetched')
     }
     this.deps.puller.onCatchUpManifestSynced()
@@ -111,7 +123,7 @@ export class SyncPoller {
 
   /** Recovers what lost log rows held. The request stays until a sync fetches the manifest (rule 4). */
   private async runRecoveryManifest(signal: AbortSignal): Promise<void> {
-    if (!await this.deps.syncManifest(signal)) {
+    if (!await this.fetchManifestNow(signal)) {
       throw new Error('Recovering lost log rows needs the manifest, which could not be fetched')
     }
     this.deps.puller.onRecoveryManifestSynced()

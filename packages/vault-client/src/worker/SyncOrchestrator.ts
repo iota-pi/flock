@@ -1,7 +1,7 @@
 import { LeaderElection, type LeaderElectionCallbacks } from './utils/LeaderElection'
 import type { PollOutcome, SyncPoller } from './SyncPoller'
 import type { SyncLogPuller } from './SyncLogPuller'
-import type { ManifestSyncManager } from './ManifestSyncManager'
+import type { ManifestMode, ManifestPhaseResult, ManifestSyncManager } from './ManifestSyncManager'
 import type { SyncSessionState } from './SyncSessionState'
 import type { ClientEventHub } from './SyncEventHub'
 import {
@@ -34,8 +34,7 @@ export interface SyncOrchestratorDeps {
   poller: Pick<SyncPoller, 'executePoll'>
   clientEventHub: ClientEventHub
   puller: Pick<SyncLogPuller, 'loadState' | 'hasImmediatePendingPulls' | 'gapRepollDelay'>
-  manifestSyncManager: Pick<ManifestSyncManager, 'sync' | 'abort' | 'waitForIdle'>
-  manifestSyncIntervalMs?: number
+  manifestSyncManager: Pick<ManifestSyncManager, 'request' | 'openTicket' | 'closeTicket' | 'getDueAt'>
   createLeaderElection?: (accountId: string, callbacks: LeaderElectionCallbacks) => LeaderElectionLike
   /** Called once the session holds new leadership */
   onLeaderChange?: (isLeader: boolean) => void
@@ -53,14 +52,14 @@ export interface SyncOrchestratorDeps {
   getSnapshotDueAt?: () => number | undefined
 }
 
-const DEFAULT_MANIFEST_SYNC_INTERVAL_MS = SYNC_TIMEOUTS.manifestSyncInterval
 /** How often `settleLeadership` looks at the lock again, in case another tab took it meanwhile */
 const LEADERSHIP_RECHECK_MS = 100
 
 /**
- * Runs the leader's sync: leader election, the periodic manifest sync, and polls on the schedule
- * `transitionPoll` decides. This class owns the timers and runs the poll; every decision about when
- * to poll is a transition of `pollState` (see `pollSchedule.ts`).
+ * Runs the leader's sync: leader election, and polls on the schedule `transitionPoll` decides. The
+ * manifest sync is a phase of the poll, which this asks for (`ManifestSyncManager.request`). This
+ * class owns the timers and runs the poll; every decision about when to poll is a transition of
+ * `pollState` (see `pollSchedule.ts`).
  */
 export class SyncOrchestrator {
   private leaderElection: LeaderElectionLike | null = null
@@ -78,15 +77,15 @@ export class SyncOrchestrator {
   /** Armed while a flush is queued, so flushes made in the same turn share one poll */
   private readonly flushTimer = new RetryTimer()
 
-  private manifestSyncIntervalId: ReturnType<typeof setInterval> | null = null
-  private readonly manifestSyncIntervalMs: number
-
-  constructor(private readonly deps: SyncOrchestratorDeps) {
-    this.manifestSyncIntervalMs = deps.manifestSyncIntervalMs ?? DEFAULT_MANIFEST_SYNC_INTERVAL_MS
-  }
+  constructor(private readonly deps: SyncOrchestratorDeps) {}
 
   get isOperational(): boolean {
     return this.deps.session.isOperational
+  }
+
+  /** Whether polling is paused until the user signs in again */
+  get isAuthPaused(): boolean {
+    return this.pollState.phase.kind === 'authPaused'
   }
 
   private get isShutdown(): boolean {
@@ -101,6 +100,7 @@ export class SyncOrchestrator {
       isOperational: this.isOperational,
       cadence: this.deps.getCadence?.() ?? 'idle',
       snapshotDueAt: this.deps.getSnapshotDueAt?.(),
+      manifestDueAt: this.deps.manifestSyncManager.getDueAt(),
       random: Math.random,
     })
     this.pollState = state
@@ -266,18 +266,15 @@ export class SyncOrchestrator {
     }
   }
 
-  /** Polls now and starts the periodic manifest sync with an immediate run. */
+  /** Polls now, with a manifest sync unless a clean one ran within `manifestSyncMinGap` */
   private startSyncing(options?: { resetBackoff?: boolean }): void {
+    this.deps.manifestSyncManager.request('due')
     this.startPolling(options)
-    this.startPeriodicManifestSync()
-    fireAndForget(this.triggerManifestSync(), 'SyncOrchestrator:triggerManifestSync')
   }
 
-  /** Cancels scheduled and in-flight polls and manifest syncs. */
+  /** Cancels scheduled and in-flight polls, and with them any manifest sync */
   private stopSyncing(): void {
     this.dispatch({ type: 'stop' })
-    this.stopPeriodicManifestSync()
-    this.deps.manifestSyncManager.abort()
   }
 
   /** Polls now, or right after the poll in flight */
@@ -301,12 +298,13 @@ export class SyncOrchestrator {
   /**
    * Polls now when the user comes back to one of the account's tabs, unless a poll is running or one
    * finished in the last `foregroundPollMinGap`. Backoff after failures resets too: the connection
-   * may be back without an `online` event (captive portal, flaky network, a phone waking). Also runs
-   * a manifest sync, which skips itself if one finished in the last `manifestSyncMinGap`.
+   * may be back without an `online` event (captive portal, flaky network, a phone waking). Also asks
+   * for a manifest sync, which skips itself if one finished in the last `manifestSyncMinGap`; if no
+   * poll runs now, the next one runs it.
    */
   onForeground(): void {
     if (!this.isOperational) return
-    fireAndForget(this.triggerManifestSync(), 'SyncOrchestrator:triggerManifestSync')
+    this.deps.manifestSyncManager.request('due')
     this.dispatch({ type: 'foreground' })
   }
 
@@ -340,6 +338,26 @@ export class SyncOrchestrator {
     await this.pollInFlight
   }
 
+  /**
+   * Runs a poll whose manifest phase syncs at `mode` or stronger, after the poll in flight, and
+   * returns that sync's result. A poll that fails before its manifest phase, or one that doesn't run
+   * (another tab leads, offline, shut down), returns a failure without leaving the sync asked for.
+   */
+  async syncManifest(mode: ManifestMode): Promise<ManifestPhaseResult> {
+    const { manifestSyncManager } = this.deps
+    while (this.pollInFlight) {
+      await this.pollInFlight
+    }
+    const ticket = manifestSyncManager.openTicket(mode)
+    try {
+      await this.pollNow()
+    } catch (error) {
+      manifestSyncManager.closeTicket(ticket)
+      throw error
+    }
+    return manifestSyncManager.closeTicket(ticket)
+  }
+
   /** Polls soon to push local changes, batching flushes made in the same turn into one poll */
   flush(): void {
     if (this.isShutdown) return
@@ -363,35 +381,5 @@ export class SyncOrchestrator {
     }
     this.stopSyncing()
     await this.pollInFlight
-    await this.deps.manifestSyncManager.waitForIdle()
-  }
-
-  private startPeriodicManifestSync(): void {
-    if (!this.isOperational) {
-      return
-    }
-    this.stopPeriodicManifestSync()
-    this.manifestSyncIntervalId = setInterval(() => {
-      fireAndForget(this.triggerManifestSync(), 'SyncOrchestrator:triggerManifestSync')
-    }, this.manifestSyncIntervalMs)
-  }
-
-  private stopPeriodicManifestSync(): void {
-    if (this.manifestSyncIntervalId !== null) {
-      clearInterval(this.manifestSyncIntervalId)
-      this.manifestSyncIntervalId = null
-    }
-  }
-
-  /** The manifest sync manager runs one sync at a time and aborts it when `stopSyncing` calls `abort` */
-  private async triggerManifestSync(): Promise<void> {
-    if (!this.isOperational) {
-      return
-    }
-    try {
-      await this.deps.manifestSyncManager.sync(false)
-    } catch (error) {
-      log.warn('Manifest sync failed', error)
-    }
   }
 }

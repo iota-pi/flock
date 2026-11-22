@@ -3,7 +3,7 @@ import type { ItemId } from '@vault/shared'
 import type { AutomergeDocStore } from './docStore'
 import type { AutomergeRepoManager } from './AutomergeRepoManager'
 import type { ItemOperations } from './ItemOperations'
-import type { ManifestSyncManager } from './ManifestSyncManager'
+import type { ManifestMode, ManifestPhaseResult } from './ManifestSyncManager'
 import type { RecoveryManager } from './RecoveryManager'
 import type { SnapshotManager } from './SnapshotManager'
 import { toDocumentIdFromItemId } from './utils/automerge'
@@ -14,7 +14,8 @@ export interface ItemRecoveryServiceDeps {
   docStore: AutomergeDocStore
   recoveryManager: RecoveryManager
   snapshotManager: SnapshotManager
-  manifestSyncManager: ManifestSyncManager
+  /** Runs a poll whose manifest phase syncs at `mode`, returning that sync's result */
+  syncManifest: (mode: ManifestMode) => Promise<ManifestPhaseResult>
   itemOperations: ItemOperations
   /** Makes this tab the leader, which alone talks to the server, or throws */
   becomeLeader: () => void
@@ -32,7 +33,7 @@ export class ItemRecoveryService {
    * copy to replace it with.
    */
   async replaceFromServer(itemId: ItemId): Promise<void> {
-    const { repoManager, manifestSyncManager, docStore, recoveryManager } = this.deps
+    const { repoManager, docStore, recoveryManager } = this.deps
     // Before the local copy goes, so a tab that can't fetch the server's copy keeps it
     this.deps.becomeLeader()
     const documentId = toDocumentIdFromItemId(itemId)
@@ -43,7 +44,7 @@ export class ItemRecoveryService {
     this.deps.onLocalCopyDiscarded(documentId)
 
     // A forced sync fetches quarantined items, and there's no longer a local copy to keep
-    const result = await manifestSyncManager.sync(true)
+    const result = await this.deps.syncManifest('force')
     if (!result.success || !(await docStore.hasDataInStorage(itemId))) {
       throw new Error(`The server's copy of ${itemId} could not be downloaded. Try again once sync has finished.`)
     }
