@@ -4411,21 +4411,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/node@npm:>=20.0.0":
+"@types/node@npm:>=20.0.0, @types/node@npm:^26.6.6":
   version: 26.6.6
   resolution: "@types/node@npm:26.6.6"
   dependencies:
     undici-types: "npm:~8.9.0"
   checksum: 10c0/5cb63f644f6e85a257a9cd2403cbcbe196760e2a35fd3ec9fb8b5cff663e14cc832b198cc17b53f870a2e30900ed45a1fb3f53e6589aba26b8e8c484aa672053
-  languageName: node
-  linkType: hard
-
-"@types/node@npm:^24.10.1":
-  version: 24.13.3
-  resolution: "@types/node@npm:24.13.3"
-  dependencies:
-    undici-types: "npm:~7.18.0"
-  checksum: 10c0/a5bc08f49b9581dcdca90e02cd77197a3c799840807664942e5cd5161a553d4d2ae8064f7e3294410d748d7d098b5c1848be7fa50c06f29c4193ab16be4e59eb
   languageName: node
   linkType: hard
 
@@ -4881,7 +4872,7 @@ __metadata:
     "@aws-sdk/client-dynamodb": "npm:3.1164.0"
     "@aws-sdk/lib-dynamodb": "npm:3.1164.0"
     "@trpc/server": "npm:^11.25.0"
-    "@types/node": "npm:^24.10.1"
+    "@types/node": "npm:^26.6.6"
     "@vault/shared": "workspace:*"
     fastify: "npm:^5.12.8"
     typescript: "npm:^6.0.3"
@@ -7481,7 +7472,7 @@ __metadata:
     "@trpc/client": "npm:^11.25.0"
     "@trpc/server": "npm:^11.25.0"
     "@types/lodash-es": "npm:^4.17.12"
-    "@types/node": "npm:^24.10.1"
+    "@types/node": "npm:^26.6.6"
     "@types/react": "npm:^19.2.7"
     "@types/react-dom": "npm:^19.2.3"
     "@types/web-push": "npm:^3.6.4"
@@ -11976,13 +11967,6 @@ __metadata:
     has-symbols: "npm:^1.1.0"
     which-boxed-primitive: "npm:^1.1.1"
   checksum: 10c0/7dbd35ab02b0e05fe07136c72cb9355091242455473ec15057c11430129bab38b7b3624019b8778d02a881c13de44d63cd02d122ee782fb519e1de7775b5b982
-  languageName: node
-  linkType: hard
-
-"undici-types@npm:~7.18.0":
-  version: 7.18.2
-  resolution: "undici-types@npm:7.18.2"
-  checksum: 10c0/85a79189113a238959d7a647368e4f7c5559c3a404ebdb8fc4488145ce9426fcd82252a844a302798dfc0e37e6fb178ff481ed03bc4caf634c5757d9ef43521d
   languageName: node
   linkType: hard
 
