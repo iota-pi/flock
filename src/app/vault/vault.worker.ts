@@ -1,5 +1,4 @@
 /// <reference lib="webworker" />
-import wasmUrl from '@automerge/automerge/automerge.wasm?url'
 import env from '../../env'
 import { exposeSyncWorker } from '@vault/client/worker'
 import { FLOCK_STORAGE_NAMES } from './storageNames'
@@ -8,7 +7,6 @@ import { hasLegacyLocalData, MIN_DEVICE_DATA_VERSION } from '../../migrate/detec
 import { FIRST_START_DATA_VERSION, SEALED_DATA_VERSION } from '../../shared/flockDataVersion'
 
 exposeSyncWorker({
-  automergeWasmUrl: wasmUrl,
   endpoint: env.VAULT_ENDPOINT,
   storageNames: FLOCK_STORAGE_NAMES,
   domain: flockSyncDomain,

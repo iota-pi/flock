@@ -64,8 +64,6 @@ process.env.ITEMS_TABLE ??= 'FlockItems'
 process.env.SYNC_LOG_TABLE ??= 'FlockSyncLog'
 process.env.LOGIN_THROTTLE_TABLE ??= 'FlockLoginThrottle'
 
-import '@automerge/automerge'
-
 // Test files share each worker (`isolate: false`) and this file runs before each one, so reset
 // what one file could leave behind for the next.
 if (typeof window !== 'undefined') {

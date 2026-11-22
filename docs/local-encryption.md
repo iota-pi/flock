@@ -218,7 +218,7 @@ Every path that removes local data must include the sealed databases: `clearAcco
 
 ### Testing
 
-`cypress/e2e/local-encryption.cy.ts` checks that, once sync has stopped, every sealed record has the sealed shape, no plaintext databases or `indexDoc` remain, and a person's name appears in no IndexedDB database, localStorage key or Cache Storage entry. Automerge DEFLATE-compresses larger columns, so that search only proves anything if a short name appears verbatim in unencrypted chunks, which `src/app/vault/localEncryptionControl.spec.ts` checks.
+`cypress/e2e/local-encryption.cy.ts` checks that, once sync has stopped, every sealed record has the sealed shape, no plaintext databases or `indexDoc` remain, and a person's name appears in no IndexedDB database, localStorage key or Cache Storage entry. Automerge DEFLATE-compresses larger columns, so that search only proves anything if a short name appears verbatim in unencrypted chunks, which `packages/vault-client/src/worker/localEncryption/localEncryptionControl.spec.ts` checks.
 
 ## Session tokens
 

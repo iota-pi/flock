@@ -23,13 +23,12 @@ import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
 import { AbortError, withTimeout } from '../utils/abort'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
+import { automergeWasmUrl } from '../shared/automergeWasm'
 
 const log = createLogger('SyncWorker')
 
 /** Everything the host app supplies to the sync worker (see exposeSyncWorker) */
 export interface SyncWorkerConfig extends SyncSessionConfig {
-  /** URL of Automerge's wasm binary, as resolved by the app's bundler */
-  automergeWasmUrl: string
   /** Vault API base URL */
   endpoint: string
   storageNames: VaultStorageNames
@@ -119,13 +118,11 @@ export class SyncWorker implements SyncApi {
   /** Settles the refresh in flight with the token the main thread sends (or null), or fails it */
   private settleTokenRefresh: ((result: string | null | Error) => void) | null = null
   private readonly keyring = new Keyring()
-  private readonly automergeWasmUrl: string
   /** The settings every session's context is built with */
   private readonly sessionConfig: SyncSessionConfig
 
   constructor(config: SyncWorkerConfig) {
-    const { automergeWasmUrl, endpoint, storageNames, ...sessionConfig } = config
-    this.automergeWasmUrl = automergeWasmUrl
+    const { endpoint, storageNames, ...sessionConfig } = config
     this.sessionConfig = sessionConfig
   }
 
@@ -276,7 +273,7 @@ export class SyncWorker implements SyncApi {
       // The keyring is the one the main thread exported, with the highest key version it knows of
       this.keyring.forgetVersionHistory()
       await this.keyring.load(vaultKey)
-      await Automerge.initializeWasm(this.automergeWasmUrl)
+      await Automerge.initializeWasm(automergeWasmUrl)
 
       const context = new SyncWorkerContext({
         accountId,

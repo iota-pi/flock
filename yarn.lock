@@ -26,15 +26,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@automerge/automerge-repo-network-broadcastchannel@npm:^2.6.0-alpha.3":
-  version: 2.6.0-subduction.49
-  resolution: "@automerge/automerge-repo-network-broadcastchannel@npm:2.6.0-subduction.49"
-  dependencies:
-    "@automerge/automerge-repo": "npm:2.6.0-subduction.49"
-  checksum: 10c0/66443fdbc10ad1b8d5d6fc9f7aa5821dd1e61810ad9bd3dcf9e03171adff30218fe3c2449e984ef9c0b0a57d0f1fd23bc4b58434940734e84ecceeb4d8368c24
-  languageName: node
-  linkType: hard
-
 "@automerge/automerge-repo@npm:2.6.0-alpha.3":
   version: 2.6.0-alpha.3
   resolution: "@automerge/automerge-repo@npm:2.6.0-alpha.3"
@@ -48,39 +39,6 @@ __metadata:
     uuid: "npm:^14.0.1"
     xstate: "npm:^5.32.4"
   checksum: 10c0/ee4a3ee145c03bbb054347c8228c3d28095284410d3b9e4c1de68125918baa48ccefae295f9839757e8bbf328cce72a1958ca04d644ed9bd4071d8cb6bff91aa
-  languageName: node
-  linkType: hard
-
-"@automerge/automerge-repo@npm:2.6.0-subduction.49":
-  version: 2.6.0-subduction.49
-  resolution: "@automerge/automerge-repo@npm:2.6.0-subduction.49"
-  dependencies:
-    "@automerge/automerge": "npm:3.3.2"
-    "@automerge/automerge-subduction": "npm:0.20.1"
-    bs58check: "npm:^4.0.0"
-    cbor-x: "npm:^1.6.4"
-    debug: "npm:^4.4.3"
-    eventemitter3: "npm:^5.0.4"
-    fast-sha256: "npm:^1.3.0"
-    isomorphic-ws: "npm:^5.0.0"
-    uuid: "npm:^14.0.0"
-    ws: "npm:^8.21.0"
-    xstate: "npm:^5.31.1"
-  checksum: 10c0/be35f77e3376f52612ebcab223a9d35ec926ca9ecfbe0e407186d2c8b572c1ce1a5e1eea22c2329c44f3c2577ed0a6a68b893884b96933abcc6b9a5f64061000
-  languageName: node
-  linkType: hard
-
-"@automerge/automerge-subduction@npm:0.20.1":
-  version: 0.20.1
-  resolution: "@automerge/automerge-subduction@npm:0.20.1"
-  checksum: 10c0/26e72fe9695ed928e3f54f5b9b97cfaca106b83674c0ab1223504dc6c33d99b740c727d45473584e19483e6e3ee15537498cd57e920fc25fbf5436e3f4a6ab9e
-  languageName: node
-  linkType: hard
-
-"@automerge/automerge@npm:3.3.2":
-  version: 3.3.2
-  resolution: "@automerge/automerge@npm:3.3.2"
-  checksum: 10c0/4a191afa935575478d487184c8309483384d5c830f932a6f2ef4c23e5be525658eb0425fe8e08c0f0226823117bf7af719382100e222ff83aa8d44bc44d34f21
   languageName: node
   linkType: hard
 
@@ -5147,7 +5105,7 @@ __metadata:
   dependencies:
     "@automerge/automerge": "npm:^3.5.0"
     "@automerge/automerge-repo": "npm:2.6.0-alpha.3"
-    "@automerge/automerge-repo-network-broadcastchannel": "npm:^2.6.0-alpha.3"
+    "@automerge/automerge-repo-network-broadcastchannel": "npm:2.6.0-alpha.3"
     "@trpc/client": "npm:^11.28.2"
     "@trpc/server": "npm:^11.28.2"
     "@vault/server": "workspace:*"
@@ -5161,6 +5119,7 @@ __metadata:
     lodash-es: "npm:^4.17.23"
     nanoid: "npm:^6.0.2"
     typescript: "npm:^6.0.3"
+    vite: "npm:8.3.8"
     vitest: "npm:^4.1.7"
     zod: "npm:^4.6.7"
   peerDependencies:
@@ -7788,9 +7747,6 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "flock@workspace:."
   dependencies:
-    "@automerge/automerge": "npm:^3.5.0"
-    "@automerge/automerge-repo": "npm:2.6.0-alpha.3"
-    "@automerge/automerge-repo-network-broadcastchannel": "npm:2.6.0-alpha.3"
     "@aws-sdk/client-dynamodb": "npm:3.1169.0"
     "@aws-sdk/client-sqs": "npm:3.1169.0"
     "@aws-sdk/lib-dynamodb": "npm:3.1169.0"
@@ -8874,15 +8830,6 @@ __metadata:
   version: 4.0.0
   resolution: "isexe@npm:4.0.0"
   checksum: 10c0/5884815115bceac452877659a9c7726382531592f43dc29e5d48b7c4100661aed54018cb90bd36cb2eaeba521092570769167acbb95c18d39afdccbcca06c5ce
-  languageName: node
-  linkType: hard
-
-"isomorphic-ws@npm:^5.0.0":
-  version: 5.0.0
-  resolution: "isomorphic-ws@npm:5.0.0"
-  peerDependencies:
-    ws: "*"
-  checksum: 10c0/a058ac8b5e6efe9e46252cb0bc67fd325005d7216451d1a51238bc62d7da8486f828ef017df54ddf742e0fffcbe4b1bcc2a66cc115b027ed0180334cd18df252
   languageName: node
   linkType: hard
 
@@ -12452,15 +12399,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"uuid@npm:^14.0.0":
-  version: 14.0.2
-  resolution: "uuid@npm:14.0.2"
-  bin:
-    uuid: dist-node/bin/uuid
-  checksum: 10c0/88906237004db370b013129c8372a2149f6fa1aad7a5f78fa65ddf2ba0a8663097022300d81fa01f551efee9d6bbe8c7ab140dc6d49f1b03d289f855096990c9
-  languageName: node
-  linkType: hard
-
 "uuid@npm:^14.0.1":
   version: 14.0.3
   resolution: "uuid@npm:14.0.3"
@@ -13149,13 +13087,6 @@ __metadata:
     is-wsl: "npm:^3.1.0"
     powershell-utils: "npm:^0.2.0"
   checksum: 10c0/535a7684d63d9dd0b4349997f81ebb38705809031f354bd0d3ec2e74ebaf94d21f2fbbf4f149e1832474827867ced07b5aadc256a17f9cfd3e70d2f9047dee8e
-  languageName: node
-  linkType: hard
-
-"xstate@npm:^5.31.1":
-  version: 5.32.6
-  resolution: "xstate@npm:5.32.6"
-  checksum: 10c0/26927cbb17143ccabe8ae5542025801b847e10d595a1194c145a3fff49f329076f0e45dc85ad6e04a158c031c09f5dda9aea267714b95bd54d12c0c6c99cb36e
   languageName: node
   linkType: hard
 
