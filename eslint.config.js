@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module'
 import { defineConfig, globalIgnores } from 'eslint/config'
 import eslint from '@eslint/js'
 import tseslint from 'typescript-eslint'
@@ -7,6 +8,10 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import vitest from '@vitest/eslint-plugin'
 import react from 'eslint-plugin-react'
 import jsxA11y from 'eslint-plugin-jsx-a11y'
+
+// eslint-plugin-react's `version: 'detect'` calls context.getFilename(), which
+// ESLint 10 removed, so pass the installed React version explicitly.
+const reactVersion = createRequire(import.meta.url)('react/package.json').version
 
 // The vault library's packages (see docs/vault-extraction.md)
 const VAULT_PACKAGES = ['vault-shared', 'vault-client', 'vault-server']
@@ -110,7 +115,7 @@ export default defineConfig([
     },
     settings: {
       react: {
-        version: 'detect',
+        version: reactVersion,
       },
     },
     rules: {
