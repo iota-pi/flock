@@ -26,6 +26,7 @@ export class SnapshotManager implements StoredSnapshotRecorder {
   private readonly pusher: SnapshotPusher
   private readonly session: SyncSessionState
   private readonly runPollNow: () => Promise<void>
+  private readonly isCaughtUp: () => boolean
   private lastPush: SnapshotPushResult = { persisted: 0, total: 0 }
   private pushes = 0
 
@@ -44,11 +45,17 @@ export class SnapshotManager implements StoredSnapshotRecorder {
       onDueChanged?: () => void
       /** Runs a poll now, or right after the one in flight, resolving once it has finished */
       runPollNow: () => Promise<void>
+      /**
+       * Whether the device has caught up (`SyncLogPuller.isCaughtUp`). Until then nothing is uploaded,
+       * since a snapshot could replace one holding what the doc hasn't merged yet.
+       */
+      isCaughtUp: () => boolean
     },
     options?: SnapshotManagerOptions,
   ) {
     this.session = deps.session
     this.runPollNow = deps.runPollNow
+    this.isCaughtUp = deps.isCaughtUp
     this.tracker = new SnapshotTracker({
       db: deps.db,
       recoveryManager: deps.recoveryManager,
@@ -85,8 +92,14 @@ export class SnapshotManager implements StoredSnapshotRecorder {
   /**
    * The poll's snapshot phase, and the manifest phase's upload before it fetches the manifest. Both
    * run inside the poll, so never at once. Throws to fail the poll; see `SnapshotPusher.pushDue`.
+   *
+   * Uploads nothing until the device has caught up, leaving what's due for the snapshot phase of the
+   * poll that does. Catch-up's own manifest sync would otherwise upload before it has merged the
+   * server's snapshots: a device away longer than the log's TTL, or one that has just reset its
+   * sync state, can hold a doc that lacks what only the server's snapshot holds.
    */
   async pushDue(signal: AbortSignal): Promise<SnapshotPushOutcome> {
+    if (!this.isCaughtUp()) return { persisted: 0, total: 0, success: true }
     const result = await this.pusher.pushDue(signal)
     if (result.total > 0 || !result.success) {
       this.lastPush = { persisted: result.persisted, total: result.total }

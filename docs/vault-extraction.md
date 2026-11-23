@@ -73,14 +73,14 @@ Part 1 of [local-encryption.md](local-encryption.md). Blockers: `legacyKeyDeriva
 
 Part 2 of [local-encryption.md](local-encryption.md). It changes only device data.
 
-### Level 4: per-item sync records and first start finished
+### Level 4: per-item sync records and the sync reset
 
 Each item's server heads, base version and dirty flag live in its own record in the sync log database (see "Local storage layout" in sync-design.md), where they used to be two whole-account values in the sync metadata, `syncedHeads` and `lastModified` (each item's timestamps and base version). It changes only device data, and has no account blockers.
 
-- **First start.** "First start" in [sync-design.md](sync-design.md). Both workers pass `firstStartDataVersion: 4`: the migration app copies the sync records before the engine starts, then runs first start and records level 4 once `FirstStart.settle` reports it finished (items still stuck are left quarantined in recovery). The main app, whose device gate is at 4, never runs it.
+- **The sync reset.** "Moving onto the log" in [sync-design.md](sync-design.md). The migration app passes `syncResetDataVersion: 4`: it copies the sync records before the engine starts, then resets the device's sync state and records level 4 once the reset has run and the WAL is gone (`hasFinishedSyncReset`). The main app, whose device gate is at 4, passes none and never runs it. It replaced first start, so the engine itself has no path for the level.
 
 - **The copy.** `migrateLocalData` (`migrateItemSyncRecords` in `src/migrate/legacy/localData.ts`, after the older layouts have been brought into those keys) builds a record for each item and adds them with the library's `importItemSyncRecords`, which keeps any field a record already has. An item was dirty when its `localModifiedAt` was after its `lastSnapshotAt`. It removes both values only once the records are written, so a failure repeats the copy at the next start.
 - **Why it can't be skipped.** Without its server heads an item pushes its whole history, and without its base version it fetches every snapshot again. The dirty flags are what re-queue snapshots that never went up.
 - **Old builds.** A tab of an older build still writes the whole-account values, which nothing reads. Its dirty items still reach the log through their pending marks, and S2 uploads any snapshot they owe.
 
-Still to do: retire the level. That deletes `migrateItemSyncRecords`, `importItemSyncRecords` and the two legacy keys from the migration app, and `FirstStart` and its paths through the engine, the `first-start` store, and the `firstStartReset`, `firstStartSynced` and `walCleared` keys.
+Still to do: retire the level. That deletes `migrateItemSyncRecords`, `importItemSyncRecords` and the two legacy keys from the migration app, and `resetSyncState`, `hasFinishedSyncReset` and `syncResetDataVersion`. The `first-start` store and the `firstStartReset`, `firstStartSynced` and `walCleared` keys stay, unused, because names never change.

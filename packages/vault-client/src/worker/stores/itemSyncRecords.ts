@@ -40,7 +40,7 @@ export async function updateItemSyncRecords(
   )
 }
 
-/** Forgets every item's server heads, keeping the rest of its record (see FirstStart) */
+/** Forgets every item's server heads, keeping the rest of its record (see `resetSyncState`) */
 export async function clearServerHeads(db: ItemSyncRecordsDatabase): Promise<void> {
   const withHeads = (await readItemSyncRecords(db)).filter(record => record.serverHeads !== undefined)
   await updateItemSyncRecords(db, withHeads.map(record => record.itemId), ({ serverHeads: _, ...rest }) => rest)

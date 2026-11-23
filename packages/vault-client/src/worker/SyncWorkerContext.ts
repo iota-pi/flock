@@ -13,7 +13,6 @@ import { ManifestSyncManager } from './ManifestSyncManager'
 import { ItemOperations } from './ItemOperations'
 import { INBOUND_MESSAGE_RESOLVABLE_KINDS, RecoveryManager } from './RecoveryManager'
 import { ChangeOutbox } from './ChangeOutbox'
-import { FINISHED_FIRST_START, FirstStart, runFirstStartLocalPart, type FirstStartPort } from './FirstStart'
 import { GapHealer } from './GapHealer'
 import { IncomingChanges } from './IncomingChanges'
 import { ServerHeads } from './ServerHeads'
@@ -23,6 +22,7 @@ import type { ClientEventHub } from './SyncEventHub'
 import { SyncStatusManager } from './SyncStatusManager'
 import { SyncProgressTracker } from './SyncProgressTracker'
 import { countStuckItems } from './stuckItems'
+import { hasFinishedSyncReset, resetSyncState } from './syncReset'
 import { LastSyncedStore } from './stores/LastSyncedStore'
 import { AutomergeRepoManager } from './AutomergeRepoManager'
 import { toVaultItemIdFromAutomergeId, isIndexDocument } from './utils/automerge'
@@ -94,12 +94,13 @@ export interface SyncSessionConfig {
    */
   sealedDataVersion?: number
   /**
-   * The app's data version (`SyncDomain.dataVersion`) at which first start has finished. The device's
-   * recorded level stays below it until `FirstStart.settle` says so. Once `minDataVersion` is at or
-   * above it, every device that starts has finished first start (or had nothing to run it on), so
-   * the session neither runs it nor reads its records.
+   * The app's data version (`SyncDomain.dataVersion`) at which a device that synced before the log
+   * has reset its sync state for it (see `resetSyncState`). Below `minDataVersion` the session runs
+   * the reset at start, and the device's recorded level stays below this one until it has run and
+   * the old write-ahead log is gone. Once `minDataVersion` is at or above it, every device that
+   * starts has reset (or had nothing to reset), so the session doesn't.
    */
-  firstStartDataVersion?: number
+  syncResetDataVersion?: number
 }
 
 /**
@@ -146,7 +147,6 @@ export interface SyncWorkerServices {
   docStore: AutomergeDocStore
   indexManager: AutomergeIndexManager
   recoveryManager: RecoveryManager
-  firstStart: FirstStartPort
   changeOutbox: ChangeOutbox
   snapshotCoverage: SnapshotCoverage
   gapHealer: GapHealer
@@ -276,35 +276,12 @@ export class SyncWorkerContext {
       countUnpushedChanges: () => this.countUnpushedChanges(),
     })
 
-    const firstStart: FirstStartPort = this.hasFinishedFirstStart ? FINISHED_FIRST_START : new FirstStart({
-      accountId,
-      db: syncLogDatabase,
-      keys,
-      docStore,
-      recoveryManager,
-      serverHeads,
-      syncManifest: async signal => {
-        const result = await this.services.manifestSyncManager.runPhase(signal, 'now')
-        return result?.fetchedManifest ?? false
-      },
-      fetchSnapshots: (itemIds, signal) => this.services.manifestSyncManager.fetchSnapshots(itemIds, signal),
-      onKeyVersionMissing: this.emitKeyVersionMissing,
-      onWorkDue: () => this._services?.orchestrator.flush(),
-      pushPending: signal => this.services.changeOutbox.pushPending(signal),
-      getBaseVersion: itemId => this.services.snapshotManager.tracker.getBaseVersion(itemId),
-      isDirty: itemId => this.services.snapshotManager.tracker.isDirty(itemId),
-      requestSnapshot: itemId => this.requestUpstreamSnapshot(itemId),
-      onManifestSynced: () => this.services.puller.onCatchUpManifestSynced(),
-    })
-
     const changeOutbox = new ChangeOutbox({
       db: syncLogDatabase,
       docStore,
       keys,
       session,
       serverHeads,
-      isAwaitingFirstStart: itemId => firstStart.has(itemId),
-      canPush: () => firstStart.canPush,
       exchange: (push, onResults, signal) => this.services.poller.exchange(push, onResults, signal),
       requestSnapshot: itemId => this.requestSnapshot([itemId]),
       onMarked: () => {
@@ -316,7 +293,6 @@ export class SyncWorkerContext {
     const snapshotCoverage = new SnapshotCoverage({
       db: syncLogDatabase,
       serverHeads,
-      firstStartState: itemId => firstStart.stateOf(itemId),
       isSnapshotOnly: itemId => changeOutbox.isSnapshotOnly(itemId),
     })
 
@@ -360,7 +336,7 @@ export class SyncWorkerContext {
         )
       },
       onLoad: async () => {
-        await Promise.all([serverHeads.load(), firstStart.load(), gapHealer.load()])
+        await Promise.all([serverHeads.load(), gapHealer.load()])
       },
     })
 
@@ -369,7 +345,6 @@ export class SyncWorkerContext {
       session,
       puller,
       getOutbox: () => changeOutbox,
-      firstStart,
       healer: gapHealer,
       apiClient: this.apiClient,
       runManifestPhase: (signal, minMode) => this.services.manifestSyncManager.runPhase(signal, minMode),
@@ -386,15 +361,13 @@ export class SyncWorkerContext {
       db: syncLogDatabase,
       builder: snapshotBuilder,
       pushToLog,
-      onSnapshotStored: details => {
-        changeOutbox.confirmSnapshotOnly(details.itemId, details.heads)
-        fireAndForget(firstStart.onSnapshotConfirmed(details.itemId, details.heads), 'SyncWorkerContext:onSnapshotConfirmed')
-      },
+      onSnapshotStored: details => changeOutbox.confirmSnapshotOnly(details.itemId, details.heads),
       eventHub: clientEventHub,
       recoveryManager,
       apiClient: this.apiClient,
       onDueChanged: () => this._services?.orchestrator.onSnapshotDue(),
       runPollNow: () => this.services.orchestrator.pollNow(),
+      isCaughtUp: () => puller.isCaughtUp,
     })
 
     const markDocumentDirty = (id: ItemId) => {
@@ -437,7 +410,7 @@ export class SyncWorkerContext {
       session,
       recorder: snapshotManager,
       claimLeader: () => this.claimLeader(),
-      firstStart,
+      catchUp: puller,
       pushToLog,
       onStage: stage => this.clientEventHub.emit({ type: 'reencryptStage', stage }),
     })
@@ -446,7 +419,7 @@ export class SyncWorkerContext {
       accountId,
       dataVersion: this.domain.dataVersion ?? 0,
       raiseAccountDataVersion: () => this.apiClient.raiseDataVersion({ account: accountId }),
-      maxDeviceVersion: this.maxDeviceVersion(firstStart),
+      maxDeviceVersion: this.maxDeviceVersion(),
     })
 
     const snapshotFormatUpgrade = this.config.upgradeSnapshotFormat
@@ -500,10 +473,9 @@ export class SyncWorkerContext {
         if (!serverHeads.has(itemId)) serverHeads.set(itemId, heads)
       },
       onLocalChangesFound: itemId => fireAndForget(changeOutbox.mark(itemId), 'SyncWorkerContext:markPending'),
-      onManifestProcessed: async manifest => {
+      onManifestProcessed: async () => {
         // A sync that began before this tab stopped leading can still finish here
         if (!session.isLeader) return
-        await firstStart.onManifestProcessed(manifest)
         gapHealer.onManifestSynced()
       },
       coverage: snapshotCoverage,
@@ -573,7 +545,6 @@ export class SyncWorkerContext {
       docStore,
       indexManager,
       recoveryManager,
-      firstStart,
       changeOutbox,
       snapshotCoverage,
       gapHealer,
@@ -593,27 +564,28 @@ export class SyncWorkerContext {
     }
   }
 
-  /** Whether every device this session can start on has finished first start (see `firstStartDataVersion`) */
-  private get hasFinishedFirstStart(): boolean {
-    const { minDataVersion, firstStartDataVersion } = this.config
-    return firstStartDataVersion !== undefined && (minDataVersion ?? 0) >= firstStartDataVersion
+  /** Whether a device this session can start on may not have reset its sync state (see `syncResetDataVersion`) */
+  private get needsSyncReset(): boolean {
+    const { minDataVersion, syncResetDataVersion } = this.config
+    return syncResetDataVersion !== undefined && (minDataVersion ?? 0) < syncResetDataVersion
   }
 
   /**
    * Caps the recorded device level below the sealed level until this session's storage is sealed and
    * no plaintext stores are left, so a device on the quota fallback or the password-derived-key guard
-   * isn't recorded as migrated. Caps it below the first start level until first start has finished.
+   * isn't recorded as migrated. Caps it below the sync reset level until the reset has finished.
    */
-  private maxDeviceVersion(firstStart: FirstStartPort): (() => Promise<number>) | undefined {
-    const { sealedDataVersion, firstStartDataVersion } = this.config
-    if (sealedDataVersion === undefined && firstStartDataVersion === undefined) return undefined
+  private maxDeviceVersion(): (() => Promise<number>) | undefined {
+    const { sealedDataVersion, syncResetDataVersion } = this.config
+    const resetDataVersion = this.needsSyncReset ? syncResetDataVersion : undefined
+    if (sealedDataVersion === undefined && resetDataVersion === undefined) return undefined
     return async () => {
       const state = this.localStorageState
       if (sealedDataVersion !== undefined && !(state?.mode === 'sealed' && state.retired)) {
         return sealedDataVersion - 1
       }
-      if (firstStartDataVersion !== undefined && !await firstStart.settle()) {
-        return firstStartDataVersion - 1
+      if (resetDataVersion !== undefined && !await hasFinishedSyncReset(this.accountId)) {
+        return resetDataVersion - 1
       }
       return Number.POSITIVE_INFINITY
     }
@@ -724,7 +696,6 @@ export class SyncWorkerContext {
   /** Tells the components waiting on a key that the keyring has changed */
   onKeyringUpdated(): void {
     this.services.gapHealer.onKeyringUpdated()
-    this.services.firstStart.onKeyringUpdated()
   }
 
   async initialize(): Promise<void> {
@@ -766,8 +737,8 @@ export class SyncWorkerContext {
         }),
       })
       try {
-        if (!this.hasFinishedFirstStart) {
-          await runFirstStartLocalPart(this.accountId, () => this.listIndexedItems(opened))
+        if (this.needsSyncReset) {
+          await resetSyncState(this.accountId, () => this.listIndexedItems(opened))
         }
       } catch (error) {
         await opened.storage.close()
@@ -943,13 +914,11 @@ export class SyncWorkerContext {
 
   /** What this session is waiting on, for a migration app to report when it stalls */
   getSyncDiagnostics(): SyncDiagnostics {
-    const { firstStart, itemReencryptor } = this.services
+    const { puller, itemReencryptor } = this.services
     return {
       isLeader: this.session.isLeader,
       isOnline: this.session.isOnline,
-      firstStartSynced: firstStart.synced,
-      firstStartReadyToPush: firstStart.canPush,
-      firstStartError: firstStart.error,
+      caughtUp: puller.isCaughtUp,
       reencryptStage: itemReencryptor.stage,
     }
   }
@@ -1007,15 +976,14 @@ export class SyncWorkerContext {
    * Also counts the items that have waited too long, by what holds them up.
    */
   async countUnpushedChanges(): Promise<UnpushedChanges> {
-    const { changeOutbox, recoveryManager, firstStart } = this.services
-    const [marks, recoveryEntries, firstStartStates] = await Promise.all([
+    const { changeOutbox, recoveryManager } = this.services
+    const [marks, recoveryEntries] = await Promise.all([
       changeOutbox.listMarks(),
       recoveryManager.listRecoveryItems(),
-      firstStart.readStates(),
     ])
     const quarantined = new Set(recoveryEntries.map(entry => entry.itemId))
     const pending = marks.filter(mark => !quarantined.has(mark.itemId))
-    const stuckItems = countStuckItems(pending, firstStartStates, Date.now())
+    const stuckItems = countStuckItems(pending, Date.now())
     return {
       pendingItems: pending.length,
       quarantinedItems: quarantined.size,

@@ -15,10 +15,9 @@ function pluralItems(count: number): string {
   return `${count} ${count === 1 ? 'item' : 'items'}`
 }
 
-/** What holds up stuck items, in the order the details list them. Both snapshot reasons read the same. */
+/** What holds up stuck items, in the order the details list them */
 const STUCK_REASONS: Array<{ reasons: StuckReason[]; text: string }> = [
-  { reasons: ['awaitingHeads'], text: 'waiting to download the latest copy from the server' },
-  { reasons: ['awaitingSnapshot', 'snapshotOnly'], text: 'waiting to upload a full copy' },
+  { reasons: ['snapshotOnly'], text: 'waiting to upload a full copy' },
   { reasons: ['unloadable'], text: "can't be read on this device" },
   { reasons: ['unknown'], text: 'not accepted by the server yet' },
 ]

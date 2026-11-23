@@ -18,15 +18,15 @@ export const SYNC_METADATA_KEYS = {
   LOG_CURSOR: 'logCursor',
   /** The server's clock at this device's last pull that reached the end of the log */
   LOG_LAST_PULL_AT: 'logLastPullAt',
-  /** Set once this device has reset its sync state for the sync log (see FirstStart) */
+  /** Set once this device has reset its sync state for the sync log (see `resetSyncState`) */
   FIRST_START_RESET: 'firstStartReset',
-  /** Set once this device has reconciled with the server for the sync log (see FirstStart) */
+  /** Unused: set once first start had reconciled with the server. Kept because names never change. */
   FIRST_START_SYNCED: 'firstStartSynced',
-  /** Set once the write-ahead log that older builds kept has been cleared (see FirstStart) */
+  /** Set once the write-ahead log that older builds kept has been cleared (see `hasFinishedSyncReset`) */
   WAL_CLEARED: 'walCleared',
 } as const
 
-/** The cursors older builds kept under `SYNC_METADATA_KEYS.CURSORS`, which first start clears */
+/** The cursors older builds kept under `SYNC_METADATA_KEYS.CURSORS`, which the sync reset clears */
 export interface PersistedSyncCursors {
   globalCursor: number
   retries?: [ItemId, number][]

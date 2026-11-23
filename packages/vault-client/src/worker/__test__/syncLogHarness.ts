@@ -39,6 +39,9 @@ export function installLocalStorage(): MockLocalForagePool {
   return pool
 }
 
+/** The level the harness's migrating devices reset at. With no `minDataVersion`, any level runs it. */
+const SYNC_RESET_TEST_LEVEL = 1
+
 export interface DeviceOptions {
   isLeader?: boolean
   config?: Partial<SyncWorkerContextConfig>
@@ -51,6 +54,8 @@ export interface DeviceOptions {
  */
 export class Device {
   context!: SyncWorkerContext
+  /** Set once the device is rewound to an old build, so it starts as the migration app does */
+  private isMigrating = false
 
   constructor(
     readonly name: string,
@@ -69,6 +74,7 @@ export class Device {
       clientEventHub: new ClientEventHub(),
       apiClient: createSyncApiClient(this.server),
       keys: this.keys,
+      ...(this.isMigrating ? { syncResetDataVersion: SYNC_RESET_TEST_LEVEL } : {}),
       ...this.options.config,
     })
     await this.context.initialize()
@@ -139,9 +145,13 @@ export class Device {
     return (await this.services.recoveryManager.listRecoveryItems()).map(entry => entry.itemId)
   }
 
-  /** Takes this device back to how the old build left it, whose sync state can't be trusted */
+  /**
+   * Takes this device back to how the old build left it, whose sync state can't be trusted. It then
+   * starts as the migration app does, which resets its sync state.
+   */
   async rewindToOldBuild(oldHeads: [ItemId, string[]][] = []): Promise<void> {
     await this.stop()
+    this.isMigrating = true
     const storage = getSyncMetadataStorage(this.name)
     await storage.removeItem(SYNC_METADATA_KEYS.FIRST_START_RESET)
     await storage.removeItem(SYNC_METADATA_KEYS.FIRST_START_SYNCED)

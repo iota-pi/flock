@@ -3,7 +3,6 @@ import { IDBFactory } from 'fake-indexeddb'
 import type { ItemId } from '@vault/shared'
 import { ServerHeads } from './ServerHeads'
 import { SnapshotCoverage } from './SnapshotCoverage'
-import type { FirstStartState } from './FirstStart'
 import { SyncLogDatabase } from './stores/SyncLogDatabase'
 
 const ITEM = 'item-1' as ItemId
@@ -11,7 +10,6 @@ const ITEM = 'item-1' as ItemId
 describe('SnapshotCoverage', () => {
   let db: SyncLogDatabase
   let serverHeads: ServerHeads
-  let firstStartState: FirstStartState | undefined
   let isSnapshotOnly: boolean
   let coverage: SnapshotCoverage
 
@@ -19,7 +17,6 @@ describe('SnapshotCoverage', () => {
     return new SnapshotCoverage({
       db,
       serverHeads,
-      firstStartState: () => firstStartState,
       isSnapshotOnly: () => isSnapshotOnly,
     })
   }
@@ -28,7 +25,6 @@ describe('SnapshotCoverage', () => {
     vi.stubGlobal('indexedDB', new IDBFactory())
     db = new SyncLogDatabase('account-1')
     serverHeads = new ServerHeads(db)
-    firstStartState = undefined
     isSnapshotOnly = false
     coverage = createCoverage()
   })
@@ -59,18 +55,6 @@ describe('SnapshotCoverage', () => {
 
     it('defers a doc with no known server heads, which is all unpushed', () => {
       expect(coverage.check(ITEM, base())).toEqual({ covered: false, reason: 'unpushed' })
-    })
-
-    it('defers an item waiting for its server heads', () => {
-      firstStartState = 'awaitingHeads'
-
-      expect(coverage.check(ITEM, base())).toEqual({ covered: false, reason: 'awaitingHeads' })
-    })
-
-    it('lets through an item at first start with no snapshot it can trust', () => {
-      firstStartState = 'awaitingSnapshot'
-
-      expect(coverage.check(ITEM, base())).toEqual({ covered: true })
     })
 
     it('lets through a change too large for a row', () => {
