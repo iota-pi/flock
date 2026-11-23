@@ -33,7 +33,7 @@ describe('SyncLogPuller', () => {
   let keys: { hasKey: AnyMock; decryptBytes: AnyMock; waitForKey: AnyMock }
   let incoming: { apply: AnyMock }
   let healer: { park: AnyMock; onLogEntry: AnyMock }
-  let coverage: { recordPulledChanges: AnyMock }
+  let itemSyncState: { recordPulledChanges: AnyMock }
   let bus: { publishSyncPing: AnyMock }
   let onRemoteChangesApplied: AnyMock
   let puller: SyncLogPuller
@@ -55,7 +55,7 @@ describe('SyncLogPuller', () => {
     }
     incoming = { apply: vi.fn().mockResolvedValue(true) }
     healer = { park: vi.fn().mockResolvedValue(undefined), onLogEntry: vi.fn() }
-    coverage = { recordPulledChanges: vi.fn().mockResolvedValue(undefined) }
+    itemSyncState = { recordPulledChanges: vi.fn().mockResolvedValue(undefined) }
     bus = { publishSyncPing: vi.fn() }
     onRemoteChangesApplied = vi.fn()
     puller = new SyncLogPuller({
@@ -65,7 +65,7 @@ describe('SyncLogPuller', () => {
       session,
       incoming: incoming as unknown as SyncLogPullerDeps['incoming'],
       healer: healer as unknown as SyncLogPullerDeps['healer'],
-      coverage: coverage as unknown as SyncLogPullerDeps['coverage'],
+      itemSyncState: itemSyncState as unknown as SyncLogPullerDeps['itemSyncState'],
       bus: bus as unknown as SyncLogPullerDeps['bus'],
       onRemoteChangesApplied,
     })
@@ -168,7 +168,7 @@ describe('SyncLogPuller', () => {
 
     await puller.process(page([entry(1)]))
 
-    expect(coverage.recordPulledChanges).toHaveBeenCalledWith([ITEM])
+    expect(itemSyncState.recordPulledChanges).toHaveBeenCalledWith([ITEM])
   })
 
   describe('gaps', () => {
@@ -230,7 +230,7 @@ describe('SyncLogPuller', () => {
         session,
         incoming: incoming as unknown as SyncLogPullerDeps['incoming'],
         healer: healer as unknown as SyncLogPullerDeps['healer'],
-        coverage: coverage as unknown as SyncLogPullerDeps['coverage'],
+        itemSyncState: itemSyncState as unknown as SyncLogPullerDeps['itemSyncState'],
       })
       await fresh.loadState()
       fresh.onCatchUpManifestSynced()
@@ -253,7 +253,7 @@ describe('SyncLogPuller', () => {
         session,
         incoming: incoming as unknown as SyncLogPullerDeps['incoming'],
         healer: healer as unknown as SyncLogPullerDeps['healer'],
-        coverage: coverage as unknown as SyncLogPullerDeps['coverage'],
+        itemSyncState: itemSyncState as unknown as SyncLogPullerDeps['itemSyncState'],
       })
       await fresh.loadState()
 

@@ -14,7 +14,7 @@ import { calculateSyncDeltas, type QuarantinedItem, type SyncDeltas } from './ca
 import { ManifestHydrator } from './ManifestHydrator'
 import { findSnapshotsCoveredLocally } from './findSnapshotsCoveredLocally'
 import { areHeadsEqual } from './utils/automerge'
-import type { SnapshotCoverage } from './SnapshotCoverage'
+import type { ItemSyncState } from './ItemSyncState'
 import type { KeyProvider } from '../keys/Keyring'
 import { createLogger } from '../utils/logger'
 
@@ -47,7 +47,8 @@ export interface ManifestSyncManagerDeps {
   onLocalChangesFound?: (itemId: ItemId) => void
   /** Called once a sync has merged what it could, with the manifest it fetched */
   onManifestProcessed?: (manifest: ManifestEntry[]) => Promise<void>
-  coverage: Pick<SnapshotCoverage, 'listUnconfirmedPulls' | 'confirmPulledChanges'>
+  /** The items' unconfirmed pulls, for snapshot coverage's S2 */
+  itemSyncState: Pick<ItemSyncState, 'listUnconfirmedPulls' | 'confirmPulledChanges'>
   decodeLegacyItem?: SyncDomain['decodeLegacyItem']
   /** Called when the server holds legacy rows and there is no `decodeLegacyItem` hook to read them */
   onMigrationRequired?: () => void
@@ -111,7 +112,8 @@ export class ManifestSyncManager {
       apiClient: this.deps.apiClient,
       docStore: this.deps.docStore,
       indexManager: this.deps.indexManager,
-      snapshotTracker: this.deps.snapshotManager.tracker,
+      itemSyncState: this.deps.snapshotManager.state,
+      snapshotSchedule: this.deps.snapshotManager.schedule,
       keys: this.deps.keys,
       storeItems: this.deps.storeItems,
       onDecryptionFailure: this.deps.onDecryptionFailure,
@@ -245,7 +247,7 @@ export class ManifestSyncManager {
 
   private async collectLocalSyncState(signal: AbortSignal) {
     const tombstoneItemIds = await this.deps.indexManager.listTombstoneIds()
-    const localVersionsMap = new Map(this.deps.snapshotManager.tracker.exportItemVersions())
+    const localVersionsMap = this.deps.snapshotManager.exportItemVersions()
     checkAlive(signal, this.isAlive)
 
     const quarantinedMap = new Map<ItemId, QuarantinedItem>()
@@ -287,9 +289,9 @@ export class ManifestSyncManager {
    */
   private async flushPendingSnapshotsSafely(signal: AbortSignal): Promise<void> {
     const { snapshotManager } = this.deps
-    if (snapshotManager.tracker.dirtyCount === 0) return
+    if (snapshotManager.schedule.dirtyCount === 0) return
     try {
-      snapshotManager.tracker.requestNow()
+      snapshotManager.schedule.requestNow()
       await snapshotManager.pushDue(signal)
     } catch (flushErr) {
       if (signal.aborted || isAbortError(flushErr)) throw flushErr
@@ -389,22 +391,22 @@ export class ManifestSyncManager {
         await this.deps.storeItems(deltas.locallyTombstonedSnapshots, { markDirty: false })
       } finally {
         for (const item of deltas.locallyTombstonedSnapshots) {
-          this.deps.snapshotManager.tracker.deleteDirtyItem(item.id)
+          this.deps.snapshotManager.schedule.deleteDirtyItem(item.id)
         }
       }
     }
 
     if (deltas.deletedVersionUpdates.length > 0) {
       for (const [id] of deltas.deletedVersionUpdates) {
-        this.deps.snapshotManager.tracker.deleteDirtyItem(id)
+        this.deps.snapshotManager.schedule.deleteDirtyItem(id)
       }
       // The tombstones must be stored before the base version says this device has them (rule 1)
       await this.deps.docStore.flushToStorage(deltas.locallyTombstonedSnapshots.map(item => item.id))
-      await this.deps.snapshotManager.tracker.importVersions(deltas.deletedVersionUpdates)
+      await this.deps.snapshotManager.state.importBaseVersions(deltas.deletedVersionUpdates)
     }
 
     for (const id of deltas.upstreamIds) {
-      this.deps.snapshotManager.tracker.markItemDirty(id, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
+      this.deps.snapshotManager.schedule.markItemDirty(id, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
     }
   }
 
@@ -431,7 +433,7 @@ export class ManifestSyncManager {
     localState: Awaited<ReturnType<ManifestSyncManager['collectLocalSyncState']>>,
     signal: AbortSignal,
   ): Promise<void> {
-    const unconfirmedPulls = await this.deps.coverage.listUnconfirmedPulls()
+    const unconfirmedPulls = this.deps.itemSyncState.listUnconfirmedPulls()
     const graceStart = Date.now() - PULLED_CHANGES_GRACE_MS
     const forgotten = this.uploadUncheckablePulls(manifest, knownItemIds, localState, unconfirmedPulls, graceStart)
     const found = await findSnapshotsCoveredLocally({
@@ -457,7 +459,7 @@ export class ManifestSyncManager {
       // The doc may hold the snapshot only in memory, such as changes pulled moments ago. Saving an
       // unchanged doc is a no-op.
       await this.deps.docStore.flushToStorage(covered.map(({ itemId }) => itemId))
-      await this.deps.snapshotManager.tracker.importVersions(covered.map(({ itemId, version }) => [itemId, version]))
+      await this.deps.snapshotManager.state.importBaseVersions(covered.map(({ itemId, version }) => [itemId, version]))
       for (const { itemId, heads } of covered) {
         this.deps.onSnapshotCovered?.(itemId, heads)
       }
@@ -469,11 +471,11 @@ export class ManifestSyncManager {
       if (areHeadsEqual(heads, docHeads)) {
         if (unconfirmedPulls.has(itemId)) confirmed.push(itemId)
       } else if (isNewer || (unconfirmedPulls.get(itemId) ?? Infinity) <= graceStart) {
-        this.deps.snapshotManager.tracker.markItemDirty(itemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
+        this.deps.snapshotManager.schedule.markItemDirty(itemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
       }
     }
     if (confirmed.length > 0) {
-      await this.deps.coverage.confirmPulledChanges(confirmed)
+      await this.deps.itemSyncState.confirmPulledChanges(confirmed)
     }
   }
 
@@ -507,7 +509,7 @@ export class ManifestSyncManager {
         && !tombstones.has(entry.itemId)
         && !localState.quarantinedMap.has(entry.itemId)
       ) {
-        this.deps.snapshotManager.tracker.markItemDirty(entry.itemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
+        this.deps.snapshotManager.schedule.markItemDirty(entry.itemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
       }
     }
     return forgotten

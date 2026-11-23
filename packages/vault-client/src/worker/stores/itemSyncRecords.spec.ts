@@ -80,6 +80,26 @@ describe('item sync records', () => {
       ])
     })
 
+    it('keeps an item snapshot-only if either says so, and the earlier unconfirmed pull', async () => {
+      await db.put(
+        SYNC_LOG_STORES.items,
+        { itemId: ITEM_1, snapshotOnly: true, pulledAt: 300 },
+        { itemId: ITEM_2, pulledAt: 100 },
+      )
+
+      await importItemSyncRecords('account-1', [
+        { itemId: ITEM_1, pulledAt: 200 },
+        { itemId: ITEM_2, snapshotOnly: true },
+        { itemId: 'item-3' as ItemId, pulledAt: 50 },
+      ])
+
+      expect(await stored()).toEqual([
+        { itemId: ITEM_1, snapshotOnly: true, pulledAt: 200 },
+        { itemId: ITEM_2, snapshotOnly: true, pulledAt: 100 },
+        { itemId: 'item-3', pulledAt: 50 },
+      ])
+    })
+
     it('does nothing without records', async () => {
       await importItemSyncRecords('account-1', [])
 

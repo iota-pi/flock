@@ -237,7 +237,7 @@ describe('sync log', () => {
 
       // Confirmed now, so it's forgotten
       await b.manifestSync()
-      expect((await b.services.snapshotCoverage.listUnconfirmedPulls()).size).toBe(0)
+      expect(b.services.itemSyncState.listUnconfirmedPulls().size).toBe(0)
     })
 
     it('forgets pulled changes to an item that was deleted before any snapshot confirmed them', async () => {
@@ -249,14 +249,14 @@ describe('sync log', () => {
       await a.edit(itemId, { title: 'unconfirmed' })
       await a.poll()
       await b.poll()
-      expect((await b.services.snapshotCoverage.listUnconfirmedPulls()).has(itemId)).toBe(true)
+      expect(b.services.itemSyncState.listUnconfirmedPulls().has(itemId)).toBe(true)
 
       await a.edit(itemId, { deleted: true })
       await a.sync()
       await b.manifestSync()
 
       expect(server.items.get(itemId)?.deleted).toBe(true)
-      expect((await b.services.snapshotCoverage.listUnconfirmedPulls()).size).toBe(0)
+      expect(b.services.itemSyncState.listUnconfirmedPulls().size).toBe(0)
     })
   })
 
@@ -300,7 +300,7 @@ describe('sync log', () => {
       await follower.edit(itemId, { title: 'from the follower' })
       await follower.settle()
       await vi.waitFor(async () => expect((await leader.read(itemId))?.title).toBe('from the follower'))
-      await vi.waitFor(() => expect(leader.services.snapshotManager.tracker.isDirty(itemId)).toBe(true))
+      await vi.waitFor(() => expect(leader.services.snapshotManager.schedule.isDirty(itemId)).toBe(true))
       expect(await follower.poll()).toBe('no-poll')
       expect(server.rows).toHaveLength(1)
 
@@ -364,7 +364,7 @@ describe('sync log', () => {
 
     async function expectHeld(a: Device, itemId: ItemId, rows: number, version: number) {
       expect(await a.pending()).toEqual([itemId])
-      expect(a.services.snapshotManager.tracker.isDirty(itemId)).toBe(true)
+      expect(a.services.snapshotManager.schedule.isDirty(itemId)).toBe(true)
       expect(server.rows).toHaveLength(rows)
       expect(server.items.get(itemId)?.version).toBe(version)
       expect(await a.services.recoveryManager.listRecoveryItems()).toEqual([])
@@ -374,7 +374,7 @@ describe('sync log', () => {
       expect(await a.poll()).toBe('success')
       await a.uploadSnapshots()
       expect(await a.pending()).toEqual([])
-      expect(a.services.snapshotManager.tracker.isDirty(itemId)).toBe(false)
+      expect(a.services.snapshotManager.schedule.isDirty(itemId)).toBe(false)
       expect(server.rows).toHaveLength(rows + 1)
       expect(server.items.get(itemId)?.version).toBe(version + 1)
       await b.poll()
@@ -414,7 +414,7 @@ describe('sync log', () => {
 
       expect(await a.pending()).toEqual([])
       expect(server.rows).toHaveLength(rows + 1)
-      expect(a.services.snapshotManager.tracker.isDirty(itemId)).toBe(true)
+      expect(a.services.snapshotManager.schedule.isDirty(itemId)).toBe(true)
       expect(server.items.get(itemId)?.version).toBe(version)
       expect(await a.services.recoveryManager.listRecoveryItems()).toEqual([])
       await b.poll()
@@ -422,7 +422,7 @@ describe('sync log', () => {
 
       server.isOverStorageQuota = false
       await a.uploadSnapshots()
-      expect(a.services.snapshotManager.tracker.isDirty(itemId)).toBe(false)
+      expect(a.services.snapshotManager.schedule.isDirty(itemId)).toBe(false)
       expect(server.items.get(itemId)?.version).toBe(version + 1)
     })
 
@@ -482,7 +482,7 @@ describe('sync log', () => {
       await b.poll()
       const itemId = await a.create('item-1', { title: 'first' })
       await a.poll()
-      vi.spyOn(b.services.snapshotCoverage, 'recordPulledChanges').mockRejectedValueOnce(new Error('IndexedDB write failed'))
+      vi.spyOn(b.services.itemSyncState, 'recordPulledChanges').mockRejectedValueOnce(new Error('IndexedDB write failed'))
 
       expect(await b.poll()).toBe('failure')
 
@@ -528,7 +528,7 @@ describe('sync log', () => {
       draft.blob = randomBytes(MAX_INCREMENTAL_MESSAGE_BYTES + 1024)
     })
     await a.services.changeOutbox.mark(itemId)
-    a.services.snapshotManager.tracker.markItemDirty(itemId)
+    a.services.snapshotManager.schedule.markItemDirty(itemId)
     await a.poll()
     await a.uploadSnapshots()
 
@@ -667,12 +667,12 @@ describe('sync log', () => {
 
       await crossTheCut(a)
       expect(await a.pending()).toEqual([itemId])
-      expect(a.services.serverHeads.has(itemId)).toBe(false)
+      expect(a.services.itemSyncState.hasServerHeads(itemId)).toBe(false)
       await a.poll()
 
       expect(rowItems()).toEqual([itemId])
       expect(await a.pending()).toEqual([])
-      expect(a.services.serverHeads.get(itemId)).toEqual(await a.services.docStore.readHeads(itemId))
+      expect(a.services.itemSyncState.getServerHeads(itemId)).toEqual(await a.services.docStore.readHeads(itemId))
       server.items.clear()
       const b = await startDevice('device-b')
       await b.poll()
@@ -722,7 +722,7 @@ describe('sync log', () => {
 
       expect(server.items.get(itemId)?.version).toBe(1)
       expect(rowItems()).toEqual([itemId])
-      expect(a.services.serverHeads.get(itemId)).toEqual(await a.services.docStore.readHeads(itemId))
+      expect(a.services.itemSyncState.getServerHeads(itemId)).toEqual(await a.services.docStore.readHeads(itemId))
     })
 
     it('heals a snapshot uploaded over one whose fetch failed during catch-up', async () => {
@@ -779,13 +779,13 @@ describe('sync log', () => {
       await a.sync()
       await crossTheCut(a)
       await a.sync()
-      const heads = a.services.serverHeads.get(itemId)
+      const heads = a.services.itemSyncState.getServerHeads(itemId)
       expect(heads).toBeDefined()
-      await a.services.serverHeads.save()
+      await a.services.itemSyncState.save()
 
       await a.restart()
 
-      expect(a.services.serverHeads.get(itemId)).toEqual(heads)
+      expect(a.services.itemSyncState.getServerHeads(itemId)).toEqual(heads)
       expect(await a.pending()).toEqual([])
     })
 
@@ -914,6 +914,6 @@ describe('sync log', () => {
     await a.context.markRestored([itemId])
 
     expect(await a.pending()).toEqual([itemId])
-    expect(a.services.snapshotManager.tracker.isDirty(itemId)).toBe(true)
+    expect(a.services.snapshotManager.schedule.isDirty(itemId)).toBe(true)
   })
 })

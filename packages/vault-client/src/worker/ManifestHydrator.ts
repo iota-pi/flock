@@ -1,7 +1,8 @@
 
 import type { VaultDoc } from '../shared/types'
 import type { AutomergeDocStore, AutomergeIndexManager } from './docStore'
-import type { SnapshotTracker } from './SnapshotTracker'
+import type { ItemSyncState } from './ItemSyncState'
+import type { SnapshotSchedule } from './SnapshotSchedule'
 import type { CryptoResult } from '../keys/crypto'
 import type { KeyProvider } from '../keys/Keyring'
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
@@ -66,7 +67,8 @@ export interface ManifestHydratorDeps {
   apiClient: SyncApiClient
   docStore: AutomergeDocStore
   indexManager: AutomergeIndexManager
-  snapshotTracker: SnapshotTracker
+  itemSyncState: Pick<ItemSyncState, 'importBaseVersions'>
+  snapshotSchedule: Pick<SnapshotSchedule, 'markItemDirty'>
   keys: KeyProvider
   storeItems: (items: VaultDoc[], options?: StoreItemsOptions) => Promise<void>
   /** `serverVersion` is the manifest version of the snapshot that failed, when known */
@@ -267,7 +269,7 @@ export class ManifestHydrator {
     }
 
     if (versionUpdates.length > 0) {
-      await this.deps.snapshotTracker.importVersions(versionUpdates)
+      await this.deps.itemSyncState.importBaseVersions(versionUpdates)
     }
 
     return {
@@ -375,7 +377,7 @@ export class ManifestHydrator {
     }
 
     if (hydrationResult?.hasLocalChanges) {
-      this.deps.snapshotTracker.markItemDirty(itemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
+      this.deps.snapshotSchedule.markItemDirty(itemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
       this.deps.onLocalChangesFound?.(itemId)
     }
 
@@ -413,7 +415,7 @@ export class ManifestHydrator {
     const snapshotId = snapshot.id as ItemId
     if (tombstoneSet.has(snapshotId) && snapshot.deleted !== true) {
       await this.deps.indexManager.removeItemIds([snapshotId])
-      this.deps.snapshotTracker.markItemDirty(snapshotId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
+      this.deps.snapshotSchedule.markItemDirty(snapshotId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
       return {
         status: 'success',
         itemId,

@@ -82,10 +82,10 @@ describe('sync model', () => {
     it('stores a hydrated doc before recording its base version', async () => {
       const { setup, a, b, itemId } = await snapshotOnlyItem()
       // B catches up from the snapshot, and dies just after hydration records its version
-      const tracker = b.services.snapshotManager.tracker
-      const importVersions = tracker.importVersions.bind(tracker)
-      const spy = vi.spyOn(tracker, 'importVersions').mockImplementation(async updates => {
-        await importVersions(updates)
+      const state = b.services.itemSyncState
+      const importBaseVersions = state.importBaseVersions.bind(state)
+      const spy = vi.spyOn(state, 'importBaseVersions').mockImplementation(async updates => {
+        await importBaseVersions(updates)
         fence(b.name)
       })
       await b.poll()
@@ -115,7 +115,7 @@ describe('sync model', () => {
       await b.start()
       // Nothing says B has the item, so the next manifest sync fetches it
       expect(await b.heads(itemId)).toBeNull()
-      expect(b.services.snapshotManager.tracker.getBaseVersion(itemId)).toBe(0)
+      expect(b.services.itemSyncState.getBaseVersion(itemId)).toBe(0)
 
       await quiesce(world!, setup.model)
       expect(await b.heads(itemId)).toEqual(await a.heads(itemId))

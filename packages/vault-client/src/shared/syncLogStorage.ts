@@ -12,7 +12,10 @@ export const SYNC_LOG_STORES = {
   parked: 'parked',
   /** Unused: first start's records, which nothing reads now. Kept because names never change. */
   firstStart: 'first-start',
-  /** Items with pulled changes no snapshot has confirmed (rule S2 of snapshot coverage) */
+  /**
+   * Items with pulled changes no snapshot has confirmed, from before they moved into each item's
+   * record (`pulledAt`). It's read only to migrate them, and can be dropped a release after that.
+   */
   unconfirmedPulls: 'unconfirmed-pulls',
   /** One record per item of what this device knows of the server's copy (see ItemSyncRecord) */
   items: 'items',

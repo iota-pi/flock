@@ -17,6 +17,7 @@ const KEY_PATHS: Record<SyncLogStoreName, string> = {
   [SYNC_LOG_STORES.outbox]: 'itemId',
   [SYNC_LOG_STORES.parked]: 'seq',
   [SYNC_LOG_STORES.firstStart]: 'itemId',
+  // Read only to migrate unconfirmed pulls into the items' records (see ItemSyncState); can be dropped a release later
   [SYNC_LOG_STORES.unconfirmedPulls]: 'itemId',
   [SYNC_LOG_STORES.items]: 'itemId',
 }

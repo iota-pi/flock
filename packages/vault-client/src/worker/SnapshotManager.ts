@@ -1,14 +1,15 @@
 import type { ItemId } from '@vault/shared'
-import type { SyncLogDatabase } from './stores/SyncLogDatabase'
 import type { ClientEventHub } from './SyncEventHub'
+import type { ItemSyncState } from './ItemSyncState'
 import type { RecoveryManager } from './RecoveryManager'
 import type { SyncApiClient } from './SyncApiClient'
-import { SnapshotTracker } from './SnapshotTracker'
+import { SnapshotSchedule } from './SnapshotSchedule'
 import type { SnapshotBuilder } from './SnapshotBuilder'
 import { SnapshotPusher, type SnapshotPushOutcome } from './SnapshotPusher'
 import type { SnapshotPushResult } from './syncProtocol'
 import type { SyncSessionState } from './SyncSessionState'
 import type { StoredSnapshotDetails, StoredSnapshotRecorder, UploadableSnapshot } from './snapshotUpload'
+import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 
 export interface SnapshotManagerOptions {
   maxPayloadBytes?: number
@@ -17,13 +18,16 @@ export interface SnapshotManagerOptions {
 }
 
 /**
- * Wires the snapshot tracker and pusher together. Uploads run as the last phase of each poll
+ * Wires the snapshot schedule and pusher together. Uploads run as the last phase of each poll
  * (`pushDue`), so they share the poll's leadership, online state, abort, auth handling and backoff.
- * Callers read and mark dirty items through `tracker`.
+ * Callers read and mark dirty items through `schedule`, and read base versions through `state`.
  */
 export class SnapshotManager implements StoredSnapshotRecorder {
-  readonly tracker: SnapshotTracker
+  readonly schedule: SnapshotSchedule
+  /** Each item's sync record, which the context owns and stops */
+  readonly state: ItemSyncState
   private readonly pusher: SnapshotPusher
+  private readonly loadGuard = new SingleFlightGuard<void>()
   private readonly session: SyncSessionState
   private readonly runPollNow: () => Promise<void>
   private readonly isCaughtUp: () => boolean
@@ -34,7 +38,7 @@ export class SnapshotManager implements StoredSnapshotRecorder {
     deps: {
       accountId: string
       session: SyncSessionState
-      db: Pick<SyncLogDatabase, 'getAll' | 'update'>
+      state: ItemSyncState
       builder: SnapshotBuilder
       pushToLog: (itemIds: ItemId[], signal?: AbortSignal) => Promise<void>
       onSnapshotStored: (details: StoredSnapshotDetails) => void
@@ -56,8 +60,9 @@ export class SnapshotManager implements StoredSnapshotRecorder {
     this.session = deps.session
     this.runPollNow = deps.runPollNow
     this.isCaughtUp = deps.isCaughtUp
-    this.tracker = new SnapshotTracker({
-      db: deps.db,
+    this.state = deps.state
+    this.schedule = new SnapshotSchedule({
+      state: deps.state,
       recoveryManager: deps.recoveryManager,
       debounceDelayMs: options?.debounceDelayMs,
       maxWaitMs: options?.maxWaitMs,
@@ -68,7 +73,7 @@ export class SnapshotManager implements StoredSnapshotRecorder {
     this.pusher = new SnapshotPusher({
       accountId: deps.accountId,
       session: deps.session,
-      tracker: this.tracker,
+      schedule: this.schedule,
       builder: deps.builder,
       pushToLog: deps.pushToLog,
       onSnapshotStored: deps.onSnapshotStored,
@@ -80,13 +85,33 @@ export class SnapshotManager implements StoredSnapshotRecorder {
   }
 
   /** Called after the session's leadership changed */
-  async onLeaderChange(): Promise<void> {
+  onLeaderChange(): void {
     if (this.session.isShutdown) return
-    this.tracker.onLeaderChange()
+    this.schedule.onLeaderChange()
+  }
 
-    if (this.session.isLeader) {
-      await this.tracker.load()
+  /**
+   * Loads the item records and queues the items they flag, at start and when this tab becomes the
+   * leader. Concurrent callers share one load.
+   */
+  async load(): Promise<void> {
+    if (this.session.isShutdown) return
+    await this.loadGuard.run(async () => {
+      await this.state.load()
+      await this.schedule.restoreFlagged()
+    })
+  }
+
+  /** Each item's base version, and whether it's queued for a snapshot, for a manifest sync */
+  exportItemVersions(): Map<ItemId, { baseVersion: number; isDirty: boolean }> {
+    const result = new Map<ItemId, { baseVersion: number; isDirty: boolean }>()
+    for (const [itemId, baseVersion] of this.state.listBaseVersions()) {
+      result.set(itemId, { baseVersion, isDirty: this.schedule.isDirty(itemId) })
     }
+    for (const itemId of this.schedule.getDirtyItemIds()) {
+      if (!result.has(itemId)) result.set(itemId, { baseVersion: 0, isDirty: true })
+    }
+    return result
   }
 
   /**
@@ -114,11 +139,11 @@ export class SnapshotManager implements StoredSnapshotRecorder {
    */
   async flushPendingSnapshots(): Promise<SnapshotPushResult> {
     // Saved first, and in any tab: a follower can't push, but its edits must still survive the page closing
-    this.tracker.flushPendingSave()
-    if (!this.session.isOperational || this.tracker.dirtyCount === 0) {
+    this.state.flushPendingSave()
+    if (!this.session.isOperational || this.schedule.dirtyCount === 0) {
       return { persisted: 0, total: 0 }
     }
-    this.tracker.requestNow()
+    this.schedule.requestNow()
     const pushesBefore = this.pushes
     await this.runPollNow()
     return this.pushes > pushesBefore ? this.lastPush : { persisted: 0, total: 0 }
@@ -128,9 +153,11 @@ export class SnapshotManager implements StoredSnapshotRecorder {
     this.pusher.recordStoredSnapshots(stored, versions)
   }
 
-  /** Called once polling has stopped, so no upload is in flight */
-  async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
+  /** Called once polling has stopped, so no upload is in flight. The item records save as `state` stops. */
+  async shutdown(): Promise<void> {
+    await this.loadGuard.waitForRunning()
     this.pusher.clear()
-    await this.tracker.shutdown(options)
+    this.schedule.clear()
+    this.loadGuard.clear()
   }
 }

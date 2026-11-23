@@ -60,7 +60,7 @@ export class StorageRecoveryService {
         this.deps.metadataStore.testStorageAvailable(),
         'Storage quota is still exceeded. Please free up more space on your device.',
       )
-      const dirtyIds = this.deps.snapshotManager.tracker.getDirtyItemIds()
+      const dirtyIds = this.deps.snapshotManager.schedule.getDirtyItemIds()
       for (const itemId of dirtyIds) {
         try {
           await this.deps.docStore.saveDocToStorage(itemId)
@@ -74,7 +74,7 @@ export class StorageRecoveryService {
       await rethrowQuota(this.deps.outbox.markAll(dirtyIds), 'Storage quota is still exceeded while saving changes.')
 
       await rethrowQuota(
-        this.deps.snapshotManager.tracker.save(),
+        this.deps.snapshotManager.state.save(),
         'Storage quota is still exceeded while saving sync records.',
       )
       if (this.deps.session.isOnline) {

@@ -2,7 +2,7 @@ import { debounce } from 'lodash-es'
 import { MAX_INCREMENTAL_MESSAGE_BYTES, type ItemId, type SyncLogMessage } from '@vault/shared'
 import type { KeyProvider } from '../keys/Keyring'
 import type { AutomergeDocStore } from './docStore'
-import type { ServerHeads } from './ServerHeads'
+import type { ItemSyncState } from './ItemSyncState'
 import type { SyncLogDatabase } from './stores/SyncLogDatabase'
 import type { SyncSessionState } from './SyncSessionState'
 import { SYNC_LOG_STORES } from '../shared/syncLogStorage'
@@ -77,7 +77,8 @@ export interface ChangeOutboxDeps {
   docStore: Pick<AutomergeDocStore, 'readChangesSince' | 'hasChangesSince' | 'hasDataInStorage'>
   keys: KeyProvider
   session: SyncSessionState
-  serverHeads: ServerHeads
+  /** Each item's server heads and whether only a snapshot can deliver it */
+  itemSyncState: Pick<ItemSyncState, 'getServerHeads' | 'setServerHeads' | 'isSnapshotOnly' | 'setSnapshotOnly' | 'save'>
   exchange: LogExchange
   /** Asks for an item's snapshot now, which delivers what the log can't */
   requestSnapshot: (itemId: ItemId) => void
@@ -150,8 +151,6 @@ function packRequests(messages: SyncLogMessage[]): SyncLogMessage[][] {
  * A pending mark is a hint. A false one costs an empty check at push time.
  */
 export class ChangeOutbox {
-  /** Items with a single change too large for a row, which only a snapshot can deliver */
-  private readonly snapshotOnlyItems = new Set<ItemId>()
   private readonly changedItems = new Set<ItemId>()
 
   private readonly checkChangedItemsDebounced = debounce(
@@ -196,19 +195,6 @@ export class ChangeOutbox {
     return await this.deps.db.get<PendingMark>(SYNC_LOG_STORES.outbox, itemId) !== undefined
   }
 
-  /** Whether only a snapshot can deliver the item's changes, so snapshot coverage lets it through */
-  isSnapshotOnly(itemId: ItemId): boolean {
-    return this.snapshotOnlyItems.has(itemId)
-  }
-
-  /** Records a stored snapshot that carried what the log couldn't, which puts the server at its heads */
-  confirmSnapshotOnly(itemId: ItemId, heads: string[] | undefined): void {
-    if (!this.snapshotOnlyItems.delete(itemId)) return
-    if (heads && heads.length > 0) {
-      this.deps.serverHeads.set(itemId, heads)
-    }
-  }
-
   private async clearMark(itemId: ItemId, tick: number | undefined): Promise<void> {
     if (tick === undefined) return
     await this.deps.db.deleteIf<PendingMark>(SYNC_LOG_STORES.outbox, itemId, mark => mark.tick === tick)
@@ -230,7 +216,7 @@ export class ChangeOutbox {
     if (!this.deps.session.isLeader || this.deps.session.isShutdown) return
 
     const unpushed = itemIds.filter(itemId => (
-      this.deps.docStore.hasChangesSince(itemId, this.deps.serverHeads.get(itemId))
+      this.deps.docStore.hasChangesSince(itemId, this.deps.itemSyncState.getServerHeads(itemId))
     ))
     if (unpushed.length === 0) return
     const pending = new Set(await this.listPending())
@@ -291,7 +277,7 @@ export class ChangeOutbox {
       if (prepared.length === 1) {
         const [{ itemId }] = prepared
         log.warn(`The server refused the log rows of item ${itemId}; delivering it with a snapshot`, error)
-        this.snapshotOnlyItems.add(itemId)
+        this.deps.itemSyncState.setSnapshotOnly(itemId)
         this.deps.requestSnapshot(itemId)
         return
       }
@@ -315,13 +301,13 @@ export class ChangeOutbox {
 
   /** Reads and encrypts an item's outgoing rows. Returns null when there's nothing to send. */
   private async preparePush(itemId: ItemId, mark: PendingMark | undefined): Promise<PreparedPush | null> {
-    if (this.snapshotOnlyItems.has(itemId)) {
+    if (this.deps.itemSyncState.isSnapshotOnly(itemId)) {
       await this.recordBlocked(mark, 'snapshotOnly')
       return null
     }
 
     const tick = mark?.tick
-    const outgoing = await this.deps.docStore.readChangesSince(itemId, this.deps.serverHeads.get(itemId))
+    const outgoing = await this.deps.docStore.readChangesSince(itemId, this.deps.itemSyncState.getServerHeads(itemId))
     if (!outgoing) {
       // A doc that exists but won't load keeps its mark, and so do its unpushed changes
       if (await this.deps.docStore.hasDataInStorage(itemId)) {
@@ -339,7 +325,7 @@ export class ChangeOutbox {
 
     if (outgoing.changes.some(change => change.byteLength > MAX_INCREMENTAL_MESSAGE_BYTES)) {
       log.warn(`A change to item ${itemId} is over the row limit; delivering it with a snapshot`)
-      this.snapshotOnlyItems.add(itemId)
+      this.deps.itemSyncState.setSnapshotOnly(itemId)
       this.deps.requestSnapshot(itemId)
       await this.recordBlocked(mark, 'snapshotOnly')
       return null
@@ -377,13 +363,20 @@ export class ChangeOutbox {
     }
   }
 
-  /** Heads are saved before marks clear, so a crash between the two resends rather than forgets */
+  /**
+   * Heads are saved before marks clear, so a crash between the two resends rather than forgets. A
+   * failure to save is logged: heads that are too old only resend changes, and they stay unsaved.
+   */
   private async recordAcknowledged(pushes: PreparedPush[]): Promise<void> {
     if (pushes.length === 0) return
     for (const { itemId, heads } of pushes) {
-      this.deps.serverHeads.set(itemId, heads)
+      this.deps.itemSyncState.setServerHeads(itemId, heads)
     }
-    await this.deps.serverHeads.save()
+    try {
+      await this.deps.itemSyncState.save()
+    } catch (error) {
+      log.error('Failed to save server heads', error)
+    }
     for (const { itemId, tick } of pushes) {
       await this.clearMark(itemId, tick)
     }
@@ -392,6 +385,5 @@ export class ChangeOutbox {
   shutdown(): void {
     this.checkChangedItemsDebounced.cancel()
     this.changedItems.clear()
-    this.snapshotOnlyItems.clear()
   }
 }

@@ -2,7 +2,7 @@ import type { Mock } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 import { MAX_INCREMENTAL_MESSAGE_BYTES, type ItemId } from '@vault/shared'
 import { ChangeOutbox, type ChangeOutboxDeps, type LogExchange, type PendingMark } from './ChangeOutbox'
-import { ServerHeads } from './ServerHeads'
+import { ItemSyncState } from './ItemSyncState'
 import { SyncLogDatabase } from './stores/SyncLogDatabase'
 import { SyncSessionState } from './SyncSessionState'
 import { SYNC_LOG_STORES } from '../shared/syncLogStorage'
@@ -20,7 +20,7 @@ function bytes(length: number): Uint8Array {
 describe('ChangeOutbox', () => {
   let db: SyncLogDatabase
   let session: SyncSessionState
-  let serverHeads: ServerHeads
+  let itemSyncState: ItemSyncState
   let docStore: { [K in keyof ChangeOutboxDeps['docStore']]: AnyMock }
   let exchange: Mock<LogExchange>
   let encryptBytes: AnyMock
@@ -38,7 +38,7 @@ describe('ChangeOutbox', () => {
     vi.stubGlobal('indexedDB', new IDBFactory())
     db = new SyncLogDatabase('account-1')
     session = new SyncSessionState({ isLeader: true })
-    serverHeads = new ServerHeads(db)
+    itemSyncState = new ItemSyncState({ db, session })
     docStore = {
       readChangesSince: vi.fn().mockResolvedValue({ changes: [bytes(10)], heads: ['head-2'] }),
       hasChangesSince: vi.fn().mockReturnValue(false),
@@ -54,7 +54,7 @@ describe('ChangeOutbox', () => {
       docStore: docStore as unknown as ChangeOutboxDeps['docStore'],
       keys: { encryptBytes } as unknown as KeyProvider,
       session,
-      serverHeads,
+      itemSyncState,
       exchange,
       requestSnapshot,
       onMarked,
@@ -64,7 +64,7 @@ describe('ChangeOutbox', () => {
 
   afterEach(async () => {
     outbox.shutdown()
-    await serverHeads.shutdown({ clearLocalData: true })
+    await itemSyncState.shutdown({ clearLocalData: true })
     await db.close()
   })
 
@@ -125,12 +125,12 @@ describe('ChangeOutbox', () => {
 
     expect(encryptBytes).toHaveBeenCalledWith(expect.any(Uint8Array), ITEM)
     expect(exchange).toHaveBeenCalledTimes(1)
-    expect(serverHeads.get(ITEM)).toEqual(['head-2'])
+    expect(itemSyncState.getServerHeads(ITEM)).toEqual(['head-2'])
     expect(await outbox.listPending()).toEqual([])
   })
 
   it('reads changes after the server heads', async () => {
-    serverHeads.set(ITEM, ['head-1'])
+    itemSyncState.setServerHeads(ITEM, ['head-1'])
     await outbox.mark(ITEM)
 
     await outbox.pushPending()
@@ -166,7 +166,7 @@ describe('ChangeOutbox', () => {
 
     await expect(outbox.pushPending()).rejects.toThrow('offline')
 
-    expect(serverHeads.has(ITEM)).toBe(false)
+    expect(itemSyncState.hasServerHeads(ITEM)).toBe(false)
     expect(await outbox.listPending()).toEqual([ITEM])
   })
 
@@ -193,12 +193,12 @@ describe('ChangeOutbox', () => {
 
     await expect(outbox.pushPending()).rejects.toThrow('offline')
 
-    expect(serverHeads.has(ITEM)).toBe(false)
+    expect(itemSyncState.hasServerHeads(ITEM)).toBe(false)
     expect(await outbox.listPending()).toEqual([ITEM])
 
     await outbox.pushPending()
 
-    expect(serverHeads.get(ITEM)).toEqual(['head-2'])
+    expect(itemSyncState.getServerHeads(ITEM)).toEqual(['head-2'])
     expect(await outbox.listPending()).toEqual([])
     const sent = exchange.mock.calls.slice(2).flatMap(([push]) => push)
     expect(sent).toHaveLength(rowCount)
@@ -221,13 +221,40 @@ describe('ChangeOutbox', () => {
 
     expect(exchange).not.toHaveBeenCalled()
     expect(requestSnapshot).toHaveBeenCalledWith(ITEM)
-    expect(outbox.isSnapshotOnly(ITEM)).toBe(true)
+    expect(itemSyncState.isSnapshotOnly(ITEM)).toBe(true)
     expect(await outbox.listPending()).toEqual([ITEM])
 
-    outbox.confirmSnapshotOnly(ITEM, ['head-2'])
+    itemSyncState.confirmSnapshotOnly(ITEM, ['head-2'])
 
-    expect(outbox.isSnapshotOnly(ITEM)).toBe(false)
-    expect(serverHeads.get(ITEM)).toEqual(['head-2'])
+    expect(itemSyncState.isSnapshotOnly(ITEM)).toBe(false)
+    expect(itemSyncState.getServerHeads(ITEM)).toEqual(['head-2'])
+  })
+
+  it('still sends a snapshot-only item by snapshot after a reload', async () => {
+    docStore.readChangesSince.mockResolvedValue({ changes: [bytes(MAX_INCREMENTAL_MESSAGE_BYTES + 1)], heads: ['head-2'] })
+    await outbox.mark(ITEM)
+    await outbox.pushPending()
+    await itemSyncState.shutdown()
+
+    itemSyncState = new ItemSyncState({ db, session })
+    await itemSyncState.load()
+    const reloaded = new ChangeOutbox({
+      db,
+      docStore: docStore as unknown as ChangeOutboxDeps['docStore'],
+      keys: { encryptBytes } as unknown as KeyProvider,
+      session,
+      itemSyncState,
+      exchange,
+      requestSnapshot,
+      onMarked,
+    })
+    docStore.readChangesSince.mockClear()
+    await reloaded.pushPending()
+
+    expect(itemSyncState.isSnapshotOnly(ITEM)).toBe(true)
+    expect(docStore.readChangesSince).not.toHaveBeenCalled()
+    expect(exchange).not.toHaveBeenCalled()
+    reloaded.shutdown()
   })
 
   describe('filling requests', () => {
@@ -256,7 +283,7 @@ describe('ChangeOutbox', () => {
       const sizes = exchange.mock.calls.map(([push]) => push.length)
       expect(sizes.every(size => size <= SYNC_BATCH_SIZES.logPushRows && size % 2 === 0)).toBe(true)
       expect(sizes.reduce((total, size) => total + size, 0)).toBe(120)
-      expect(itemIds.every(itemId => serverHeads.get(itemId)?.[0] === 'head-2')).toBe(true)
+      expect(itemIds.every(itemId => itemSyncState.getServerHeads(itemId)?.[0] === 'head-2')).toBe(true)
     })
 
     it('starts a new request before the ciphertext limit', async () => {
@@ -311,9 +338,9 @@ describe('ChangeOutbox', () => {
 
       await outbox.pushPending()
 
-      expect(outbox.isSnapshotOnly(ITEM)).toBe(true)
+      expect(itemSyncState.isSnapshotOnly(ITEM)).toBe(true)
       expect(requestSnapshot).toHaveBeenCalledWith(ITEM)
-      expect(serverHeads.get(OTHER)).toEqual(['head-2'])
+      expect(itemSyncState.getServerHeads(OTHER)).toEqual(['head-2'])
       // The snapshot carries ITEM's changes, so its mark stays until that's confirmed
       expect(await outbox.listPending()).toEqual([ITEM])
 
@@ -329,8 +356,8 @@ describe('ChangeOutbox', () => {
 
       await outbox.pushPending()
 
-      expect(outbox.isSnapshotOnly(ITEM)).toBe(true)
-      expect(others.every(itemId => serverHeads.get(itemId)?.[0] === 'head-2')).toBe(true)
+      expect(itemSyncState.isSnapshotOnly(ITEM)).toBe(true)
+      expect(others.every(itemId => itemSyncState.getServerHeads(itemId)?.[0] === 'head-2')).toBe(true)
       expect(await outbox.listPending()).toEqual([ITEM])
       // 32 items take a refused request per halving down to ITEM, and one accepted request per other half
       expect(exchange.mock.calls.length).toBeLessThanOrEqual(1 + 2 * Math.log2(32))
@@ -342,7 +369,7 @@ describe('ChangeOutbox', () => {
 
       await expect(outbox.pushPending()).rejects.toThrow('Service unavailable')
 
-      expect(outbox.isSnapshotOnly(ITEM)).toBe(false)
+      expect(itemSyncState.isSnapshotOnly(ITEM)).toBe(false)
       expect(requestSnapshot).not.toHaveBeenCalled()
     })
 
@@ -355,7 +382,7 @@ describe('ChangeOutbox', () => {
 
       await expect(outbox.pushPending()).rejects.toThrow('QUOTA_EXCEEDED')
 
-      expect(outbox.isSnapshotOnly(ITEM)).toBe(false)
+      expect(itemSyncState.isSnapshotOnly(ITEM)).toBe(false)
       expect(requestSnapshot).not.toHaveBeenCalled()
       expect(await outbox.listPending()).toEqual([ITEM])
     })
@@ -365,7 +392,7 @@ describe('ChangeOutbox', () => {
       await outbox.mark(ITEM)
 
       await expect(outbox.pushPending()).rejects.toThrow('UNAUTHORIZED')
-      expect(outbox.isSnapshotOnly(ITEM)).toBe(false)
+      expect(itemSyncState.isSnapshotOnly(ITEM)).toBe(false)
     })
   })
 
@@ -385,7 +412,7 @@ describe('ChangeOutbox', () => {
     await outbox.pushItems([ITEM])
 
     expect(exchange).toHaveBeenCalledTimes(1)
-    expect(serverHeads.get(ITEM)).toEqual(['head-2'])
+    expect(itemSyncState.getServerHeads(ITEM)).toEqual(['head-2'])
   })
 
   describe('doc changes', () => {

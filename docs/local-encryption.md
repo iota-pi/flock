@@ -18,7 +18,7 @@ Two changes protect data at rest. **Part 1** derives the password key with Argon
 | Sealed Automerge database (`sealedAutomergeDatabase` + account) | Every document's full history; the wrapped DSK and upgrade marker in its `meta` store | Sealed |
 | Sync metadata: `indexDocSealed` | Active and tombstoned item IDs, local-only settings, last sync times | Sealed |
 | Sync metadata: other keys | Cursors, heads, versions, device data level | Plaintext, no user content |
-| Sync log database (`syncLogDatabase` + account) | Pending marks, first-start records and unconfirmed pulls (IDs, heads and counters), and parked entries | Needs no seal: parked entries hold the server's ciphertext as it arrived, and a plaintext session uses the same store |
+| Sync log database (`syncLogDatabase` + account) | Pending marks, first-start records and each item's sync record (IDs, heads and counters), and parked entries | Needs no seal: parked entries hold the server's ciphertext as it arrived, and a plaintext session uses the same store |
 | Manual recovery (`manualRecoveryDatabase` + account) | Item IDs, recovery kinds and reason codes (`ManualRecoveryDetail`: fixed codes plus sizes and stages, never an error message) | Plaintext, no user content: error messages can quote decrypted content, so they're only logged, and older free-text reasons are scrubbed when read |
 | Keyring cache, biometric data (localStorage) | Data keys | Encrypted (master key / WebAuthn PRF) |
 | Account metadata (localStorage) | Account ID, salt, key derivation parameters | Plaintext, needed before login |

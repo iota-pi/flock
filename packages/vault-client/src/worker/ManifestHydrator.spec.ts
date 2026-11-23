@@ -30,7 +30,8 @@ describe('ManifestHydrator', () => {
   let mockApiClient: any
   let mockDocStore: any
   let mockIndexManager: any
-  let mockSnapshotTracker: any
+  let mockItemSyncState: any
+  let mockSnapshotSchedule: any
   let storeItemsSpy: any
   let onDecryptionFailureSpy: any
   let onItemSnapshotHydratedSpy: any
@@ -50,8 +51,10 @@ describe('ManifestHydrator', () => {
       addItemIds: vi.fn().mockResolvedValue(undefined),
       removeItemIds: vi.fn().mockResolvedValue(undefined),
     }
-    mockSnapshotTracker = {
-      importVersions: vi.fn().mockResolvedValue(undefined),
+    mockItemSyncState = {
+      importBaseVersions: vi.fn().mockResolvedValue(undefined),
+    }
+    mockSnapshotSchedule = {
       markItemDirty: vi.fn(),
     }
     storeItemsSpy = vi.fn().mockResolvedValue(undefined)
@@ -63,7 +66,8 @@ describe('ManifestHydrator', () => {
       apiClient: mockApiClient,
       docStore: mockDocStore,
       indexManager: mockIndexManager,
-      snapshotTracker: mockSnapshotTracker,
+      itemSyncState: mockItemSyncState,
+      snapshotSchedule: mockSnapshotSchedule,
       keys,
       storeItems: storeItemsSpy,
       isShutdown: () => false,
@@ -150,7 +154,7 @@ describe('ManifestHydrator', () => {
         hydratedId: 'item-binary-changes',
         versionUpdate: ['item-binary-changes', 3],
       })
-      expect(mockSnapshotTracker.markItemDirty).toHaveBeenCalledWith('item-binary-changes', 2000)
+      expect(mockSnapshotSchedule.markItemDirty).toHaveBeenCalledWith('item-binary-changes', 2000)
     })
 
     it('returns structured success for deleted metadata without decryption', async () => {
@@ -225,7 +229,8 @@ describe('ManifestHydrator', () => {
         apiClient: mockApiClient,
         docStore: mockDocStore,
         indexManager: mockIndexManager,
-        snapshotTracker: mockSnapshotTracker,
+        itemSyncState: mockItemSyncState,
+        snapshotSchedule: mockSnapshotSchedule,
         keys,
         storeItems: storeItemsSpy,
         isShutdown: () => false,
@@ -285,7 +290,8 @@ describe('ManifestHydrator', () => {
         apiClient: mockApiClient,
         docStore: mockDocStore,
         indexManager: mockIndexManager,
-        snapshotTracker: mockSnapshotTracker,
+        itemSyncState: mockItemSyncState,
+        snapshotSchedule: mockSnapshotSchedule,
         keys,
         storeItems: storeItemsSpy,
         isShutdown: () => false,
@@ -324,7 +330,8 @@ describe('ManifestHydrator', () => {
         apiClient: mockApiClient,
         docStore: mockDocStore,
         indexManager: mockIndexManager,
-        snapshotTracker: mockSnapshotTracker,
+        itemSyncState: mockItemSyncState,
+        snapshotSchedule: mockSnapshotSchedule,
         keys,
         storeItems: storeItemsSpy,
         isShutdown: () => false,
@@ -371,7 +378,7 @@ describe('ManifestHydrator', () => {
 
       expect(result).toEqual({ status: 'success', itemId: 'item-legacy', versionUpdate: ['item-legacy', 4] })
       expect(mockIndexManager.removeItemIds).toHaveBeenCalledWith(['item-legacy'])
-      expect(mockSnapshotTracker.markItemDirty).toHaveBeenCalledWith('item-legacy', expect.any(Number))
+      expect(mockSnapshotSchedule.markItemDirty).toHaveBeenCalledWith('item-legacy', expect.any(Number))
     })
   })
 
@@ -398,7 +405,7 @@ describe('ManifestHydrator', () => {
         [{ id: 'item-1', deleted: true }],
         { markDirty: false },
       )
-      expect(mockSnapshotTracker.importVersions).toHaveBeenCalledWith([['item-1', 1]])
+      expect(mockItemSyncState.importBaseVersions).toHaveBeenCalledWith([['item-1', 1]])
     })
 
     describe('storing hydrated docs (rule 1)', () => {
@@ -427,7 +434,7 @@ describe('ManifestHydrator', () => {
         const order: string[] = []
         mockDocStore.flushToStorage.mockImplementation(async () => { order.push('flush') })
         mockIndexManager.addItemIds.mockImplementation(async () => { order.push('index') })
-        mockSnapshotTracker.importVersions.mockImplementation(async () => { order.push('versions') })
+        mockItemSyncState.importBaseVersions.mockImplementation(async () => { order.push('versions') })
 
         const result = await hydrator.fetchAndHydrateRemoteItems(params())
 
@@ -443,7 +450,7 @@ describe('ManifestHydrator', () => {
 
         expect(result).toEqual({ added: [], hasFailures: true })
         expect(mockIndexManager.addItemIds).not.toHaveBeenCalled()
-        expect(mockSnapshotTracker.importVersions).not.toHaveBeenCalled()
+        expect(mockItemSyncState.importBaseVersions).not.toHaveBeenCalled()
       })
     })
 
@@ -489,7 +496,7 @@ describe('ManifestHydrator', () => {
 
       expect(result.hasFailures).toBe(true)
       expect(onDecryptionFailureSpy).not.toHaveBeenCalled()
-      expect(mockSnapshotTracker.importVersions).not.toHaveBeenCalled()
+      expect(mockItemSyncState.importBaseVersions).not.toHaveBeenCalled()
     })
 
     describe('an item that keeps failing with an error', () => {
@@ -508,7 +515,8 @@ describe('ManifestHydrator', () => {
           apiClient: mockApiClient,
           docStore: mockDocStore,
           indexManager: mockIndexManager,
-          snapshotTracker: mockSnapshotTracker,
+          itemSyncState: mockItemSyncState,
+          snapshotSchedule: mockSnapshotSchedule,
           keys,
           storeItems: storeItemsSpy,
           isShutdown: () => false,
@@ -611,7 +619,8 @@ describe('ManifestHydrator', () => {
         apiClient: mockApiClient,
         docStore: mockDocStore,
         indexManager: mockIndexManager,
-        snapshotTracker: mockSnapshotTracker,
+        itemSyncState: mockItemSyncState,
+        snapshotSchedule: mockSnapshotSchedule,
         keys,
         storeItems: storeItemsSpy,
         isShutdown: () => false,

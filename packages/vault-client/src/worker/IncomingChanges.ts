@@ -1,13 +1,13 @@
 import type { ItemId } from '@vault/shared'
 import type { AutomergeDocStore } from './docStore'
 import type { ChangeOutbox } from './ChangeOutbox'
-import type { ServerHeads } from './ServerHeads'
+import type { ItemSyncState } from './ItemSyncState'
 import { areHeadsEqual } from './utils/automerge'
 
 export interface IncomingChangesDeps {
   docStore: Pick<AutomergeDocStore, 'applyIncomingChanges'>
   outbox: Pick<ChangeOutbox, 'isPending'>
-  serverHeads: ServerHeads
+  itemSyncState: Pick<ItemSyncState, 'getServerHeads' | 'setServerHeads'>
   /** Called for each item log changes were applied to, so the app sees a new document */
   onItemApplied: (itemId: ItemId) => void
   /** Called with an item whose doc gained changes it didn't have */
@@ -28,8 +28,8 @@ export class IncomingChanges {
   async apply(itemId: ItemId, bytes: Uint8Array): Promise<boolean> {
     const isPending = await this.deps.outbox.isPending(itemId)
     const result = await this.deps.docStore.applyIncomingChanges(itemId, bytes, ({ headsBefore, headsAfter }) => {
-      if (isPending || !headsBefore || !areHeadsEqual(headsBefore, this.deps.serverHeads.get(itemId))) return
-      this.deps.serverHeads.set(itemId, headsAfter)
+      if (isPending || !headsBefore || !areHeadsEqual(headsBefore, this.deps.itemSyncState.getServerHeads(itemId))) return
+      this.deps.itemSyncState.setServerHeads(itemId, headsAfter)
     })
     if (result.status === 'missingDeps') return false
 

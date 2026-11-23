@@ -9,12 +9,19 @@ import { SyncLogDatabase } from './SyncLogDatabase'
  */
 export interface ItemSyncRecord {
   itemId: ItemId
-  /** Heads whose every ancestor is on the server, in the log or in the item's snapshot (see ServerHeads) */
+  /** Heads whose every ancestor is on the server, in the log or in the item's snapshot (see ItemSyncState) */
   serverHeads?: string[]
   /** The server version of the latest snapshot this device uploaded or merged (sync rule 8) */
   baseVersion?: number
-  /** Set while the item owes the server a snapshot (see SnapshotTracker) */
+  /** Set while the item owes the server a snapshot (see SnapshotSchedule) */
   dirty?: true
+  /** Set while only a snapshot can deliver the item's changes, which the log refused or can't hold */
+  snapshotOnly?: true
+  /**
+   * When this device first pulled changes to the item that no snapshot has confirmed yet (rule S2 of
+   * snapshot coverage)
+   */
+  pulledAt?: number
 }
 
 type ItemSyncRecordsDatabase = Pick<SyncLogDatabase, 'getAll' | 'update'>
@@ -49,7 +56,7 @@ export async function clearServerHeads(db: ItemSyncRecordsDatabase): Promise<voi
 /**
  * Adds records from an older layout, for the app's `migrateLocalData` hook. A field an item's record
  * already has wins, since nothing older than the record can be newer: base versions keep the higher,
- * and an item stays dirty if either says so.
+ * an item stays dirty or snapshot-only if either says so, and an unconfirmed pull keeps the earlier time.
  */
 export async function importItemSyncRecords(accountId: string, records: ItemSyncRecord[]): Promise<void> {
   if (records.length === 0) return
@@ -60,11 +67,14 @@ export async function importItemSyncRecords(accountId: string, records: ItemSync
       const imported = byId.get(current.itemId)!
       const baseVersion = Math.max(current.baseVersion ?? 0, imported.baseVersion ?? 0)
       const serverHeads = current.serverHeads ?? imported.serverHeads
+      const pulledAt = Math.min(current.pulledAt ?? Infinity, imported.pulledAt ?? Infinity)
       return {
         ...current,
         ...(serverHeads ? { serverHeads } : {}),
         ...(baseVersion > 0 ? { baseVersion } : {}),
         ...(current.dirty || imported.dirty ? { dirty: true } : {}),
+        ...(current.snapshotOnly || imported.snapshotOnly ? { snapshotOnly: true } : {}),
+        ...(Number.isFinite(pulledAt) ? { pulledAt } : {}),
       }
     })
   } finally {
