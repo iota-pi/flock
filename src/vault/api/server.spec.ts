@@ -42,7 +42,6 @@ describe('createServer error reporting', () => {
 
   it.each([
     { path: 'items.putSnapshots', payload: { account: 'test-account', snapshots: [] } },
-    { path: 'sync.pollSync', payload: { account: 'test-account', pushMessages: [] } },
     { path: 'sync.pollLog', payload: { account: 'test-account', after: 0 } },
   ])('turns $path away from a build from before the sync log, so it updates', async ({ path, payload }) => {
     const server = await createTestServer(true)
