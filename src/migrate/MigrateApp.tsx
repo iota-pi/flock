@@ -46,7 +46,7 @@ const POLLS_BEFORE_BLOCKED = 6
  * re-encryption) before it's shown as stuck, whatever it's waiting on
  */
 export const STALL_TIMEOUT_MS = 5 * 60 * 1000
-/** How long re-encryption waits for this tab to lead, and for first start, before giving up */
+/** How long re-encryption waits for this tab to lead, and for it to catch up, before giving up */
 export const REENCRYPT_WAIT_TIMEOUT_MS = 60 * 1000
 
 /**

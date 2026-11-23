@@ -2,14 +2,13 @@ import * as Automerge from '@automerge/automerge/slim'
 import type { ItemId } from '@vault/shared'
 import type { ServerHeads } from './ServerHeads'
 import type { SyncLogDatabase } from './stores/SyncLogDatabase'
-import type { FirstStartState } from './FirstStart'
 import { areHeadsEqual } from './utils/automerge'
 import { SYNC_LOG_STORES } from '../shared/syncLogStorage'
 
 /** Whether an item's snapshot may be built now, and if not, why */
 export type CoverageCheck =
   | { covered: true }
-  | { covered: false; reason: 'unpushed' | 'awaitingHeads' }
+  | { covered: false; reason: 'unpushed' }
 
 /** An item with pulled changes no snapshot has confirmed */
 export interface UnconfirmedPull {
@@ -20,7 +19,6 @@ export interface UnconfirmedPull {
 export interface SnapshotCoverageDeps {
   db: SyncLogDatabase
   serverHeads: ServerHeads
-  firstStartState: (itemId: ItemId) => FirstStartState | undefined
   isSnapshotOnly: (itemId: ItemId) => boolean
 }
 
@@ -37,14 +35,11 @@ export class SnapshotCoverage {
   constructor(private readonly deps: SnapshotCoverageDeps) {}
 
   /**
-   * S1. Synchronous, so that a caller can run it in the same section as `Automerge.save`. The two
-   * exceptions have no log to wait for: a change too large for a row, and an item at first start
-   * whose server heads can't be known.
+   * S1. Synchronous, so that a caller can run it in the same section as `Automerge.save`. The one
+   * exception has no log to wait for: a change too large for a row.
    */
   check(itemId: ItemId, doc: Automerge.Doc<unknown>): CoverageCheck {
-    const firstStart = this.deps.firstStartState(itemId)
-    if (firstStart === 'awaitingHeads') return { covered: false, reason: 'awaitingHeads' }
-    if (firstStart === 'awaitingSnapshot' || this.deps.isSnapshotOnly(itemId)) return { covered: true }
+    if (this.deps.isSnapshotOnly(itemId)) return { covered: true }
 
     const serverHeads = this.deps.serverHeads.get(itemId)
     if (areHeadsEqual(Automerge.getHeads(doc), serverHeads)) return { covered: true }

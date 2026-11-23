@@ -78,10 +78,6 @@ export interface ChangeOutboxDeps {
   keys: KeyProvider
   session: SyncSessionState
   serverHeads: ServerHeads
-  /** Whether an item waits on first start, so its server heads aren't known and it can't be pushed */
-  isAwaitingFirstStart: (itemId: ItemId) => boolean
-  /** Whether first start has got far enough for anything to reach the log */
-  canPush: () => boolean
   exchange: LogExchange
   /** Asks for an item's snapshot now, which delivers what the log can't */
   requestSnapshot: (itemId: ItemId) => void
@@ -234,8 +230,7 @@ export class ChangeOutbox {
     if (!this.deps.session.isLeader || this.deps.session.isShutdown) return
 
     const unpushed = itemIds.filter(itemId => (
-      !this.deps.isAwaitingFirstStart(itemId)
-      && this.deps.docStore.hasChangesSince(itemId, this.deps.serverHeads.get(itemId))
+      this.deps.docStore.hasChangesSince(itemId, this.deps.serverHeads.get(itemId))
     ))
     if (unpushed.length === 0) return
     const pending = new Set(await this.listPending())
@@ -249,11 +244,11 @@ export class ChangeOutbox {
 
   /**
    * Pushes what the given items have after their server heads, preparing items until the next would
-   * overfill a request, so each request carries as many items as one transaction can. Does nothing
-   * until first start allows it. Throws if a push fails, leaving the rest for the next one.
+   * overfill a request, so each request carries as many items as one transaction can. Throws if a
+   * push fails, leaving the rest for the next one.
    */
   async pushItems(itemIds: ItemId[], signal?: AbortSignal): Promise<void> {
-    if (itemIds.length === 0 || !this.deps.canPush()) return
+    if (itemIds.length === 0) return
     const marks = await this.listMarks()
     const marksById = new Map(marks.map(mark => [mark.itemId, mark]))
 
@@ -285,7 +280,7 @@ export class ChangeOutbox {
   /**
    * Sends the pushes, and if the server refuses the request itself, finds the items it refuses on
    * their own and delivers those by snapshot, as it does a change too large for a row. Otherwise one
-   * such item would fail every push, and first start, for good. Resending what an earlier request
+   * such item would fail every push for good. Resending what an earlier request
    * stored only repeats changes, which Automerge ignores.
    */
   private async sendSettingAsideRefused(prepared: PreparedPush[], signal?: AbortSignal): Promise<void> {
@@ -320,8 +315,6 @@ export class ChangeOutbox {
 
   /** Reads and encrypts an item's outgoing rows. Returns null when there's nothing to send. */
   private async preparePush(itemId: ItemId, mark: PendingMark | undefined): Promise<PreparedPush | null> {
-    // First start's own records say why it holds an item, for anyone to read
-    if (this.deps.isAwaitingFirstStart(itemId)) return null
     if (this.snapshotOnlyItems.has(itemId)) {
       await this.recordBlocked(mark, 'snapshotOnly')
       return null

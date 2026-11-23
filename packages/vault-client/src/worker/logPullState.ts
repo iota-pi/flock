@@ -45,7 +45,7 @@ export interface LogPullState {
 export type LogPullEvent =
   /** The server's clock shows the device is behind, and the page was dropped */
   | { type: 'behindSeen' }
-  /** Catch-up's manifest sync fetched the manifest, here or in first start */
+  /** Catch-up's manifest sync fetched the manifest */
   | { type: 'catchUpSynced' }
   /** The manifest sync a lost row asked for fetched the manifest */
   | { type: 'recoverySynced' }
