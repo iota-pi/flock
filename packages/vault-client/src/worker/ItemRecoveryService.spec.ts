@@ -27,7 +27,7 @@ describe('ItemRecoveryService', () => {
       unquarantine: vi.fn().mockResolvedValue(undefined),
     }
     mockSnapshotManager = {
-      tracker: {
+      schedule: {
         clearOversized: vi.fn(),
         markItemDirty: vi.fn(),
       },
@@ -105,8 +105,8 @@ describe('ItemRecoveryService', () => {
     await service.retryRecoveryItem('item-1' as ItemId)
 
     expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith('item-1')
-    expect(mockSnapshotManager.tracker.clearOversized).toHaveBeenCalledWith('item-1')
-    expect(mockSnapshotManager.tracker.markItemDirty).toHaveBeenCalledWith('item-1')
+    expect(mockSnapshotManager.schedule.clearOversized).toHaveBeenCalledWith('item-1')
+    expect(mockSnapshotManager.schedule.markItemDirty).toHaveBeenCalledWith('item-1')
     expect(mockSnapshotManager.flushPendingSnapshots).toHaveBeenCalled()
   })
 
@@ -115,8 +115,8 @@ describe('ItemRecoveryService', () => {
 
     expect(newItemId).toBe('item-new')
     expect(mockItemOperations.recreateOversizedItem).toHaveBeenCalledWith('item-old')
-    expect(mockSnapshotManager.tracker.clearOversized).toHaveBeenCalledWith('item-old')
-    expect(mockSnapshotManager.tracker.markItemDirty).not.toHaveBeenCalled()
+    expect(mockSnapshotManager.schedule.clearOversized).toHaveBeenCalledWith('item-old')
+    expect(mockSnapshotManager.schedule.markItemDirty).not.toHaveBeenCalled()
     expect(mockSnapshotManager.flushPendingSnapshots).toHaveBeenCalled()
   })
 })

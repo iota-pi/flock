@@ -9,7 +9,7 @@ describe('StorageRecoveryService', () => {
   let mockOutbox: any
   let mockDocStore: any
   let mockSnapshotManager: any
-  let mockSnapshotTracker: any
+  let mockItemSyncState: any
   let mockMetadataStore: any
   let mockOrchestrator: any
   let session: SyncSessionState
@@ -23,13 +23,15 @@ describe('StorageRecoveryService', () => {
     mockDocStore = {
       saveDocToStorage: vi.fn().mockResolvedValue(true),
     }
-    mockSnapshotTracker = {
-      getDirtyItemIds: vi.fn().mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId]),
+    mockItemSyncState = {
       save: vi.fn().mockResolvedValue(undefined),
     }
     mockSnapshotManager = {
       flushPendingSnapshots: vi.fn().mockResolvedValue({ persisted: 1, total: 1 }),
-      tracker: mockSnapshotTracker,
+      schedule: {
+        getDirtyItemIds: vi.fn().mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId]),
+      },
+      state: mockItemSyncState,
     }
     mockMetadataStore = {
       testStorageAvailable: vi.fn().mockResolvedValue(undefined),
@@ -97,7 +99,7 @@ describe('StorageRecoveryService', () => {
 
       expect(mockOutbox.markAll).toHaveBeenCalledWith(['item-1', 'item-2'])
 
-      expect(mockSnapshotTracker.save).toHaveBeenCalled()
+      expect(mockItemSyncState.save).toHaveBeenCalled()
       expect(mockSnapshotManager.flushPendingSnapshots).toHaveBeenCalled()
       expect(mockOrchestrator.flush).toHaveBeenCalled()
 
@@ -147,7 +149,7 @@ describe('StorageRecoveryService', () => {
 
     it('returns failure when saving sync records throws QuotaExceededError', async () => {
       const quotaErr = new DOMException('Quota exceeded', 'QuotaExceededError')
-      mockSnapshotTracker.save.mockRejectedValueOnce(quotaErr)
+      mockItemSyncState.save.mockRejectedValueOnce(quotaErr)
 
       const result = await service.retrySave()
 
@@ -156,7 +158,7 @@ describe('StorageRecoveryService', () => {
     })
 
     it('handles unexpected errors gracefully and returns error message', async () => {
-      mockSnapshotTracker.save.mockRejectedValueOnce(new Error('Database corrupted'))
+      mockItemSyncState.save.mockRejectedValueOnce(new Error('Database corrupted'))
 
       const result = await service.retrySave()
 

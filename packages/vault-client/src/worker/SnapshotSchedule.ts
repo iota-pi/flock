@@ -1,22 +1,17 @@
-import { debounce } from 'lodash-es'
 import type { ItemId } from '@vault/shared'
-import type { SyncLogDatabase } from './stores/SyncLogDatabase'
-import { readItemSyncRecords, updateItemSyncRecords, type ItemSyncRecord } from './stores/itemSyncRecords'
-import { SingleFlightGuard } from '../utils/SingleFlightGuard'
-import { AsyncMutex } from '../utils/AsyncMutex'
-import { checkAlive, isAbortError } from '../utils/abort'
+import type { ItemSyncState } from './ItemSyncState'
 import type { RecoveryManager } from './RecoveryManager'
-import { fireAndForget } from '../utils/fireAndForget'
+import type { SyncSessionState } from './SyncSessionState'
+import { checkAlive, isAbortError } from '../utils/abort'
 import { createLogger } from '../utils/logger'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
-import type { SyncSessionState } from './SyncSessionState'
 
-const log = createLogger('SnapshotTracker')
+const log = createLogger('SnapshotSchedule')
 
-export interface SnapshotTrackerOptions {
-  /** Holds each item's sync record, where its dirty flag and base version are kept */
-  db: Pick<SyncLogDatabase, 'getAll' | 'update'>
-  recoveryManager: RecoveryManager
+export interface SnapshotScheduleOptions {
+  /** Where each item's dirty flag and base version are kept */
+  state: Pick<ItemSyncState, 'setDirty' | 'raiseBaseVersion' | 'listFlagged'>
+  recoveryManager: Pick<RecoveryManager, 'listRecoveryItems'>
   debounceDelayMs?: number
   maxWaitMs?: number
   session: SyncSessionState
@@ -26,20 +21,17 @@ export interface SnapshotTrackerOptions {
 }
 
 /**
- * Tracks the items that owe the server a snapshot, and each item's base version.
+ * The session's queue of items that owe the server a snapshot, and when their uploads are due.
  *
  * Within a session the dirty items are counted with ticks, so an edit made while an upload is in
- * flight keeps the item dirty. Across sessions each item's sync record carries a `dirty` flag, set
- * when the item is marked and cleared when it stops being dirty, and the startup audit re-queues every
- * flagged item. Every tab marks items, but only the leader clears them, and each save writes only the
- * items this tab changed, in one transaction.
+ * flight keeps the item dirty. Across sessions, each item's sync record carries a `dirty` flag
+ * (`ItemSyncState`), set when the item is queued and cleared when it leaves the queue, and the startup
+ * and promotion audit (`restoreFlagged`) queues every flagged item again. Every tab queues items, but
+ * only the leader uploads and so takes them out.
  */
-export class SnapshotTracker {
+export class SnapshotSchedule {
   private readonly dirtyItems = new Map<ItemId, number>()
   private dirtyItemsTick = 0
-  private readonly baseVersions = new Map<ItemId, number>()
-  /** Items whose dirty flag or base version this tab hasn't saved yet */
-  private readonly unsaved = new Set<ItemId>()
   /** Items quarantined as too large to upload, so the warning is given only once */
   private readonly oversizedItems = new Set<ItemId>()
 
@@ -57,18 +49,7 @@ export class SnapshotTracker {
   private readonly debounceDelayMs: number
   private readonly maxWaitMs: number
 
-  private readonly loadGuard = new SingleFlightGuard<void>()
-  private readonly saveMutex = new AsyncMutex()
-
-  // Bounded by maxWait, so steady editing still saves. The startup audit needs a saved flag to
-  // re-queue an edit whose snapshot never went up.
-  private readonly saveDebounced = debounce(
-    () => fireAndForget(this.persist(), 'SnapshotTracker:persist'),
-    SYNC_TIMEOUTS.snapshotTimestampsSave,
-    { maxWait: SYNC_TIMEOUTS.snapshotTimestampsSaveMaxWait },
-  )
-
-  constructor(private readonly deps: SnapshotTrackerOptions) {
+  constructor(private readonly deps: SnapshotScheduleOptions) {
     this.debounceDelayMs = deps.debounceDelayMs ?? SYNC_TIMEOUTS.snapshotDebounce
     this.maxWaitMs = deps.maxWaitMs ?? SYNC_TIMEOUTS.snapshotMaxWait
   }
@@ -91,21 +72,20 @@ export class SnapshotTracker {
 
   markItemDirty(itemId: ItemId, customDebounceDelayMs?: number): void {
     if (this.deps.session.isShutdown || !itemId) return
-    this.dirtyItemsTick += 1
-    this.dirtyItems.set(itemId, this.dirtyItemsTick)
-    this.markUnsaved(itemId)
+    this.queue(itemId)
+    this.deps.state.setDirty(itemId, true)
     this.scheduleDue(customDebounceDelayMs)
   }
 
-  private markUnsaved(itemId: ItemId): void {
-    this.unsaved.add(itemId)
-    this.saveDebounced()
+  private queue(itemId: ItemId): void {
+    this.dirtyItemsTick += 1
+    this.dirtyItems.set(itemId, this.dirtyItemsTick)
   }
 
-  /** Drops the item from the dirty items, clearing its flag */
+  /** Drops the item from the queue, clearing its flag */
   private removeDirty(itemId: ItemId): boolean {
     const removed = this.dirtyItems.delete(itemId)
-    if (removed) this.markUnsaved(itemId)
+    if (removed) this.deps.state.setDirty(itemId, false)
     return removed
   }
 
@@ -168,31 +148,14 @@ export class SnapshotTracker {
     this.retryAtNextPoll = true
   }
 
-  /** Starts a pending save now, such as when the page is hidden and may be closed */
-  flushPendingSave(): void {
-    this.saveDebounced.flush()
-  }
-
-  /** Loads the stored records and the items quarantined as oversized */
-  async load(): Promise<void> {
+  /**
+   * The startup and promotion audit, run once the item records have loaded: queues every flagged item
+   * that isn't quarantined, due after `restoredSnapshotDelay` however later edits come, and notes the
+   * items quarantined as oversized.
+   */
+  async restoreFlagged(): Promise<void> {
     if (this.deps.session.isShutdown) return
-    return this.loadGuard.run(() => this.executeLoad())
-  }
-
-  private async executeLoad(): Promise<void> {
     try {
-      checkAlive(null, () => !this.deps.session.isShutdown)
-      const records = await readItemSyncRecords(this.deps.db)
-      checkAlive(null, () => !this.deps.session.isShutdown)
-
-      const flagged: ItemId[] = []
-      for (const { itemId, baseVersion, dirty } of records) {
-        if (typeof baseVersion === 'number') {
-          this.raiseBaseVersion(itemId, baseVersion)
-        }
-        if (dirty) flagged.push(itemId)
-      }
-
       const quarantinedIds = new Set<ItemId>()
       try {
         const recoveryEntries = await this.deps.recoveryManager.listRecoveryItems()
@@ -208,14 +171,12 @@ export class SnapshotTracker {
         log.error('Failed to read manual recovery entries during startup audit', recoveryErr)
       }
 
-      checkAlive(null, () => !this.deps.session.isShutdown)
-
-      // Startup and promotion audit: re-queue flagged items, except quarantined ones
       let auditCount = 0
-      for (const itemId of flagged) {
+      for (const { itemId, dirty } of this.deps.state.listFlagged()) {
         if (quarantinedIds.has(itemId) || this.dirtyItems.has(itemId)) continue
-        this.dirtyItemsTick += 1
-        this.dirtyItems.set(itemId, this.dirtyItemsTick)
+        this.queue(itemId)
+        // Only `snapshotOnly` flagged it, which a dirty flag should have gone with
+        if (!dirty) this.deps.state.setDirty(itemId, true)
         auditCount += 1
       }
       if (auditCount > 0) {
@@ -225,65 +186,22 @@ export class SnapshotTracker {
       }
     } catch (error) {
       if (isAbortError(error) || this.deps.session.isShutdown) return
-      log.error('Failed to load item sync records', error)
-    }
-  }
-
-  /** Like `save`, but logs a failure */
-  private async persist(): Promise<void> {
-    try {
-      await this.save()
-    } catch (error) {
-      log.error('Failed to save item sync records', error)
+      log.error('Failed to restore flagged items', error)
     }
   }
 
   /**
-   * Writes the dirty flag and base version of each item this tab changed, in one transaction. Base
-   * versions keep the higher of this tab's and the stored one, since a tab can have loaded before the
-   * leader raised it. Throws a failure, for callers that must know the records were saved, and the
-   * items stay unsaved.
+   * Records a snapshot the server stored: the item leaves the queue if its tick hasn't moved, and its
+   * base version rises to the stored one. Without a tick, the item stays dirty: the snapshot wasn't
+   * built for its pending edits.
    */
-  async save(): Promise<void> {
-    this.saveDebounced.cancel()
-    await this.saveMutex.runExclusive(async () => {
-      if (this.unsaved.size === 0) return
-      const changed = Array.from(this.unsaved)
-      this.unsaved.clear()
-      try {
-        await updateItemSyncRecords(this.deps.db, changed, record => this.withTrackedState(record))
-      } catch (error) {
-        for (const itemId of changed) {
-          this.unsaved.add(itemId)
-        }
-        throw error
-      }
-    })
-  }
-
-  private withTrackedState(stored: ItemSyncRecord): ItemSyncRecord {
-    const { dirty: _dirty, ...record } = stored
-    const baseVersion = Math.max(record.baseVersion ?? 0, this.getBaseVersion(record.itemId))
-    return {
-      ...record,
-      ...(baseVersion > 0 ? { baseVersion } : {}),
-      ...(this.dirtyItems.has(record.itemId) ? { dirty: true } : {}),
-    }
-  }
-
-  /** Without a tick, the item stays dirty: the snapshot wasn't built for its pending edits */
   recordSnapshotSuccess(itemId: ItemId, tick: number | undefined, version?: number): void {
     if (tick !== undefined && this.dirtyItems.get(itemId) === tick) {
-      this.dirtyItems.delete(itemId)
+      this.removeDirty(itemId)
     }
     if (typeof version === 'number') {
-      this.raiseBaseVersion(itemId, version)
+      this.deps.state.raiseBaseVersion(itemId, version)
     }
-    this.markUnsaved(itemId)
-  }
-
-  private raiseBaseVersion(itemId: ItemId, version: number): void {
-    this.baseVersions.set(itemId, Math.max(this.getBaseVersion(itemId), version))
   }
 
   /** Returns whether the item wasn't already known to be oversized */
@@ -321,10 +239,6 @@ export class SnapshotTracker {
     return this.dirtyItems.has(itemId)
   }
 
-  getBaseVersion(itemId: ItemId): number {
-    return this.baseVersions.get(itemId) ?? 0
-  }
-
   get dirtyCount(): number {
     return this.dirtyItems.size
   }
@@ -333,46 +247,11 @@ export class SnapshotTracker {
     return Array.from(this.dirtyItems.keys())
   }
 
-  exportItemVersions(): Map<ItemId, { baseVersion: number; isDirty: boolean }> {
-    const result = new Map<ItemId, { baseVersion: number; isDirty: boolean }>()
-    for (const id of new Set([...this.baseVersions.keys(), ...this.dirtyItems.keys()])) {
-      result.set(id, {
-        baseVersion: this.getBaseVersion(id),
-        isDirty: this.dirtyItems.has(id),
-      })
-    }
-    return result
-  }
-
-  async importVersions(updates: Array<[ItemId, number]>): Promise<void> {
-    for (const [itemId, version] of updates) {
-      this.raiseBaseVersion(itemId, version)
-      this.unsaved.add(itemId)
-    }
-    await this.persist()
-  }
-
+  /** Forgets the session's queue and due times. Called once, as the session stops. */
   clear(): void {
     this.clearDue()
     this.notBefore = 0
-    this.saveDebounced.cancel()
     this.dirtyItems.clear()
-    this.baseVersions.clear()
-    this.unsaved.clear()
     this.oversizedItems.clear()
-    this.loadGuard.clear()
-  }
-
-  /** Saves what this tab changed, unless local data is being cleared. Called once, by the context's lifecycle. */
-  async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
-    await this.loadGuard.waitForRunning()
-    this.clearDue()
-    this.saveDebounced.cancel()
-
-    if (!options?.clearLocalData) {
-      await this.persist()
-    }
-
-    this.clear()
   }
 }

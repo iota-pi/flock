@@ -7,7 +7,7 @@ import type { RecoveryManager } from './RecoveryManager'
 import { ConsecutiveFailureCounter } from '../utils/ConsecutiveFailureCounter'
 import { checkAlive } from '../utils/abort'
 import { SizeAwareBatchAccumulator } from '../utils/SizeAwareBatchAccumulator'
-import type { SnapshotTracker } from './SnapshotTracker'
+import type { SnapshotSchedule } from './SnapshotSchedule'
 import { estimateSnapshotSize, type SnapshotBuilder, toTombstoneSnapshot, type PreparedSnapshotItem } from './SnapshotBuilder'
 import { fireAndForget } from '../utils/fireAndForget'
 import {
@@ -26,7 +26,7 @@ export interface SnapshotPusherOptions {
   accountId: string
   /** Only the leader uploads snapshots, and only while online */
   session: SyncSessionState
-  tracker: SnapshotTracker
+  schedule: SnapshotSchedule
   builder: SnapshotBuilder
   /** Pushes items' changes to the log, which comes before their snapshots */
   pushToLog: (itemIds: ItemId[], signal?: AbortSignal) => Promise<void>
@@ -78,12 +78,12 @@ export class SnapshotPusher {
    * Items a push leaves dirty after a failure go up at the next poll.
    */
   async pushDue(signal: AbortSignal): Promise<SnapshotPushOutcome> {
-    const { tracker, session } = this.deps
-    if (!session.isOperational || !tracker.isDue()) {
+    const { schedule, session } = this.deps
+    if (!session.isOperational || !schedule.isDue()) {
       return { persisted: 0, total: 0, success: true }
     }
-    tracker.clearDue()
-    const dirtyItemIds = tracker.getDirtyItemIds()
+    schedule.clearDue()
+    const dirtyItemIds = schedule.getDirtyItemIds()
 
     let result: SnapshotPushOutcome
     try {
@@ -91,14 +91,14 @@ export class SnapshotPusher {
     } catch (error) {
       if (error instanceof SnapshotsRefusedError) {
         log.warn('The server turned snapshots away; uploading them later', error.cause)
-        tracker.deferUntil(Date.now() + SYNC_TIMEOUTS.snapshotQuotaRetry)
+        schedule.deferUntil(Date.now() + SYNC_TIMEOUTS.snapshotQuotaRetry)
         return { persisted: 0, total: 0, success: false }
       }
-      tracker.retryNextPoll()
+      schedule.retryNextPoll()
       throw error
     }
     if (!result.success) {
-      tracker.retryNextPoll()
+      schedule.retryNextPoll()
     }
     return result
   }
@@ -116,7 +116,7 @@ export class SnapshotPusher {
       log.error(
         `Item ${itemId} reached max consecutive snapshot ${failureType} failures (${MAX_CONSECUTIVE_SNAPSHOT_FAILURES}). Reason: ${detailedReason}. Moving to manual recovery.`,
       )
-      this.deps.tracker.removeDirtyItemIfTickMatches(itemId, tick)
+      this.deps.schedule.removeDirtyItemIfTickMatches(itemId, tick)
 
       this.deps.eventHub.emit({
         type: 'snapshotFailed',
@@ -137,7 +137,7 @@ export class SnapshotPusher {
   }
 
   private handleOversizedItem(itemId: ItemId, snapshotSize: number): void {
-    if (this.deps.tracker.recordOversized(itemId)) {
+    if (this.deps.schedule.recordOversized(itemId)) {
       log.error(
         `Snapshot for item ${itemId} exceeds maxPayloadBytes (${snapshotSize} > ${this.maxPayloadBytes}). Skipping.`,
       )
@@ -158,7 +158,7 @@ export class SnapshotPusher {
   }
 
   private async prepareItemForPush(itemId: ItemId, signal?: AbortSignal): Promise<ItemPreparationResult> {
-    const tick = this.deps.tracker.getDirtyTick(itemId)
+    const tick = this.deps.schedule.getDirtyTick(itemId)
     if (tick === undefined) {
       return { type: 'skip' }
     }
@@ -192,7 +192,7 @@ export class SnapshotPusher {
 
     if (snapshotSize > this.maxPayloadBytes && snapshot.deleted === true) {
       // The full history can never be uploaded, but the server still needs to learn of the deletion
-      this.deps.tracker.clearOversized(itemId)
+      this.deps.schedule.clearOversized(itemId)
       log.warn(`Uploading metadata-only tombstone for oversized deleted item ${itemId}`)
       const tombstone = toTombstoneSnapshot(snapshot)
       return {
@@ -207,7 +207,7 @@ export class SnapshotPusher {
       return { type: 'skip' }
     }
 
-    this.deps.tracker.clearOversized(itemId)
+    this.deps.schedule.clearOversized(itemId)
 
     return {
       type: 'ready',
@@ -221,7 +221,7 @@ export class SnapshotPusher {
     for (const item of stored) {
       const { itemId } = item.snapshot
       this.consecutiveFailures.reset(itemId)
-      this.deps.tracker.recordSnapshotSuccess(itemId, item.tick, versions.get(itemId))
+      this.deps.schedule.recordSnapshotSuccess(itemId, item.tick, versions.get(itemId))
       this.deps.onSnapshotStored({ itemId, heads: item.heads })
       fireAndForget(
         this.deps.recoveryManager.unquarantine(item.snapshot.itemId),

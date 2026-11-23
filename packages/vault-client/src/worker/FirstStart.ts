@@ -3,7 +3,7 @@ import { mapWithConcurrency, type ItemId, type ManifestEntry } from '@vault/shar
 import type { KeyProvider } from '../keys/Keyring'
 import type { AutomergeDocStore } from './docStore'
 import type { RecoveryManager } from './RecoveryManager'
-import type { ServerHeads } from './ServerHeads'
+import type { ItemSyncState } from './ItemSyncState'
 import { decryptSnapshotHeads } from './snapshotHeads'
 import { SyncLogDatabase } from './stores/SyncLogDatabase'
 import { clearServerHeads } from './stores/itemSyncRecords'
@@ -73,7 +73,7 @@ export interface FirstStartDeps {
   keys: KeyProvider
   docStore: Pick<AutomergeDocStore, 'findHandle'>
   recoveryManager: Pick<RecoveryManager, 'listRecoveryItems' | 'quarantine'>
-  serverHeads: ServerHeads
+  itemSyncState: Pick<ItemSyncState, 'setServerHeads'>
   /** Runs a manifest sync now, returning whether it fetched the manifest */
   syncManifest: (signal?: AbortSignal) => Promise<boolean>
   /** Fetches and merges the items' snapshots, whatever their base versions */
@@ -410,7 +410,7 @@ export class FirstStart {
       return
     }
 
-    this.deps.serverHeads.set(itemId, heads)
+    this.deps.itemSyncState.setServerHeads(itemId, heads)
     await this.removeRecord(itemId)
     // A doc with more than the snapshot is pushed as normal, and its snapshot has to catch up
     if (!areHeadsEqual(Automerge.getHeads(doc), heads) || this.deps.isDirty(itemId)) {
@@ -475,7 +475,7 @@ export class FirstStart {
   async onSnapshotConfirmed(itemId: ItemId, heads: string[] | undefined): Promise<void> {
     if (this.stateOf(itemId) !== 'awaitingSnapshot') return
     if (heads && heads.length > 0) {
-      this.deps.serverHeads.set(itemId, heads)
+      this.deps.itemSyncState.setServerHeads(itemId, heads)
     }
     await this.removeRecord(itemId)
   }

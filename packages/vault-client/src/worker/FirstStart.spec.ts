@@ -7,7 +7,8 @@ import { encryptSnapshotHeads } from './snapshotHeads'
 import { createAccountKeys } from './__test__/syncLogHarness'
 import { createMockLocalForagePool, mockLocalForage } from './__test__/testUtils'
 import { FirstStart, runFirstStartLocalPart, type FirstStartDeps } from './FirstStart'
-import { ServerHeads } from './ServerHeads'
+import { ItemSyncState } from './ItemSyncState'
+import { SyncSessionState } from './SyncSessionState'
 import { SyncLogDatabase } from './stores/SyncLogDatabase'
 import { getSyncMetadataStorage, SYNC_METADATA_KEYS } from './stores/syncMetadataStorage'
 import { SYNC_LOG_STORES } from '../shared/syncLogStorage'
@@ -80,7 +81,7 @@ describe('first start', () => {
 
   describe('network part', () => {
     let keys: KeyProvider
-    let serverHeads: ServerHeads
+    let itemSyncState: ItemSyncState
     let requestSnapshot: AnyMock
     let syncManifest: AnyMock
     let pushPending: AnyMock
@@ -109,7 +110,7 @@ describe('first start', () => {
         keys,
         docStore: { findHandle } as unknown as FirstStartDeps['docStore'],
         recoveryManager: { listRecoveryItems, quarantine } as unknown as FirstStartDeps['recoveryManager'],
-        serverHeads,
+        itemSyncState,
         syncManifest,
         fetchSnapshots,
         onKeyVersionMissing,
@@ -129,7 +130,7 @@ describe('first start', () => {
 
     beforeEach(async () => {
       keys = await createAccountKeys()
-      serverHeads = new ServerHeads(db)
+      itemSyncState = new ItemSyncState({ db, session: new SyncSessionState() })
       requestSnapshot = vi.fn()
       syncManifest = vi.fn().mockResolvedValue(true)
       pushPending = vi.fn().mockResolvedValue(undefined)
@@ -149,7 +150,7 @@ describe('first start', () => {
     })
 
     afterEach(async () => {
-      await serverHeads.shutdown({ clearLocalData: true })
+      await itemSyncState.shutdown({ clearLocalData: true })
     })
 
     describe('resolving an item from its manifest entry', () => {
@@ -158,7 +159,7 @@ describe('first start', () => {
 
         await firstStart.onManifestProcessed([entry({ heads: await encryptSnapshotHeads(keys, ITEM, docHeads) })])
 
-        expect(serverHeads.get(ITEM)).toEqual(docHeads)
+        expect(itemSyncState.getServerHeads(ITEM)).toEqual(docHeads)
         expect(firstStart.has(ITEM)).toBe(false)
         expect(await db.count(SYNC_LOG_STORES.firstStart)).toBe(0)
         expect(requestSnapshot).not.toHaveBeenCalled()
@@ -183,7 +184,7 @@ describe('first start', () => {
         await firstStart.onManifestProcessed([entry({ heads: await encryptSnapshotHeads(keys, ITEM, unknown) })])
 
         expect(firstStart.stateOf(ITEM)).toBe('awaitingHeads')
-        expect(serverHeads.has(ITEM)).toBe(false)
+        expect(itemSyncState.hasServerHeads(ITEM)).toBe(false)
       })
 
       it('moves an item the manifest lacks to its own snapshot', async () => {
@@ -238,7 +239,7 @@ describe('first start', () => {
         hasKey.mockRestore()
         firstStart.onKeyringUpdated()
         await vi.waitFor(() => expect(firstStart.has(ITEM)).toBe(false))
-        expect(serverHeads.get(ITEM)).toEqual(docHeads)
+        expect(itemSyncState.getServerHeads(ITEM)).toEqual(docHeads)
       })
 
       it('leaves a quarantined item to recovery', async () => {
@@ -296,7 +297,7 @@ describe('first start', () => {
 
         expect(fetchSnapshots).toHaveBeenCalledWith([ITEM], undefined)
         expect(firstStart.has(ITEM)).toBe(false)
-        expect(serverHeads.get(ITEM)).toEqual(heads)
+        expect(itemSyncState.getServerHeads(ITEM)).toEqual(heads)
       })
 
       it('fetches only once a retry is due, and quarantines it after every try', async () => {
@@ -391,7 +392,7 @@ describe('first start', () => {
 
         await firstStart.onSnapshotConfirmed(ITEM, docHeads)
 
-        expect(serverHeads.get(ITEM)).toEqual(docHeads)
+        expect(itemSyncState.getServerHeads(ITEM)).toEqual(docHeads)
         expect(firstStart.has(ITEM)).toBe(false)
       })
 
@@ -401,7 +402,7 @@ describe('first start', () => {
 
         await firstStart.onSnapshotConfirmed(ITEM, undefined)
 
-        expect(serverHeads.has(ITEM)).toBe(false)
+        expect(itemSyncState.hasServerHeads(ITEM)).toBe(false)
         expect(firstStart.has(ITEM)).toBe(false)
       })
 

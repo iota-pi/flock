@@ -55,8 +55,8 @@ export class ItemRecoveryService {
   async retryRecoveryItem(itemId: ItemId): Promise<void> {
     const { recoveryManager, snapshotManager } = this.deps
     await recoveryManager.unquarantine(itemId)
-    snapshotManager.tracker.clearOversized(itemId)
-    snapshotManager.tracker.markItemDirty(itemId)
+    snapshotManager.schedule.clearOversized(itemId)
+    snapshotManager.schedule.markItemDirty(itemId)
     fireAndForget(
       snapshotManager.flushPendingSnapshots(),
       'ItemRecoveryService:retryRecoveryItem:flushPendingSnapshots',
@@ -68,7 +68,7 @@ export class ItemRecoveryService {
     const { itemOperations, snapshotManager } = this.deps
     const newItemId = await itemOperations.recreateOversizedItem(itemId)
     // The deleted old item is too large to upload, so it is pushed as a metadata-only tombstone
-    snapshotManager.tracker.clearOversized(itemId)
+    snapshotManager.schedule.clearOversized(itemId)
     fireAndForget(
       snapshotManager.flushPendingSnapshots(),
       'ItemRecoveryService:recreateOversizedItem:flushPendingSnapshots',

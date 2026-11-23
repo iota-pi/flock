@@ -11,6 +11,7 @@ import { spyOnExports } from '../../../test/moduleMocks'
 import type { ItemId } from '@vault/shared'
 import type { SyncLogDatabase } from '../stores/SyncLogDatabase'
 import type { ItemSyncRecord } from '../stores/itemSyncRecords'
+import { SYNC_LOG_STORES } from '../../shared/syncLogStorage'
 import type { RealtimeBus, TabVisibility } from '../RealtimeBus'
 import type { VaultMetadata } from '../../shared/types'
 
@@ -380,16 +381,18 @@ export async function listDatabases(factory: IDBFactory): Promise<string[]> {
 export function createMemoryItemRecords(initial: ItemSyncRecord[] = []) {
   const records = new Map(initial.map(record => [record.itemId, record]))
   const db = {
-    getAll: vi.fn(async () => Array.from(records.values())),
+    // Only the items store has records: the old unconfirmed pulls store is empty
+    getAll: vi.fn(async (store: string) => (store === SYNC_LOG_STORES.items ? Array.from(records.values()) : [])),
     update: vi.fn(async (_store: string, keys: IDBValidKey[], update: (current: ItemSyncRecord | undefined, key: IDBValidKey) => ItemSyncRecord | undefined) => {
       for (const key of keys) {
         const next = update(records.get(key as ItemId), key)
         if (next) records.set(next.itemId, next)
       }
     }),
+    delete: vi.fn(async () => {}),
   }
   return {
-    db: db as unknown as Pick<SyncLogDatabase, 'getAll' | 'update'> & typeof db,
+    db: db as unknown as Pick<SyncLogDatabase, 'getAll' | 'update' | 'delete'> & typeof db,
     records,
     get: (itemId: string) => records.get(itemId as ItemId),
   }

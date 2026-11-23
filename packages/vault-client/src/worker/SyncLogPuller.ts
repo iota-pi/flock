@@ -5,7 +5,7 @@ import type { GapHealer, ParkReason } from './GapHealer'
 import type { IncomingChanges } from './IncomingChanges'
 import type { RealtimeBus } from './RealtimeBus'
 import type { AutomergeDocStore } from './docStore'
-import type { SnapshotCoverage } from './SnapshotCoverage'
+import type { ItemSyncState } from './ItemSyncState'
 import type { SyncSessionState } from './SyncSessionState'
 import type { LogCursorStore } from './stores/LogCursorStore'
 import type { LogPushResult } from './ChangeOutbox'
@@ -47,7 +47,8 @@ export interface SyncLogPullerDeps {
   session: SyncSessionState
   incoming: Pick<IncomingChanges, 'apply'>
   healer: Pick<GapHealer, 'park' | 'onLogEntry'>
-  coverage: Pick<SnapshotCoverage, 'recordPulledChanges'>
+  /** Records pulled changes for snapshot coverage's S2 */
+  itemSyncState: Pick<ItemSyncState, 'recordPulledChanges'>
   /** Tells the account's other tabs which items were pulled */
   bus?: Pick<RealtimeBus, 'publishSyncPing'>
   onKeyVersionMissing?: (kver: string) => void
@@ -84,7 +85,10 @@ export class SyncLogPuller {
     return this.position.cursor
   }
 
-  /** Loads where the log was left, which an earlier leader may have moved */
+  /**
+   * Loads where the log was left, which an earlier leader may have moved, and the rest of the state
+   * (`onLoad`). Each is loaded even if the other fails.
+   */
   async loadState(): Promise<void> {
     if (this.deps.session.isShutdown) return
     try {
@@ -93,6 +97,10 @@ export class SyncLogPuller {
         cursor: Math.max(this.position.cursor, stored.cursor),
         lastPullAt: Math.max(this.position.lastPullAt ?? 0, stored.lastPullAt ?? 0) || null,
       }
+    } catch (error) {
+      log.error('Failed to load the log cursor', error)
+    }
+    try {
       await this.deps.onLoad?.()
     } catch (error) {
       log.error('Failed to load the log state', error)
@@ -228,7 +236,7 @@ export class SyncLogPuller {
       }
     }
 
-    await this.deps.coverage.recordPulledChanges(Array.from(this.addedChanges))
+    await this.deps.itemSyncState.recordPulledChanges(Array.from(this.addedChanges))
     this.addedChanges.clear()
   }
 

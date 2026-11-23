@@ -16,7 +16,7 @@ import { ChangeOutbox } from './ChangeOutbox'
 import { FINISHED_FIRST_START, FirstStart, runFirstStartLocalPart, type FirstStartPort } from './FirstStart'
 import { GapHealer } from './GapHealer'
 import { IncomingChanges } from './IncomingChanges'
-import { ServerHeads } from './ServerHeads'
+import { ItemSyncState } from './ItemSyncState'
 import { SnapshotCoverage } from './SnapshotCoverage'
 import { SyncLogPuller } from './SyncLogPuller'
 import type { ClientEventHub } from './SyncEventHub'
@@ -142,7 +142,7 @@ export interface SyncWorkerServices {
   repoManager: AutomergeRepoManager
   syncLogDatabase: SyncLogDatabase
   indexStore: IndexStore
-  serverHeads: ServerHeads
+  itemSyncState: ItemSyncState
   docStore: AutomergeDocStore
   indexManager: AutomergeIndexManager
   recoveryManager: RecoveryManager
@@ -237,7 +237,7 @@ export class SyncWorkerContext {
     const cipherOptions = local.cipher ? { cipher: local.cipher } : undefined
     const indexStore = new IndexStore(accountId, cipherOptions)
     const syncLogDatabase = new SyncLogDatabase(accountId)
-    const serverHeads = new ServerHeads(syncLogDatabase)
+    const itemSyncState = new ItemSyncState({ db: syncLogDatabase, session })
 
     const repoManager = new AutomergeRepoManager(accountId, keys, local.storage, {
       bus: realtimeBus,
@@ -282,7 +282,7 @@ export class SyncWorkerContext {
       keys,
       docStore,
       recoveryManager,
-      serverHeads,
+      itemSyncState,
       syncManifest: async signal => {
         const result = await this.services.manifestSyncManager.runPhase(signal, 'now')
         return result?.fetchedManifest ?? false
@@ -291,8 +291,8 @@ export class SyncWorkerContext {
       onKeyVersionMissing: this.emitKeyVersionMissing,
       onWorkDue: () => this._services?.orchestrator.flush(),
       pushPending: signal => this.services.changeOutbox.pushPending(signal),
-      getBaseVersion: itemId => this.services.snapshotManager.tracker.getBaseVersion(itemId),
-      isDirty: itemId => this.services.snapshotManager.tracker.isDirty(itemId),
+      getBaseVersion: itemId => itemSyncState.getBaseVersion(itemId),
+      isDirty: itemId => this.services.snapshotManager.schedule.isDirty(itemId),
       requestSnapshot: itemId => this.requestUpstreamSnapshot(itemId),
       onManifestSynced: () => this.services.puller.onCatchUpManifestSynced(),
     })
@@ -302,7 +302,7 @@ export class SyncWorkerContext {
       docStore,
       keys,
       session,
-      serverHeads,
+      itemSyncState,
       isAwaitingFirstStart: itemId => firstStart.has(itemId),
       canPush: () => firstStart.canPush,
       exchange: (push, onResults, signal) => this.services.poller.exchange(push, onResults, signal),
@@ -314,16 +314,14 @@ export class SyncWorkerContext {
     })
 
     const snapshotCoverage = new SnapshotCoverage({
-      db: syncLogDatabase,
-      serverHeads,
+      itemSyncState,
       firstStartState: itemId => firstStart.stateOf(itemId),
-      isSnapshotOnly: itemId => changeOutbox.isSnapshotOnly(itemId),
     })
 
     const incoming = new IncomingChanges({
       docStore,
       outbox: changeOutbox,
-      serverHeads,
+      itemSyncState,
       onItemApplied: itemId => this.notifyDocumentReceived(itemId),
       onChangesAdded: itemId => this.services.puller.onChangesAdded(itemId),
     })
@@ -348,7 +346,7 @@ export class SyncWorkerContext {
       session,
       incoming,
       healer: gapHealer,
-      coverage: snapshotCoverage,
+      itemSyncState,
       bus: realtimeBus,
       onKeyVersionMissing: this.emitKeyVersionMissing,
       onRemoteChangesApplied: itemId => {
@@ -359,8 +357,9 @@ export class SyncWorkerContext {
           'SyncWorkerContext:resolveQuarantines',
         )
       },
+      // At start and on promotion, so this is the one place the item records load
       onLoad: async () => {
-        await Promise.all([serverHeads.load(), firstStart.load(), gapHealer.load()])
+        await Promise.all([this.services.snapshotManager.load(), firstStart.load(), gapHealer.load()])
       },
     })
 
@@ -383,11 +382,11 @@ export class SyncWorkerContext {
     const snapshotManager = new SnapshotManager({
       accountId,
       session,
-      db: syncLogDatabase,
+      state: itemSyncState,
       builder: snapshotBuilder,
       pushToLog,
       onSnapshotStored: details => {
-        changeOutbox.confirmSnapshotOnly(details.itemId, details.heads)
+        itemSyncState.confirmSnapshotOnly(details.itemId, details.heads)
         fireAndForget(firstStart.onSnapshotConfirmed(details.itemId, details.heads), 'SyncWorkerContext:onSnapshotConfirmed')
       },
       eventHub: clientEventHub,
@@ -398,7 +397,7 @@ export class SyncWorkerContext {
     })
 
     const markDocumentDirty = (id: ItemId) => {
-      snapshotManager.tracker.markItemDirty(id)
+      snapshotManager.schedule.markItemDirty(id)
       fireAndForget(changeOutbox.mark(id), 'SyncWorkerContext:markPending')
       // Only the leader pushes and uploads snapshots, so tell it about edits made in this tab
       realtimeBus.publishItemDirty([id])
@@ -494,10 +493,10 @@ export class SyncWorkerContext {
           'SyncWorkerContext:quarantineRepeatedHydrationError',
         )
       },
-      onItemSnapshotHydrated: (itemId, heads) => serverHeads.set(itemId, heads),
+      onItemSnapshotHydrated: (itemId, heads) => itemSyncState.setServerHeads(itemId, heads),
       // Server heads may already be past a snapshot the doc holds
       onSnapshotCovered: (itemId, heads) => {
-        if (!serverHeads.has(itemId)) serverHeads.set(itemId, heads)
+        if (!itemSyncState.hasServerHeads(itemId)) itemSyncState.setServerHeads(itemId, heads)
       },
       onLocalChangesFound: itemId => fireAndForget(changeOutbox.mark(itemId), 'SyncWorkerContext:markPending'),
       onManifestProcessed: async manifest => {
@@ -506,7 +505,7 @@ export class SyncWorkerContext {
         await firstStart.onManifestProcessed(manifest)
         gapHealer.onManifestSynced()
       },
-      coverage: snapshotCoverage,
+      itemSyncState,
     })
 
     const orchestrator = new SyncOrchestrator({
@@ -518,7 +517,8 @@ export class SyncWorkerContext {
       manifestSyncManager,
       onLeaderChange: () => {
         // The session already holds the new leadership
-        fireAndForget(snapshotManager.onLeaderChange(), 'SyncWorkerContext:leaderChange')
+        // The records load with the log state, which the first poll waits for (see `puller`'s onLoad)
+        snapshotManager.onLeaderChange()
         snapshotFormatUpgrade?.onLeaderChange()
       },
       onLeaderOverlapChange: hasMultipleLeaders => {
@@ -538,7 +538,7 @@ export class SyncWorkerContext {
         if (!foregroundTracker.isAnyVisible) return 'hidden'
         return foregroundTracker.isActive ? 'active' : 'idle'
       },
-      getSnapshotDueAt: () => snapshotManager.tracker.nextDueAt,
+      getSnapshotDueAt: () => snapshotManager.schedule.nextDueAt,
     })
 
     const storageRecoveryService = new StorageRecoveryService({
@@ -569,7 +569,7 @@ export class SyncWorkerContext {
       repoManager,
       syncLogDatabase,
       indexStore,
-      serverHeads,
+      itemSyncState,
       docStore,
       indexManager,
       recoveryManager,
@@ -628,7 +628,7 @@ export class SyncWorkerContext {
   private subscribeCrossTabDirtyItems({ realtimeBus, snapshotManager, orchestrator }: SyncWorkerServices): void {
     const unsub = realtimeBus.subscribeItemDirty(itemIds => {
       for (const itemId of itemIds) {
-        snapshotManager.tracker.markItemDirty(itemId)
+        snapshotManager.schedule.markItemDirty(itemId)
       }
       orchestrator.flush()
     })
@@ -638,7 +638,7 @@ export class SyncWorkerContext {
   private registerLifecycleServices(services: SyncWorkerServices): void {
     const {
       realtimeBus, foregroundTracker, repoManager, syncLogDatabase, storageRecoveryService, indexManager, recoveryManager,
-      docStore, snapshotManager, serverHeads, changeOutbox, puller, manifestSyncManager,
+      docStore, snapshotManager, itemSyncState, changeOutbox, puller, manifestSyncManager,
       orchestrator, itemReencryptor, snapshotFormatUpgrade, syncProgress,
     } = services
 
@@ -662,7 +662,8 @@ export class SyncWorkerContext {
       // Closed after everything that writes to it, because an open connection blocks a data clear
       { name: 'SyncLogDatabase', onStop: () => syncLogDatabase.close() },
       { name: 'RepoManager', onStop: () => repoManager.close() },
-      { name: 'ServerHeads', onStop: options => serverHeads.shutdown(options) },
+      // Stops after everything that changes the records, and saves what they changed
+      { name: 'ItemSyncState', onStop: options => itemSyncState.shutdown(options) },
       {
         name: 'StorageRecoveryService',
         onStart: () => storageRecoveryService.start(),
@@ -672,9 +673,7 @@ export class SyncWorkerContext {
       { name: 'IndexDocument', onStart: () => indexManager.ensureIndexDocument() },
       { name: 'RecoveryManager', onStop: () => recoveryManager.resetRecoveryState() },
       { name: 'DocStore', onStop: () => docStore.shutdown() },
-      // Cross-tab pings can mark items dirty before the records load, so it always stops
-      { name: 'SnapshotManager', onStop: options => snapshotManager.shutdown(options) },
-      { name: 'ItemSyncRecords', onStart: () => snapshotManager.tracker.load() },
+      { name: 'SnapshotManager', onStop: () => snapshotManager.shutdown() },
       { name: 'ChangeOutbox', onStop: () => changeOutbox.shutdown() },
       {
         name: 'SyncLogPuller',
@@ -706,13 +705,13 @@ export class SyncWorkerContext {
   /** Marks items for a snapshot without debouncing, so their full state is delivered */
   private requestSnapshot(itemIds: ItemId[]): void {
     for (const itemId of itemIds) {
-      this._services?.snapshotManager.tracker.markItemDirty(itemId, 0)
+      this._services?.snapshotManager.schedule.markItemDirty(itemId, 0)
     }
   }
 
   /** Marks an item for a snapshot that catches the server up with this device */
   private requestUpstreamSnapshot(itemId: ItemId): void {
-    this._services?.snapshotManager.tracker.markItemDirty(itemId, SYNC_TIMEOUTS.upstreamSnapshotDebounce)
+    this._services?.snapshotManager.schedule.markItemDirty(itemId, SYNC_TIMEOUTS.upstreamSnapshotDebounce)
   }
 
   /** Marks restored items pending and dirty. Whatever they hold that the server lacks gets pushed. */
@@ -972,8 +971,8 @@ export class SyncWorkerContext {
    * flushes the log push. Snapshots aren't forced up: the log already delivers the change.
    */
   onPageHidden(): void {
-    const { orchestrator, snapshotManager } = this.services
-    snapshotManager.tracker.flushPendingSave()
+    const { orchestrator, itemSyncState } = this.services
+    itemSyncState.flushPendingSave()
     orchestrator.flush()
   }
 
@@ -998,7 +997,7 @@ export class SyncWorkerContext {
     } catch (error) {
       log.warn('Pending snapshots did not finish uploading before counting unsynced changes', error)
     }
-    return this.countChanges(snapshotManager.tracker.getDirtyItemIds())
+    return this.countChanges(snapshotManager.schedule.getDirtyItemIds())
   }
 
   /**

@@ -1,5 +1,6 @@
 import { SnapshotPusher } from './SnapshotPusher'
-import { SnapshotTracker } from './SnapshotTracker'
+import { SnapshotSchedule } from './SnapshotSchedule'
+import { ItemSyncState } from './ItemSyncState'
 import { SnapshotBuilder } from './SnapshotBuilder'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { SyncSessionState } from './SyncSessionState'
@@ -88,7 +89,7 @@ describe('SnapshotPusher', () => {
     pusher = new SnapshotPusher({
       accountId: 'test-acc',
       session: new SyncSessionState({ isLeader: true }),
-      tracker: mockTracker as unknown as SnapshotTracker,
+      schedule: mockTracker as unknown as SnapshotSchedule,
       builder: mockBuilder as unknown as SnapshotBuilder,
       pushToLog: mockPushToLog,
       onSnapshotStored: mockOnSnapshotStored,
@@ -127,7 +128,7 @@ describe('SnapshotPusher', () => {
     pusher = new SnapshotPusher({
       accountId: 'test-acc',
       session: new SyncSessionState({ isLeader: false }),
-      tracker: mockTracker as unknown as SnapshotTracker,
+      schedule: mockTracker as unknown as SnapshotSchedule,
       builder: mockBuilder as unknown as SnapshotBuilder,
       pushToLog: mockPushToLog,
       onSnapshotStored: mockOnSnapshotStored,
@@ -442,7 +443,7 @@ describe('SnapshotPusher', () => {
       pusher = new SnapshotPusher({
         accountId: 'test-acc',
         session: new SyncSessionState({ isLeader: true }),
-        tracker: mockTracker as unknown as SnapshotTracker,
+        schedule: mockTracker as unknown as SnapshotSchedule,
         builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec, noLogCoverage),
         pushToLog: mockPushToLog,
         onSnapshotStored: mockOnSnapshotStored,
@@ -520,7 +521,8 @@ describe('SnapshotPusher', () => {
     }
     const keys = createMockKeyProvider(vault)
 
-    let tracker: SnapshotTracker
+    let tracker: SnapshotSchedule
+    let state: ItemSyncState
     let session: SyncSessionState
     let mockRepo: any
     let mockHandle: any
@@ -545,15 +547,16 @@ describe('SnapshotPusher', () => {
     /** Replaces `tracker` and `pusher` with a real tracker wired to a pusher, as SnapshotManager wires them */
     function createPusher(options: { maxPayloadBytes?: number } = {}): void {
       session = new SyncSessionState({ isLeader: true })
-      tracker = new SnapshotTracker({
-        db: records.db,
+      state = new ItemSyncState({ db: records.db, session })
+      tracker = new SnapshotSchedule({
+        state,
         recoveryManager: mockRecoveryManager,
         session,
       })
       pusher = new SnapshotPusher({
         accountId: 'test-account',
         session,
-        tracker,
+        schedule: tracker,
         builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec, noLogCoverage),
         pushToLog: mockPushToLog,
         onSnapshotStored: mockOnSnapshotStored,
@@ -574,7 +577,8 @@ describe('SnapshotPusher', () => {
     async function restart(): Promise<void> {
       session.markShutdown()
       pusher.clear()
-      await tracker.shutdown({ clearLocalData: true })
+      tracker.clear()
+      await state.shutdown({ clearLocalData: true })
       createPusher()
     }
 
@@ -646,7 +650,7 @@ describe('SnapshotPusher', () => {
 
         tracker.markItemDirty('item-1' as ItemId)
         await uploadNow()
-        await tracker.save()
+        await state.save()
 
         expect(records.get('item-1')).toEqual({ itemId: 'item-1', baseVersion: 1 })
       })
@@ -763,7 +767,7 @@ describe('SnapshotPusher', () => {
         await uploadNow()
 
         expect(tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
-        expect(tracker.exportItemVersions().get('item-1' as ItemId)?.baseVersion).toBe(7)
+        expect(state.getBaseVersion('item-1' as ItemId)).toBe(7)
         expect(tracker.getDirtyItemIds()).toContain('item-2' as ItemId)
         expect(pusher['consecutiveFailures']['count']('item-2' as ItemId)).toBe(1)
         expect(tracker.isDue()).toBe(true)
@@ -1320,11 +1324,12 @@ describe('SnapshotPusher', () => {
         expect(tracker.getDirtyItemIds()).toContain('item-1')
 
         // Save the records and simulate restart / promotion audit
-        await tracker.save()
+        await state.save()
         await restart()
         expect(tracker.getDirtyItemIds()).not.toContain('item-1')
 
-        await tracker.load()
+        await state.load()
+        await tracker.restoreFlagged()
         expect(tracker.getDirtyItemIds()).toContain('item-1')
       })
     })
