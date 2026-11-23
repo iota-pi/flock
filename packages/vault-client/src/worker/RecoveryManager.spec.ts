@@ -63,7 +63,7 @@ describe('RecoveryManager', () => {
         type: 'recoveryItemsChanged',
         entries: mockEntries,
       })
-      expect(recoveryManager['getRecoveryCooldownUntil']('item-1' as ItemId)).toBeGreaterThan(Date.now())
+      expect(recoveryManager['getRecoveryCooldownUntil']('item-1' as ItemId, 'snapshotFailure')).toBeGreaterThan(Date.now())
       expect(recoveryManager['isInFlight']('item-1' as ItemId)).toBe(false)
     })
 
@@ -78,7 +78,7 @@ describe('RecoveryManager', () => {
     })
 
     it('respects checkCooldown option when in cooldown', async () => {
-      recoveryManager['setRecoveryCooldown']('item-1' as ItemId, Date.now() + 10000)
+      recoveryManager['setRecoveryCooldown']('item-1' as ItemId, 'snapshotFailure', Date.now() + 10000)
 
       await recoveryManager.quarantine('item-1' as ItemId, 'snapshotFailure', { code: 'unspecified' }, {
         checkCooldown: true,
@@ -88,11 +88,38 @@ describe('RecoveryManager', () => {
     })
 
     it('respects in-flight protection', async () => {
-      recoveryManager['setInFlight']('item-1' as ItemId, true)
+      recoveryManager['setInFlight']('item-1' as ItemId, 'snapshotFailure', true)
 
       await recoveryManager.quarantine('item-1' as ItemId, 'snapshotFailure', { code: 'unspecified' })
 
       expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
+    })
+
+    it('records a different kind that arrives while another is in flight for the item', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      let finishFirst!: () => void
+      mockUpsertManualRecoveryEntry.mockImplementationOnce(() => new Promise<void>(resolve => { finishFirst = resolve }))
+
+      const first = recoveryManager.quarantine('item-1' as ItemId, 'missingChanges', { code: 'waitingForChanges' })
+      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, 'snapshotDecryption', new Error('bad'))
+      await recoveryManager.quarantine('item-1' as ItemId, 'missingChanges', { code: 'waitingForChanges' })
+      finishFirst()
+      await first
+
+      expect(mockUpsertManualRecoveryEntry.mock.calls.map(([, input]) => input.kind)).toEqual([
+        'missingChanges',
+        'snapshotDecryption',
+      ])
+      consoleSpy.mockRestore()
+    })
+
+    it('records a different kind during another kind\'s cooldown', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      await recoveryManager.quarantine('item-1' as ItemId, 'missingChanges', { code: 'waitingForChanges' })
+      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, 'snapshotDecryption', new Error('bad'))
+
+      expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledTimes(2)
+      consoleSpy.mockRestore()
     })
 
     it('clears in-flight flag even if upsert throws', async () => {
@@ -110,14 +137,14 @@ describe('RecoveryManager', () => {
 
   describe('unquarantine', () => {
     it('removes entry, clears cooldown and in-flight, and emits recoveryItemsChanged', async () => {
-      recoveryManager['setRecoveryCooldown']('item-1' as ItemId, Date.now() + 50000)
-      recoveryManager['setInFlight']('item-1' as ItemId, true)
+      recoveryManager['setRecoveryCooldown']('item-1' as ItemId, 'snapshotFailure', Date.now() + 50000)
+      recoveryManager['setInFlight']('item-1' as ItemId, 'snapshotFailure', true)
       mockReadManualRecoveryEntries.mockResolvedValue([])
 
       await recoveryManager.unquarantine('item-1' as ItemId)
 
       expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-123', 'item-1')
-      expect(recoveryManager['getRecoveryCooldownUntil']('item-1' as ItemId)).toBe(0)
+      expect(recoveryManager['getRecoveryCooldownUntil']('item-1' as ItemId, 'snapshotFailure')).toBe(0)
       expect(recoveryManager['isInFlight']('item-1' as ItemId)).toBe(false)
       expect(onEventMock).toHaveBeenCalledWith({
         type: 'recoveryItemsChanged',
@@ -153,15 +180,15 @@ describe('RecoveryManager', () => {
       mockReadManualRecoveryCount.mockResolvedValue(2)
       mockRemoveManualRecoveryEntryIfKind.mockImplementation(async (_acc: string, id: string) => id === 'item-1')
       for (const id of ['item-1', 'item-2'] as ItemId[]) {
-        recoveryManager['setRecoveryCooldown'](id, Date.now() + 50000)
-        recoveryManager['setInFlight'](id, true)
+        recoveryManager['setRecoveryCooldown'](id, 'snapshotFailure', Date.now() + 50000)
+        recoveryManager['setInFlight'](id, 'snapshotFailure', true)
       }
 
       await recoveryManager.resolveQuarantines(['item-1', 'item-2'] as ItemId[], kinds)
 
-      expect(recoveryManager['getRecoveryCooldownUntil']('item-1' as ItemId)).toBe(0)
+      expect(recoveryManager['getRecoveryCooldownUntil']('item-1' as ItemId, 'snapshotFailure')).toBe(0)
       expect(recoveryManager['isInFlight']('item-1' as ItemId)).toBe(false)
-      expect(recoveryManager['getRecoveryCooldownUntil']('item-2' as ItemId)).toBeGreaterThan(0)
+      expect(recoveryManager['getRecoveryCooldownUntil']('item-2' as ItemId, 'snapshotFailure')).toBeGreaterThan(0)
       expect(recoveryManager['isInFlight']('item-2' as ItemId)).toBe(true)
     })
 
@@ -197,13 +224,13 @@ describe('RecoveryManager', () => {
 
   describe('resetRecoveryState', () => {
     it('clears in-flight and cooldown state', () => {
-      recoveryManager['setInFlight']('item-1' as ItemId, true)
-      recoveryManager['setRecoveryCooldown']('item-1' as ItemId, Date.now() + 5000)
+      recoveryManager['setInFlight']('item-1' as ItemId, 'snapshotFailure', true)
+      recoveryManager['setRecoveryCooldown']('item-1' as ItemId, 'snapshotFailure', Date.now() + 5000)
 
       recoveryManager.resetRecoveryState()
 
       expect(recoveryManager['isInFlight']('item-1' as ItemId)).toBe(false)
-      expect(recoveryManager['getRecoveryCooldownUntil']('item-1' as ItemId)).toBe(0)
+      expect(recoveryManager['getRecoveryCooldownUntil']('item-1' as ItemId, 'snapshotFailure')).toBe(0)
     })
   })
 

@@ -7,6 +7,7 @@ import {
   getSyncMetadataStorage,
   SYNC_METADATA_KEYS,
   databaseExists,
+  datePendingMarks,
   importItemSyncRecords,
 } from '@vault/client/worker'
 import type { PersistedSyncCursors, ItemSyncRecord } from '@vault/client/worker'
@@ -349,6 +350,7 @@ export async function migrateLegacyLocalData(accountId: string): Promise<void> {
   }
   // After the values above, which bring older layouts into the keys it reads
   await migrateItemSyncRecords(accountId)
+  await datePendingMarks(accountId)
   await migrateManualRecoveryEntries(accountId)
 }
 

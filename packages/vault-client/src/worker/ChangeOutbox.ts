@@ -32,10 +32,10 @@ export interface PendingMark {
   tick: number
   /**
    * When the item first had changes waiting, kept by later marks, so an item that stays stuck shows
-   * its age however often it's edited. Marks written before this existed lack it until the leader's
-   * next push fills it in.
+   * its age however often it's edited. The migration app dates marks from builds before it existed
+   * (`datePendingMarks`).
    */
-  createdAt?: number
+  createdAt: number
   /** Why the leader's last push skipped the item, kept on the mark so every tab can count it */
   blocked?: PendingBlockReason
 }
@@ -250,7 +250,6 @@ export class ChangeOutbox {
   async pushItems(itemIds: ItemId[], signal?: AbortSignal): Promise<void> {
     if (itemIds.length === 0) return
     const marks = await this.listMarks()
-    await this.fillInCreatedAt(marks)
     const marksById = new Map(marks.map(mark => [mark.itemId, mark]))
 
     let batch: PreparedPush[] = []
@@ -300,21 +299,6 @@ export class ChangeOutbox {
       const half = Math.ceil(prepared.length / 2)
       await this.sendSettingAsideRefused(prepared.slice(0, half), signal)
       await this.sendSettingAsideRefused(prepared.slice(half), signal)
-    }
-  }
-
-  /** Dates marks written before `createdAt` existed from now, which is the first anyone has seen them */
-  private async fillInCreatedAt(marks: PendingMark[]): Promise<void> {
-    const undated = marks.filter(mark => mark.createdAt === undefined)
-    if (undated.length === 0) return
-    const now = this.now()
-    await this.deps.db.update<PendingMark>(
-      SYNC_LOG_STORES.outbox,
-      undated.map(mark => mark.itemId),
-      current => (current && current.createdAt === undefined ? { ...current, createdAt: now } : undefined),
-    )
-    for (const mark of undated) {
-      mark.createdAt = now
     }
   }
 

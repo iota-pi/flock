@@ -13,7 +13,7 @@ export function countStuckItems(
   const counts: StuckItems = {}
   let hasStuck = false
   for (const mark of marks) {
-    if (mark.createdAt === undefined || now - mark.createdAt < SYNC_TIMEOUTS.stuckPendingAge) continue
+    if (now - mark.createdAt < SYNC_TIMEOUTS.stuckPendingAge) continue
     const reason: StuckReason = mark.blocked ?? 'unknown'
     counts[reason] = (counts[reason] ?? 0) + 1
     hasStuck = true

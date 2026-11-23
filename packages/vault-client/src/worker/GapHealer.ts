@@ -29,6 +29,12 @@ export interface ParkedEntry extends Pick<SyncLogEntry, 'seq' | 'itemId' | 'encr
   decryptionFailures: number
 }
 
+/** What applying an item's parked rows found */
+interface HealOutcome {
+  isMissingDeps: boolean
+  applyFailed: boolean
+}
+
 /** What the healer knows of an item it's working on */
 interface HealingItem {
   /** When the item started waiting, for telling the user after a day */
@@ -153,33 +159,57 @@ export class GapHealer {
       await this.deps.fetchSnapshots(needSnapshots, signal)
     }
 
-    const parked = await this.deps.db.getAll<ParkedEntry>(SYNC_LOG_STORES.parked)
+    const parked = await this.readParkedByItem()
     const tombstones = new Set(await this.deps.indexManager.listTombstoneIds())
+    const healed: Array<[ItemId, HealingItem, HealOutcome]> = []
     for (const [itemId, item] of due) {
+      const entries = parked.get(itemId) ?? []
       if (tombstones.has(itemId)) {
-        await this.dropDeleted(itemId, parked)
+        await this.dropDeleted(itemId, entries)
         continue
       }
-      const entries = parked.filter(entry => entry.itemId === itemId).sort((a, b) => a.seq - b.seq)
-      await this.healItem(itemId, item, entries)
+      healed.push([itemId, item, await this.healItem(itemId, entries)])
+    }
+
+    // Read again rather than counted from the first read, since a pull may have parked more meanwhile
+    const remaining = healed.some(([, , outcome]) => !outcome.isMissingDeps) ? await this.readParkedByItem() : parked
+    for (const [itemId, item, outcome] of healed) {
+      await this.finishItem(itemId, item, outcome, remaining.has(itemId))
     }
     this.reportHealing()
+  }
+
+  /** Reads the parked rows once, grouped by item and in seq order */
+  private async readParkedByItem(): Promise<Map<ItemId, ParkedEntry[]>> {
+    const byItem = new Map<ItemId, ParkedEntry[]>()
+    for (const entry of await this.deps.db.getAll<ParkedEntry>(SYNC_LOG_STORES.parked)) {
+      const entries = byItem.get(entry.itemId)
+      if (entries) {
+        entries.push(entry)
+      } else {
+        byItem.set(entry.itemId, [entry])
+      }
+    }
+    for (const entries of byItem.values()) {
+      entries.sort((a, b) => a.seq - b.seq)
+    }
+    return byItem
   }
 
   /**
    * A deleted item needs none of its parked rows, since deletes are terminal, and what they depend
    * on may never come (say, its create row expired and the server's tombstone has no snapshot)
    */
-  private async dropDeleted(itemId: ItemId, parked: ParkedEntry[]): Promise<void> {
-    const seqs = parked.filter(entry => entry.itemId === itemId).map(entry => entry.seq)
-    if (seqs.length > 0) {
-      await this.deps.db.delete(SYNC_LOG_STORES.parked, ...seqs)
+  private async dropDeleted(itemId: ItemId, entries: ParkedEntry[]): Promise<void> {
+    if (entries.length > 0) {
+      await this.deps.db.delete(SYNC_LOG_STORES.parked, ...entries.map(entry => entry.seq))
     }
     this.items.delete(itemId)
     await this.deps.recoveryManager.resolveQuarantines([itemId], MISSING_CHANGES_KINDS)
   }
 
-  private async healItem(itemId: ItemId, item: HealingItem, entries: ParkedEntry[]): Promise<void> {
+  /** Applies an item's parked rows, deleting the applied ones once nothing is missing */
+  private async healItem(itemId: ItemId, entries: ParkedEntry[]): Promise<HealOutcome> {
     const applied: number[] = []
     let isMissingDeps = false
     let applyFailed = false
@@ -208,8 +238,17 @@ export class GapHealer {
     if (!isMissingDeps) {
       await this.deps.db.delete(SYNC_LOG_STORES.parked, ...applied)
     }
+    return { isMissingDeps, applyFailed }
+  }
 
-    if (!isMissingDeps && await this.remainingEntries(itemId) === 0) {
+  /** Stops tracking a healed item, or schedules its next attempt and tells the user after a day */
+  private async finishItem(
+    itemId: ItemId,
+    item: HealingItem,
+    { isMissingDeps, applyFailed }: HealOutcome,
+    hasParkedRows: boolean,
+  ): Promise<void> {
+    if (!isMissingDeps && !hasParkedRows) {
       this.items.delete(itemId)
       await this.deps.recoveryManager.resolveQuarantines([itemId], MISSING_CHANGES_KINDS)
       return
@@ -223,11 +262,6 @@ export class GapHealer {
       const code = applyFailed ? 'changesWontApply' : 'waitingForChanges'
       await this.deps.recoveryManager.quarantine(itemId, 'missingChanges', { code })
     }
-  }
-
-  private async remainingEntries(itemId: ItemId): Promise<number> {
-    const parked = await this.deps.db.getAll<ParkedEntry>(SYNC_LOG_STORES.parked)
-    return parked.filter(entry => entry.itemId === itemId).length
   }
 
   /** Decrypts a parked row. Returns null when it can't be yet, and drops it once it never will be. */
