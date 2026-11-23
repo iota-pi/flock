@@ -365,7 +365,8 @@ export class ChangeOutbox {
 
   /**
    * Heads are saved before marks clear, so a crash between the two resends rather than forgets. A
-   * failure to save is logged: heads that are too old only resend changes, and they stay unsaved.
+   * failed save is logged and the marks clear anyway: the heads stay unsaved in memory and go with
+   * the next save, and heads that are too old only resend changes.
    */
   private async recordAcknowledged(pushes: PreparedPush[]): Promise<void> {
     if (pushes.length === 0) return
