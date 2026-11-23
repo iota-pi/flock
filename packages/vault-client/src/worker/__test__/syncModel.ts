@@ -7,7 +7,8 @@ import { createAccountKeys, Device, installLocalStorage } from './syncLogHarness
 
 /**
  * A model-based test of the sync engine: random operations on several devices sharing one fake server,
- * then a check that everything converged without losing anything. See sync-review finding 4.
+ * then a check that everything converged without losing anything, the invariants docs/sync-design.md
+ * argues in prose (S1, S2, tombstones, ack/mark ordering).
  *
  * Each edit writes its own key (`e<n>: n`), so no two edits conflict and the merged doc is known
  * without modelling Automerge's conflict rules.
