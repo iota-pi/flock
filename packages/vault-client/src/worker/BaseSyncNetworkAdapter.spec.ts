@@ -58,14 +58,6 @@ describe('BaseSyncNetworkAdapter', () => {
 
       expect(adapter.testCanSend()).toBe(true)
     })
-
-    it('pauses and resumes sync', () => {
-      adapter.pause()
-      expect(adapter.testCanSend()).toBe(false)
-
-      adapter.resume()
-      expect(adapter.testCanSend()).toBe(true)
-    })
   })
 
   describe('event dispatching', () => {

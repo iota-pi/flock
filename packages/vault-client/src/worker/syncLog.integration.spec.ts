@@ -323,6 +323,30 @@ describe('sync log', () => {
       expect(await leader.pending()).toEqual([])
       expect(server.rows).toHaveLength(2)
     })
+
+    it('converges while both tabs lead, as they may just after one steals the lock', async () => {
+      const { leader, follower, b, itemId } = await startTabs()
+      follower.context.session.setLeader(true)
+
+      await leader.edit(itemId, { title: 'from the old leader' })
+      await follower.edit(itemId, { notes: 'from the new leader' })
+      await leader.settle()
+      await vi.waitFor(async () => expect((await follower.read(itemId))?.title).toBe('from the old leader'))
+      await vi.waitFor(async () => expect((await leader.read(itemId))?.notes).toBe('from the new leader'))
+      // Both push what they have, and each pulls the other's rows
+      await Promise.all([leader.sync(), follower.sync()])
+      leader.context.session.setLeader(false)
+      await follower.sync()
+      await b.sync()
+
+      for (const device of [leader, follower, b]) {
+        expect(await device.read(itemId)).toMatchObject({ title: 'from the old leader', notes: 'from the new leader' })
+      }
+      expect(await follower.heads(itemId)).toEqual(await b.heads(itemId))
+      expect(await leader.pending()).toEqual([])
+      expect(await follower.quarantined()).toEqual([])
+      expect(await b.quarantined()).toEqual([])
+    })
   })
 
   describe('both outbound loops', () => {

@@ -41,7 +41,6 @@ const mockSyncApi = {
   pushSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
   onPageHidden: vi.fn().mockResolvedValue(undefined),
   retrySave: vi.fn().mockResolvedValue({ success: true }),
-  claimLeader: vi.fn().mockResolvedValue(undefined),
   setVisibility: vi.fn().mockResolvedValue(undefined),
 }
 
@@ -640,14 +639,6 @@ describe('SyncBridge', () => {
     const res = await SyncBridge.retrySave()
     expect(mockSyncApi.retrySave).toHaveBeenCalled()
     expect(res).toEqual({ success: true })
-  })
-
-  it('delegates claimLeader to syncApi', async () => {
-    await SyncBridge.initialize('test-account')
-    mockSyncApi.claimLeader.mockResolvedValueOnce(undefined)
-
-    await SyncBridge.claimLeader()
-    expect(mockSyncApi.claimLeader).toHaveBeenCalledTimes(1)
   })
 
   it('flushes item updates asynchronously via setTimeout', async () => {

@@ -167,11 +167,6 @@ export class SyncEventProcessor<TDoc extends VaultDoc = VaultDoc, TMeta extends 
       case 'keyVersionMissing':
         this.callbacks.onKeyVersionMissing?.(event.kver)
         break
-      case 'leaderConflict': {
-        this.sink.setLeaderConflict(event.hasConflict)
-        this.telemetry.setTag('leaderConflict', event.hasConflict)
-        break
-      }
       case 'tokenRefreshNeeded':
         this.callbacks.onTokenRefreshNeeded?.()
         break

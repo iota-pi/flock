@@ -44,6 +44,13 @@ export const SYNC_TIMEOUTS = {
    */
   leadershipSettle: 5000,
   /**
+   * A tab the user comes back to takes over syncing if the leader's tab is hidden when it returns, or
+   * reports that it's hidden within this long (switching tabs, the old one's report can come second)
+   */
+  leaderHandoffWindow: 2000,
+  /** The most often a tab takes over syncing because the user came back to it, so tabs can't thrash */
+  leaderHandoffMinGap: 10_000,
+  /**
    * The poll's manifest phase runs at most this often unasked, counting from the last sync that
    * fetched the manifest, so one with item failures retries hourly rather than at every poll
    */

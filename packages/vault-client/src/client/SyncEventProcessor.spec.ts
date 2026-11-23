@@ -137,14 +137,6 @@ describe('SyncEventProcessor', () => {
     )
   })
 
-  it('handles leaderConflict events', () => {
-    processor.handleSyncEvent({ type: 'leaderConflict', hasConflict: true })
-    expect(sink.state.isLeaderConflict).toBe(true)
-
-    processor.handleSyncEvent({ type: 'leaderConflict', hasConflict: false })
-    expect(sink.state.isLeaderConflict).toBe(false)
-  })
-
   it('manages recovery entries and subscriber notifications', () => {
     const listener = vi.fn()
     const unsubscribe = processor.subscribeRecoveryItems(listener)
