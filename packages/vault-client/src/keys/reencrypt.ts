@@ -15,8 +15,8 @@ export interface ReencryptionTarget {
 
 /**
  * Rotates to a new random data key and re-encrypts every item with it. It first waits until the
- * worker could push, so that a device that can't (another tab holds the leadership, or first start
- * hasn't run) gives up with nothing changed rather than leaving the key rotated and nothing rewritten.
+ * worker could push, so that a device that can't (another tab holds the leadership, or it hasn't
+ * caught up) gives up with nothing changed rather than leaving the key rotated and nothing rewritten.
  */
 export async function reencryptAllItems(
   syncBridge: ReencryptionTarget,

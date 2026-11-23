@@ -11,6 +11,7 @@ import type { LogCursorStore } from './stores/LogCursorStore'
 import type { LogPushResult } from './ChangeOutbox'
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
 import { AsyncMutex } from '../utils/AsyncMutex'
+import { untilAborted } from '../utils/abort'
 import { BoundedSet } from '../utils/BoundedSet'
 import { classifySyncError } from '../utils/errorClassifier'
 import { fireAndForget } from '../utils/fireAndForget'
@@ -71,6 +72,8 @@ export class SyncLogPuller {
   private readonly unflushedItems = new Set<ItemId>()
   /** Saves run one at a time, so a slow flush can't let an older cursor overwrite a newer one */
   private readonly saveMutex = new AsyncMutex()
+  /** Settles whenever the position or state changes, which may end a wait for catching up */
+  private changed = Promise.withResolvers<void>()
 
   // A pull that finishes after shutdown mustn't save, since shutdown may be clearing local data
   private readonly saveDebounced = debounce(() => {
@@ -93,6 +96,7 @@ export class SyncLogPuller {
         cursor: Math.max(this.position.cursor, stored.cursor),
         lastPullAt: Math.max(this.position.lastPullAt ?? 0, stored.lastPullAt ?? 0) || null,
       }
+      this.notifyChanged()
       await this.deps.onLoad?.()
     } catch (error) {
       log.error('Failed to load the log state', error)
@@ -142,7 +146,30 @@ export class SyncLogPuller {
   private dispatch(event: LogPullEvent): LogPullEffect[] {
     const { state, effects } = transitionLogPull(this.state, event)
     this.state = state
+    this.notifyChanged()
     return effects
+  }
+
+  private notifyChanged(): void {
+    this.changed.resolve()
+    this.changed = Promise.withResolvers<void>()
+  }
+
+  /**
+   * Whether this device has caught up, so that it holds what the server's snapshots hold: it has
+   * read the log within its TTL, or catch-up's manifest sync has merged the snapshots. Until then, a
+   * snapshot it uploads could replace one that holds more.
+   */
+  get isCaughtUp(): boolean {
+    return !this.needsCatchUpManifest(Date.now())
+  }
+
+  /** Resolves once the device has caught up (see `isCaughtUp`), or rejects if `signal` aborts first */
+  async whenCaughtUp(signal?: AbortSignal): Promise<void> {
+    while (!this.isCaughtUp) {
+      const { promise } = this.changed
+      await (signal ? untilAborted(promise, signal) : promise)
+    }
   }
 
   /** Remembers this device's own rows, so that their echoes only advance the cursor */
@@ -218,6 +245,7 @@ export class SyncLogPuller {
       this.dispatch({ type: 'pageRead', stoppedAtGap, hasMore: page.hasMore })
       if (!stoppedAtGap && !page.hasMore) {
         this.position.lastPullAt = page.serverNow
+        this.notifyChanged()
       }
     } finally {
       if (this.position.cursor !== start.cursor || this.position.lastPullAt !== start.lastPullAt) {

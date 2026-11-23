@@ -181,7 +181,7 @@ describe('migration', () => {
     expect(isMigrationComplete({ device: 4, account: 1, blockers: ['legacyKeyDerivation'] })).toBe(false)
     // A device whose local data isn't sealed yet
     expect(isMigrationComplete({ device: 2, account: 2, blockers: [] })).toBe(false)
-    // A device that has sealed its local data but not finished first start or moved its sync records
+    // A device that has sealed its local data but not reset its sync state or moved its sync records
     expect(isMigrationComplete({ device: 3, account: 2, blockers: [] })).toBe(false)
   })
 

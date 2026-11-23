@@ -176,8 +176,7 @@ export class SnapshotPusher {
     }
 
     if (buildResult.type === 'deferred') {
-      // An item waiting for its server heads asks for its snapshot once it has them
-      return { type: buildResult.reason === 'awaitingHeads' ? 'skip' : 'fail' }
+      return { type: 'fail' }
     }
 
     if (buildResult.type === 'error') {

@@ -1,6 +1,5 @@
 import type { SyncLogMessage } from '@vault/shared'
 import type { ChangeOutbox, LogPushResult } from './ChangeOutbox'
-import type { FirstStart } from './FirstStart'
 import type { GapHealer } from './GapHealer'
 import type { ManifestMode, ManifestPhaseResult } from './ManifestSyncManager'
 import type { SyncApiClient } from './SyncApiClient'
@@ -31,7 +30,6 @@ export interface SyncPollerDeps {
   >
   /** Read from the finished services: the outbox pushes through this poller */
   getOutbox: () => Pick<ChangeOutbox, 'pushPending'>
-  firstStart: Pick<FirstStart, 'ensureSynced' | 'runDue'>
   healer: Pick<GapHealer, 'runDue'>
   apiClient: Pick<SyncApiClient, 'pollLog'>
   /**
@@ -65,7 +63,6 @@ export class SyncPoller {
     if (!this.isOperational) return 'no-poll'
 
     try {
-      await this.deps.firstStart.ensureSynced(signal)
       await this.catchUpIfNeeded(Date.now(), signal)
 
       const exchangesBefore = this.exchanges
@@ -84,7 +81,6 @@ export class SyncPoller {
       // After catch-up or recovery has run one, the periodic sync isn't due
       await this.deps.runManifestPhase(signal)
       await this.deps.healer.runDue(signal)
-      await this.deps.firstStart.runDue(signal)
       await this.deps.getSnapshots().pushDue(signal)
       return 'success'
     } catch (error) {

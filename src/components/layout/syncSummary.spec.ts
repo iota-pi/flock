@@ -72,16 +72,16 @@ describe('summariseSync', () => {
     )
 
     it('warns instead of saying they will sync shortly, with what holds each up', () => {
-      const summary = summariseSync('idle', stuckProgress(5, { awaitingHeads: 2, awaitingSnapshot: 1, snapshotOnly: 1 }))
+      const summary = summariseSync('idle', stuckProgress(5, { snapshotOnly: 2, unloadable: 1 }))
 
       expect(summary).toEqual({
         tone: 'warning',
-        label: '4 delayed',
-        headline: "4 items haven't synced for over a day",
+        label: '3 delayed',
+        headline: "3 items haven't synced for over a day",
         details: [
-          '2 items waiting to download the latest copy from the server',
           '2 items waiting to upload a full copy',
-          '1 other item waiting to sync',
+          "1 item can't be read on this device",
+          '2 other items waiting to sync',
           "Flock will keep retrying. Items it can't fix move to Settings → Corrupted data recovery.",
         ],
       })

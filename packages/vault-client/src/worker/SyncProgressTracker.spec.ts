@@ -82,11 +82,11 @@ describe('SyncProgressTracker', () => {
     await tracker.start()
     await settle()
 
-    changes = { pendingItems: 2, quarantinedItems: 0, stuckItems: { awaitingHeads: 1 } }
+    changes = { pendingItems: 2, quarantinedItems: 0, stuckItems: { snapshotOnly: 1 } }
     tracker.scheduleRecount()
     await settle()
 
-    expect(emitted.at(-1)).toEqual({ pendingItems: 2, quarantinedItems: 0, stuckItems: { awaitingHeads: 1 }, lastSyncedAt: null })
+    expect(emitted.at(-1)).toEqual({ pendingItems: 2, quarantinedItems: 0, stuckItems: { snapshotOnly: 1 }, lastSyncedAt: null })
   })
 
   it('recounts after events that may change the counts, debounced', async () => {

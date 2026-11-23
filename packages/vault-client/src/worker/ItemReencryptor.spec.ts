@@ -37,7 +37,7 @@ function stageDeps(overrides: Partial<ItemReencryptorOptions> = {}): ItemReencry
     recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() }),
     session: new SyncSessionState({ isLeader: true }),
     claimLeader: vi.fn(),
-    firstStart: { canPush: true, whenReadyToPush: vi.fn().mockResolvedValue(undefined) },
+    catchUp: { isCaughtUp: true, whenCaughtUp: vi.fn().mockResolvedValue(undefined) },
     pushToLog: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   }
@@ -111,7 +111,7 @@ describe('ItemReencryptor.run', () => {
       recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() }),
       session: new SyncSessionState({ isLeader: true }),
       claimLeader: vi.fn(),
-      firstStart: { canPush: true, whenReadyToPush: vi.fn().mockResolvedValue(undefined) },
+      catchUp: { isCaughtUp: true, whenCaughtUp: vi.fn().mockResolvedValue(undefined) },
       pushToLog: vi.fn().mockResolvedValue(undefined),
     }
     itemReencryptor = new ItemReencryptor(context)
@@ -667,19 +667,6 @@ describe('ItemReencryptor.run', () => {
       expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
     })
 
-    it('does not retry an item waiting for its heads', async () => {
-      setApiAuthToken('mock-token')
-      mockListItemIds.mockResolvedValue(['item-1'])
-      const builder = { build: vi.fn().mockResolvedValue({ type: 'deferred', reason: 'awaitingHeads' }) }
-      const reencryptor = new ItemReencryptor({ ...context, builder: builder as any })
-
-      const result = await reencryptor.run()
-
-      expect(builder.build).toHaveBeenCalledTimes(1)
-      expect(result.failed).toHaveLength(1)
-      expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
-    })
-
     it('claims leadership first when this tab is a follower', async () => {
       setApiAuthToken('mock-token')
       mockListItemIds.mockResolvedValue([])
@@ -923,28 +910,28 @@ describe('ItemReencryptor waits', () => {
     session.setLeader(true)
   })
 
-  it('waits only until first start allows pushes, not for its push to finish', async () => {
-    let allowPushes!: () => void
-    const firstStart = {
-      canPush: false,
-      whenReadyToPush: vi.fn(() => new Promise<void>(resolve => {
-        allowPushes = resolve
+  it('waits until the device has caught up, so it never replaces a snapshot it has not merged', async () => {
+    let catchUpDone!: () => void
+    const catchUp = {
+      isCaughtUp: false,
+      whenCaughtUp: vi.fn(() => new Promise<void>(resolve => {
+        catchUpDone = resolve
       })),
     }
     const onStage = vi.fn()
-    const reencryptor = new ItemReencryptor(runnableDeps({ firstStart, onStage }))
+    const reencryptor = new ItemReencryptor(runnableDeps({ catchUp, onStage }))
 
     const running = reencryptor.run()
     await vi.waitFor(() => expect(onStage).toHaveBeenCalledWith('waitingForSync'))
-    allowPushes()
+    catchUpDone()
 
     await expect(running).resolves.toEqual({ succeeded: [], failed: [] })
     expect(onStage.mock.calls.map(([stage]) => stage)).toEqual(['waitingForSync', 'reencrypting', null])
   })
 
-  it('gives up waiting for first start after the timeout', async () => {
-    const firstStart = { canPush: false, whenReadyToPush: (signal?: AbortSignal) => new SyncSessionState().whenLeader(signal) }
-    const reencryptor = new ItemReencryptor(runnableDeps({ firstStart }))
+  it('gives up waiting to catch up after the timeout', async () => {
+    const catchUp = { isCaughtUp: false, whenCaughtUp: (signal?: AbortSignal) => new SyncSessionState().whenLeader(signal) }
+    const reencryptor = new ItemReencryptor(runnableDeps({ catchUp }))
 
     await expect(reencryptor.run({ waitTimeoutMs: 10 })).rejects.toMatchObject({ stage: 'waitingForSync' })
   })
@@ -1039,7 +1026,7 @@ describe('ItemReencryptor.run cancellation and event loop yielding', () => {
       recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() }),
       session: new SyncSessionState({ isLeader: true }),
       claimLeader: vi.fn(),
-      firstStart: { canPush: true, whenReadyToPush: vi.fn().mockResolvedValue(undefined) },
+      catchUp: { isCaughtUp: true, whenCaughtUp: vi.fn().mockResolvedValue(undefined) },
       pushToLog: vi.fn().mockResolvedValue(undefined),
     }
     itemReencryptor = new ItemReencryptor(context)
@@ -1130,7 +1117,7 @@ describe('concurrency and retry race safety (H11)', () => {
       recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() }),
       session: new SyncSessionState({ isLeader: true }),
       claimLeader: vi.fn(),
-      firstStart: { canPush: true, whenReadyToPush: vi.fn().mockResolvedValue(undefined) },
+      catchUp: { isCaughtUp: true, whenCaughtUp: vi.fn().mockResolvedValue(undefined) },
       pushToLog: vi.fn().mockResolvedValue(undefined),
     }
     itemReencryptor = new ItemReencryptor(context)

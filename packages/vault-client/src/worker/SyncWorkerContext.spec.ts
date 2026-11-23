@@ -11,8 +11,7 @@ import { MigrationRequiredError } from './DataVersionTracker'
 import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
 import { AbortError } from '../utils/abort'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
-import { FINISHED_FIRST_START, FirstStart, type FirstStartState } from './FirstStart'
-import * as firstStartModule from './FirstStart'
+import * as syncResetModule from './syncReset'
 import { LocalCipher, LocalKeyUnavailableError } from './localEncryption/LocalCipher'
 import { toDocumentIdFromItemId } from './utils/automerge'
 import { DSK_KEY } from './localEncryption/openLocalStorage'
@@ -456,15 +455,11 @@ describe('SyncWorkerContext', () => {
       dirty?: string[]
       quarantined?: string[]
       markedAt?: number
-      firstStart?: Array<[string, FirstStartState]>
     }) {
       const marked = (options.marked ?? []) as ItemId[]
       vi.spyOn(context.services.changeOutbox, 'listPending').mockResolvedValue(marked)
       vi.spyOn(context.services.changeOutbox, 'listMarks').mockResolvedValue(
         marked.map(itemId => ({ itemId, tick: 1, createdAt: options.markedAt ?? Date.now() })),
-      )
-      vi.spyOn(context.services.firstStart, 'readStates').mockResolvedValue(
-        new Map((options.firstStart ?? []) as Array<[ItemId, FirstStartState]>),
       )
       vi.spyOn(context.services.snapshotManager.tracker, 'getDirtyItemIds').mockReturnValue((options.dirty ?? []) as ItemId[])
       vi.spyOn(context.services.recoveryManager, 'listRecoveryItems').mockResolvedValue(
@@ -512,13 +507,12 @@ describe('SyncWorkerContext', () => {
         marked: ['item-1', 'item-2', 'item-3'],
         quarantined: ['item-3'],
         markedAt: Date.now() - SYNC_TIMEOUTS.stuckPendingAge,
-        firstStart: [['item-1', 'awaitingHeads']],
       })
 
       expect(await context.countUnpushedChanges()).toEqual({
         pendingItems: 2,
         quarantinedItems: 1,
-        stuckItems: { awaitingHeads: 1, unknown: 1 },
+        stuckItems: { unknown: 2 },
       })
     })
 
@@ -747,12 +741,14 @@ describe('SyncWorkerContext', () => {
     })
   })
 
-  describe('first start', () => {
-    let runLocalPart: ReturnType<typeof vi.fn>
+  describe('sync reset', () => {
+    let resetSyncState: ReturnType<typeof vi.fn>
+    let hasFinishedSyncReset: ReturnType<typeof vi.fn>
 
     beforeEach(() => {
-      runLocalPart = vi.fn().mockResolvedValue(undefined)
-      spyOnExports(firstStartModule, { runFirstStartLocalPart: runLocalPart })
+      resetSyncState = vi.fn().mockResolvedValue(undefined)
+      hasFinishedSyncReset = vi.fn().mockResolvedValue(false)
+      spyOnExports(syncResetModule, { resetSyncState, hasFinishedSyncReset })
     })
 
     async function createContext(accountId: string, minDataVersion?: number) {
@@ -764,32 +760,31 @@ describe('SyncWorkerContext', () => {
         apiClient: new SyncApiClient(),
         minDataVersion,
         sealedDataVersion: 3,
-        firstStartDataVersion: 4,
+        syncResetDataVersion: 4,
       })
       vi.spyOn(ctx.lifecycle, 'start').mockResolvedValue(undefined)
       await ctx.initialize()
       return ctx
     }
 
-    it('caps the device level below its level until it has finished', async () => {
-      const ctx = await createContext('test-account-first-start')
-      const settle = vi.spyOn(ctx.services.firstStart, 'settle').mockResolvedValue(false)
+    it('runs at start, and caps the device level below its level until it has finished', async () => {
+      const ctx = await createContext('test-account-sync-reset')
       const maxDeviceVersion = readMaxDeviceVersion(ctx)
 
-      expect(ctx.services.firstStart).toBeInstanceOf(FirstStart)
-      expect(runLocalPart).toHaveBeenCalledTimes(1)
+      expect(resetSyncState).toHaveBeenCalledTimes(1)
+      expect(resetSyncState).toHaveBeenCalledWith('test-account-sync-reset', expect.any(Function))
       await expect(maxDeviceVersion()).resolves.toBe(3)
 
-      settle.mockResolvedValue(true)
+      hasFinishedSyncReset.mockResolvedValue(true)
       await expect(maxDeviceVersion()).resolves.toBe(Number.POSITIVE_INFINITY)
     })
 
-    it('neither runs nor reads first start behind a device gate at its level', async () => {
-      const ctx = await createContext('test-account-past-first-start', 4)
+    it('neither runs nor caps behind a device gate at its level', async () => {
+      const ctx = await createContext('test-account-past-sync-reset', 4)
 
-      expect(ctx.services.firstStart).toBe(FINISHED_FIRST_START)
-      expect(runLocalPart).not.toHaveBeenCalled()
+      expect(resetSyncState).not.toHaveBeenCalled()
       await expect(readMaxDeviceVersion(ctx)()).resolves.toBe(Number.POSITIVE_INFINITY)
+      expect(hasFinishedSyncReset).not.toHaveBeenCalled()
     })
   })
 

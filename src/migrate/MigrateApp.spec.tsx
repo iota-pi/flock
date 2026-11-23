@@ -414,9 +414,7 @@ describe('MigrateApp', () => {
       const diagnostics = {
         isLeader: false,
         isOnline: true,
-        firstStartSynced: false,
-        firstStartReadyToPush: false,
-        firstStartError: 'The server refused item x',
+        caughtUp: false,
         reencryptStage: 'waitingForLeader' as const,
       }
       vi.mocked(MigrationBridge.getSyncDiagnostics).mockResolvedValue(diagnostics)
