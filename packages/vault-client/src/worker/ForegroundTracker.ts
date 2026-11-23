@@ -12,6 +12,18 @@ export interface ForegroundTrackerDeps {
   onPeerReturned: () => void
   /** Activity was recorded: input in this tab or another visible one, or changes from another device */
   onActivity?: () => void
+  /** Whether this tab leads, which it tells the other tabs */
+  isLeader?: () => boolean
+  /**
+   * The user came back to this tab, which doesn't lead, while the leader's tab is hidden: it was
+   * already, or it reported so within `leaderHandoffWindow`
+   */
+  onLeaderAway?: () => void
+}
+
+interface Peer {
+  lastSeen: number
+  leader: boolean
 }
 
 /**
@@ -19,14 +31,17 @@ export interface ForegroundTrackerDeps {
  * foreground rate while someone is looking, even when the leader's own tab is hidden. Every tab runs
  * one: a visible tab tells the others when it changes and every `foregroundPingInterval` after that.
  * It also tracks recent activity, which a visible tab reports with its visibility, so the leader
- * polls at the active rate while the user is using any of the tabs.
+ * polls at the active rate while the user is using any of the tabs. Each tab also says whether it
+ * leads, so a tab the user comes back to can tell whether the leader's tab is hidden.
  */
 export class ForegroundTracker {
   private readonly tabId = crypto.randomUUID()
   private visible: boolean
-  /** The other visible tabs, with when each last reported */
-  private readonly visiblePeers = new Map<string, number>()
+  /** The other visible tabs, with when each last reported and whether it leads */
+  private readonly visiblePeers = new Map<string, Peer>()
   private lastActivityAt = -Infinity
+  /** When the user last came back to this tab */
+  private returnedAt = -Infinity
   private pingTimer: ReturnType<typeof setInterval> | null = null
   private unsubscribe: (() => void) | null = null
 
@@ -68,6 +83,17 @@ export class ForegroundTracker {
     } else {
       this.stopPinging()
     }
+    if (visible && returned) {
+      this.returnedAt = Date.now()
+      this.checkLeaderAway()
+    }
+  }
+
+  /** Tells the other tabs that this tab's leadership changed, if it's visible */
+  onLeaderChange(): void {
+    if (this.unsubscribe && this.visible) {
+      this.publish(false)
+    }
   }
 
   /** Records that the user is using this tab, and tells the account's other tabs if it's visible */
@@ -94,26 +120,51 @@ export class ForegroundTracker {
     this.unsubscribe = null
     this.visiblePeers.clear()
     this.lastActivityAt = -Infinity
+    this.returnedAt = -Infinity
   }
 
-  private handlePeer({ tabId, visible, returned, active }: TabVisibility): void {
+  private handlePeer({ tabId, visible, returned, active, leader = false }: TabVisibility): void {
     if (!visible) {
       this.visiblePeers.delete(tabId)
+      if (leader) {
+        this.checkLeaderAway()
+      }
       return
     }
     this.pruneStalePeers()
     const isNew = !this.visiblePeers.has(tabId)
-    this.visiblePeers.set(tabId, Date.now())
+    this.visiblePeers.set(tabId, { lastSeen: Date.now(), leader })
     if (returned || isNew) {
       this.deps.onPeerReturned()
+    }
+    // A new tab would otherwise not know this one is visible, or leads, until its next ping
+    if (isNew && this.visible) {
+      this.publish(false)
     }
     if (active) {
       this.noteActivity()
     }
   }
 
+  /** Reports the leader away if the user just came back to this tab and no visible tab leads */
+  private checkLeaderAway(): void {
+    if (!this.visible || this.deps.isLeader?.()) return
+    if (Date.now() - this.returnedAt > SYNC_TIMEOUTS.leaderHandoffWindow) return
+    this.pruneStalePeers()
+    for (const peer of this.visiblePeers.values()) {
+      if (peer.leader) return
+    }
+    this.deps.onLeaderAway?.()
+  }
+
   private publish(returned: boolean, active = false): void {
-    this.deps.bus.publishTabVisibility({ tabId: this.tabId, visible: this.visible, returned, active })
+    this.deps.bus.publishTabVisibility({
+      tabId: this.tabId,
+      visible: this.visible,
+      returned,
+      active,
+      leader: this.deps.isLeader?.() ?? false,
+    })
   }
 
   private startPinging(): void {
@@ -129,7 +180,7 @@ export class ForegroundTracker {
 
   private pruneStalePeers(): void {
     const now = Date.now()
-    for (const [tabId, lastSeen] of this.visiblePeers) {
+    for (const [tabId, { lastSeen }] of this.visiblePeers) {
       if (now - lastSeen > PEER_TIMEOUT_MS) {
         this.visiblePeers.delete(tabId)
       }

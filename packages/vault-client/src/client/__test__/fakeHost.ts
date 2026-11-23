@@ -7,7 +7,6 @@ interface FakeSyncState {
   syncWarning: string | null
   fatalError: string | null
   isQuotaExceeded: boolean
-  isLeaderConflict: boolean
 }
 
 /** An in-memory SyncStateSink that records state the way an app store would */
@@ -18,7 +17,6 @@ export function createFakeSink() {
     syncWarning: null,
     fatalError: null,
     isQuotaExceeded: false,
-    isLeaderConflict: false,
   }
   const sink = {
     state,
@@ -43,9 +41,6 @@ export function createFakeSink() {
     }),
     setQuotaExceeded: vi.fn((exceeded: boolean) => {
       state.isQuotaExceeded = exceeded
-    }),
-    setLeaderConflict: vi.fn((hasConflict: boolean) => {
-      state.isLeaderConflict = hasConflict
     }),
     startRequest: vi.fn(),
     finishRequest: vi.fn(),

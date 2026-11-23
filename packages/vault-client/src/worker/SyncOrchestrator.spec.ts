@@ -360,78 +360,11 @@ describe('SyncOrchestrator', () => {
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(3)
   })
 
-  it('reports when several tabs lead and when this one leads alone again', async () => {
-    const onLeaderOverlapChange = vi.fn()
-
-    let capturedCallbacks!: LeaderElectionCallbacks
-    const customOrchestrator = createOrchestrator({
-      accountId: 'account-1',
-      poller: mockPoller,
-      clientEventHub,
-      puller: mockPuller,
-      manifestSyncManager: mockManifestSyncManager,
-      onLeaderOverlapChange,
-      createLeaderElection: (_accountId, callbacks) => {
-        capturedCallbacks = callbacks
-        return {
-          acquire: vi.fn().mockResolvedValue(undefined),
-          release: vi.fn(),
-          claimLeadership: vi.fn(),
-        }
-      },
-    })
-
-    await customOrchestrator.start()
-
-    // Trigger onMultipleLeadersDetected callback
-    capturedCallbacks.onMultipleLeadersDetected?.()
-    expect(onLeaderOverlapChange).toHaveBeenLastCalledWith(true)
-
-    // Trigger onSoleLeaderRestored callback
-    capturedCallbacks.onSoleLeaderRestored?.()
-    expect(onLeaderOverlapChange).toHaveBeenLastCalledWith(false)
-
-    await shutDown(customOrchestrator)
-  })
-
-  it('forwards leaderConflict event to clientEventHub', async () => {
-    const clientListener = vi.fn()
-    clientEventHub.subscribe(clientListener)
-
-    let capturedCallbacks!: LeaderElectionCallbacks
-    const customOrchestrator = createOrchestrator({
-      accountId: 'account-1',
-      poller: mockPoller,
-      clientEventHub,
-      puller: mockPuller,
-      manifestSyncManager: mockManifestSyncManager,
-      createLeaderElection: (_accountId, callbacks) => {
-        capturedCallbacks = callbacks
-        return {
-          acquire: vi.fn().mockResolvedValue(undefined),
-          release: vi.fn(),
-          claimLeadership: vi.fn(),
-        }
-      },
-    })
-
-    await customOrchestrator.start()
-
-    // Trigger onLeaderConflict callback
-    capturedCallbacks.onLeaderConflict?.(true)
-    expect(clientListener).toHaveBeenCalledWith({ type: 'leaderConflict', hasConflict: true })
-
-    capturedCallbacks.onLeaderConflict?.(false)
-    expect(clientListener).toHaveBeenCalledWith({ type: 'leaderConflict', hasConflict: false })
-
-    await shutDown(customOrchestrator)
-  })
-
   it('delegates claimLeader to leaderElection.claimLeadership', async () => {
     const mockLeaderElection: Pick<LeaderElection, 'acquire' | 'release' | 'claimLeadership'> = {
       acquire: vi.fn().mockResolvedValue(undefined),
       release: vi.fn(),
-      claimLeadership: vi.fn(),
+      claimLeadership: vi.fn().mockResolvedValue(true),
     }
     const customOrchestrator = createOrchestrator({
       accountId: 'account-1',
@@ -444,10 +377,51 @@ describe('SyncOrchestrator', () => {
 
     await customOrchestrator.start()
 
-    customOrchestrator.claimLeader()
+    expect(await customOrchestrator.claimLeader()).toBe(true)
     expect(mockLeaderElection.claimLeadership).toHaveBeenCalledTimes(1)
 
     await shutDown(customOrchestrator)
+  })
+
+  describe('followVisibleTab', () => {
+    async function startWithElection() {
+      const claimLeadership = vi.fn().mockResolvedValue(true)
+      const created = createOrchestrator({
+        accountId: 'account-1',
+        poller: mockPoller,
+        clientEventHub,
+        puller: mockPuller,
+        manifestSyncManager: mockManifestSyncManager,
+        createLeaderElection: () => ({ acquire: vi.fn().mockResolvedValue(undefined), release: vi.fn(), claimLeadership }),
+      })
+      await created.start()
+      return { created, claimLeadership }
+    }
+
+    it('takes leadership, at most once every leaderHandoffMinGap', async () => {
+      const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+      const { created, claimLeadership } = await startWithElection()
+
+      created.followVisibleTab()
+      created.followVisibleTab()
+      expect(claimLeadership).toHaveBeenCalledTimes(1)
+
+      now.mockReturnValue(1_000_000 + SYNC_TIMEOUTS.leaderHandoffMinGap)
+      created.followVisibleTab()
+      expect(claimLeadership).toHaveBeenCalledTimes(2)
+
+      await shutDown(created)
+    })
+
+    it('does nothing in the leader', async () => {
+      const { created, claimLeadership } = await startWithElection()
+      created.setLeader(true)
+
+      created.followVisibleTab()
+
+      expect(claimLeadership).not.toHaveBeenCalled()
+      await shutDown(created)
+    })
   })
 
   describe('settleLeadership', () => {

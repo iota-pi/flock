@@ -25,7 +25,6 @@ export interface SyncStateSink<TDoc extends VaultDoc = VaultDoc, TMeta extends V
   clearSyncWarning(): void
   setFatalError(message: string): void
   setQuotaExceeded(exceeded: boolean): void
-  setLeaderConflict(hasConflict: boolean): void
   startRequest(): void
   finishRequest(): void
   /** Called when sync shuts down for good, as opposed to an internal restart */

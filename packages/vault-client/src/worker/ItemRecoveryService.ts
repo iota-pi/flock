@@ -18,7 +18,7 @@ export interface ItemRecoveryServiceDeps {
   syncManifest: (mode: ManifestMode) => Promise<ManifestPhaseResult>
   itemOperations: ItemOperations
   /** Makes this tab the leader, which alone talks to the server, or throws */
-  becomeLeader: () => void
+  becomeLeader: () => Promise<void>
   /** Called once an unreadable document's local copy has been removed, so it's no longer reported unreadable */
   onLocalCopyDiscarded: (documentId: DocumentId) => void
 }
@@ -35,7 +35,7 @@ export class ItemRecoveryService {
   async replaceFromServer(itemId: ItemId): Promise<void> {
     const { repoManager, docStore, recoveryManager } = this.deps
     // Before the local copy goes, so a tab that can't fetch the server's copy keeps it
-    this.deps.becomeLeader()
+    await this.deps.becomeLeader()
     const documentId = toDocumentIdFromItemId(itemId)
     // Drops the handle that never finished loading. Its chunks are removed here rather than left to
     // the Repo, which doesn't wait for that.

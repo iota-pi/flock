@@ -90,10 +90,12 @@ describe('RealtimeBus', () => {
 
     syncChannel.receive({ type: 'tab_visibility', tabId: 'tab-b', visible: true, returned: true })
     syncChannel.receive({ type: 'tab_visibility', tabId: 'tab-c', visible: true, returned: false, active: true })
+    syncChannel.receive({ type: 'tab_visibility', tabId: 'tab-d', visible: false, returned: false, leader: true })
     syncChannel.receive({ type: 'tab_visibility', visible: true })
     expect(visibility.mock.calls).toEqual([
-      [{ tabId: 'tab-b', visible: true, returned: true, active: false }],
-      [{ tabId: 'tab-c', visible: true, returned: false, active: true }],
+      [{ tabId: 'tab-b', visible: true, returned: true, active: false, leader: false }],
+      [{ tabId: 'tab-c', visible: true, returned: false, active: true, leader: false }],
+      [{ tabId: 'tab-d', visible: false, returned: false, active: false, leader: true }],
     ])
     expect(ping).not.toHaveBeenCalled()
   })

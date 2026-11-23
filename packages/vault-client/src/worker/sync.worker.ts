@@ -452,9 +452,6 @@ export class SyncWorker implements SyncApi {
   getSyncDiagnostics = () =>
     this.withContext(ctx => ctx.getSyncDiagnostics())
 
-  claimLeader = () =>
-    this.withContext(ctx => ctx.claimLeader())
-
   setVisibility = (visible: boolean, returned?: boolean) => {
     this.isVisible = visible
     return this.withContext(ctx => ctx.setVisibility(visible, returned))

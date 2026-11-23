@@ -16,6 +16,8 @@ export interface TabVisibility {
   returned: boolean
   /** The user is using the tab, so the leader should poll at the active rate */
   active?: boolean
+  /** The tab leads, so a tab the user comes back to while it's hidden takes over */
+  leader?: boolean
 }
 type TabVisibilityListener = (visibility: TabVisibility) => void
 
@@ -104,6 +106,7 @@ export class RealtimeBus {
         visible: !!message.visible,
         returned: !!message.returned,
         active: !!message.active,
+        leader: !!message.leader,
       }
       notifyListeners(this.tabVisibilityListeners, visibility, 'TabVisibilityListener')
       return

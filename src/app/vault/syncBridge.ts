@@ -19,7 +19,6 @@ export const storeSink: SyncStateSink<Item, AccountMetadata> = {
   clearSyncWarning: () => useAppStore.getState().clearSyncWarning(),
   setFatalError: message => useAppStore.getState().setFatalError(message),
   setQuotaExceeded: exceeded => useAppStore.getState().setQuotaExceeded(exceeded),
-  setLeaderConflict: hasConflict => useAppStore.getState().setLeaderConflict(hasConflict),
   startRequest: () => useAppStore.getState().startRequest(),
   finishRequest: () => useAppStore.getState().finishRequest(),
   reset: () => {

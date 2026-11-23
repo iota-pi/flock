@@ -6,7 +6,7 @@ import {
 } from '@automerge/automerge-repo/slim'
 
 /**
- * BaseSyncNetworkAdapter holds the connection and pause state shared by the vault network
+ * BaseSyncNetworkAdapter holds the connection state shared by the vault network
  * adapters, and dispatches Automerge Repo adapter events.
  */
 export abstract class BaseSyncNetworkAdapter extends NetworkAdapter {
@@ -15,18 +15,9 @@ export abstract class BaseSyncNetworkAdapter extends NetworkAdapter {
    * never connected may still send.
    */
   protected connectionState: 'new' | 'connected' | 'disconnected' = 'new'
-  protected isPaused = false
 
   protected get isDisconnected(): boolean {
     return this.connectionState === 'disconnected'
-  }
-
-  pause(): void {
-    this.isPaused = true
-  }
-
-  resume(): void {
-    this.isPaused = false
   }
 
   connect(peerId: PeerId, peerMetadata?: PeerMetadata): void {
@@ -42,12 +33,12 @@ export abstract class BaseSyncNetworkAdapter extends NetworkAdapter {
 
   /**
    * Evaluates whether outbound messages can be dispatched immediately.
-   * By default, returns true if not explicitly disconnected and not paused.
+   * By default, returns true if not explicitly disconnected.
    * Specialized adapters can extend this to require
    * active peer connection, valid account, and send enabled flags.
    */
   protected canSend(): boolean {
-    return !this.isDisconnected && !this.isPaused
+    return !this.isDisconnected
   }
 
   // --- Automerge Repo adapter event dispatching ---

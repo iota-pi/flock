@@ -233,6 +233,8 @@ export class SyncWorkerContext {
       isVisible: this.isVisible,
       onPeerReturned: () => this._services?.orchestrator.onForeground(),
       onActivity: () => this._services?.orchestrator.onActivity(),
+      isLeader: () => this.session.isLeader,
+      onLeaderAway: () => this._services?.orchestrator.followVisibleTab(),
     })
     const cipherOptions = local.cipher ? { cipher: local.cipher } : undefined
     const indexStore = new IndexStore(accountId, cipherOptions)
@@ -436,7 +438,7 @@ export class SyncWorkerContext {
       recoveryManager,
       session,
       recorder: snapshotManager,
-      claimLeader: () => this.claimLeader(),
+      claimLeader: () => fireAndForget(this.services.orchestrator.claimLeader(), 'SyncWorkerContext:claimLeader'),
       firstStart,
       pushToLog,
       onStage: stage => this.clientEventHub.emit({ type: 'reencryptStage', stage }),
@@ -520,15 +522,7 @@ export class SyncWorkerContext {
         // The session already holds the new leadership
         fireAndForget(snapshotManager.onLeaderChange(), 'SyncWorkerContext:leaderChange')
         snapshotFormatUpgrade?.onLeaderChange()
-      },
-      onLeaderOverlapChange: hasMultipleLeaders => {
-        if (hasMultipleLeaders) {
-          log.warn('Multiple leaders detected. Pausing BroadcastChannel sync to prevent feedback loop.')
-          repoManager.pauseBroadcastSync()
-        } else {
-          log.info('Sole leader restored. Resuming BroadcastChannel sync.')
-          repoManager.resumeBroadcastSync()
-        }
+        foregroundTracker.onLeaderChange()
       },
       onPollResult: outcome => {
         this.statusManager.handlePollResult(outcome)
@@ -897,17 +891,13 @@ export class SyncWorkerContext {
     return this.services.storageRecoveryService.retrySave()
   }
 
-  claimLeader(): void {
-    this.services.orchestrator.claimLeader()
-  }
-
   /**
-   * Makes this tab the leader, which talks to the server, for a user action that has to. Claiming
-   * takes effect at once, and the other tabs yield.
+   * Makes this tab the leader, which talks to the server, for a user action that has to. It steals
+   * the leader lock, and the tab that held it stops leading.
    */
-  becomeLeader(): void {
+  async becomeLeader(): Promise<void> {
     if (this.session.isLeader) return
-    this.claimLeader()
+    await this.services.orchestrator.claimLeader()
     if (!this.session.isLeader) {
       throw new Error('This tab could not take over syncing')
     }
@@ -932,7 +922,7 @@ export class SyncWorkerContext {
 
   /** Fetches every item the server has a newer copy of, quarantined ones too. Returns whether it all merged. */
   async fullResync(): Promise<boolean> {
-    this.becomeLeader()
+    await this.becomeLeader()
     const { orchestrator } = this.services
     const result = await orchestrator.syncManifest('force')
     if (result.success) {

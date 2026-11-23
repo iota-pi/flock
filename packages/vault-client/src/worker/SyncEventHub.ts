@@ -20,7 +20,6 @@ export type ClientEvent =
   | { type: 'quotaResolved' }
   | { type: 'keyVersionMissing'; kver: string }
   | { type: 'snapshotFailed'; itemId: ItemId; message: string }
-  | { type: 'leaderConflict'; hasConflict: boolean }
   | { type: 'tokenRefreshNeeded' }
   | { type: 'reencryptProgress'; done: number; total: number }
   /** The re-encryption in flight moved to `stage`, or stopped (null) */

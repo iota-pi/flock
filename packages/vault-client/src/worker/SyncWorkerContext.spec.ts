@@ -137,8 +137,6 @@ beforeEach(() => {
       repo = {} /* mock Repo */
       storage = { has: vi.fn().mockResolvedValue(false), removeRange: vi.fn().mockResolvedValue(undefined) }
       close = vi.fn().mockResolvedValue(undefined)
-      pauseBroadcastSync = vi.fn()
-      resumeBroadcastSync = vi.fn()
     },
   })
   spyOnExports(snapshotManagerModule, {
@@ -164,9 +162,12 @@ beforeEach(() => {
       shutdown = vi.fn().mockResolvedValue(undefined)
       onOnlineStateChange = vi.fn()
       constructor(readonly deps: SyncOrchestratorDeps) {}
-      claimLeader = vi.fn(() => {
+      claimLeader = vi.fn(async () => {
         this.deps.session.setLeader(true)
+        return true
       })
+
+      followVisibleTab = vi.fn()
 
       settleLeadership = vi.fn(async () => this.deps.session.isLeader)
       flush = vi.fn()
@@ -297,22 +298,40 @@ describe('SyncWorkerContext', () => {
     expect(context.services.snapshotManager.onLeaderChange).toHaveBeenCalledTimes(1)
   })
 
-  it('pauses BroadcastChannel sync when multiple leaders are detected', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    depsOf<SyncOrchestratorDeps>(context.services.orchestrator).onLeaderOverlapChange!(true)
-    expect(context.services.repoManager.pauseBroadcastSync).toHaveBeenCalledTimes(1)
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[SyncWorkerContext] Multiple leaders detected. Pausing BroadcastChannel sync to prevent feedback loop.'
-    )
-    warnSpy.mockRestore()
+  it('tells the other tabs when it starts or stops leading, while visible', () => {
+    context.setVisibility(true)
+    context.session.setLeader(true)
+    depsOf<SyncOrchestratorDeps>(context.services.orchestrator).onLeaderChange!(true)
+    expect(realtimeBus.publishTabVisibility).toHaveBeenLastCalledWith(expect.objectContaining({ visible: true, leader: true }))
   })
 
-  it('resumes BroadcastChannel sync when the sole leader is restored', () => {
-    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
-    depsOf<SyncOrchestratorDeps>(context.services.orchestrator).onLeaderOverlapChange!(false)
-    expect(context.services.repoManager.resumeBroadcastSync).toHaveBeenCalledTimes(1)
-    expect(infoSpy).toHaveBeenCalledWith('[SyncWorkerContext] Sole leader restored. Resuming BroadcastChannel sync.')
-    infoSpy.mockRestore()
+  describe('following the visible tab', () => {
+    it('takes over when the user comes back while no visible tab leads', () => {
+      context.setVisibility(false)
+      context.setVisibility(true, true)
+      expect(context.services.orchestrator.followVisibleTab).toHaveBeenCalledTimes(1)
+    })
+
+    it('leaves a visible leader alone', () => {
+      context.setVisibility(false)
+      realtimeBus.receiveTabVisibility({ tabId: 'leader-tab', visible: true, returned: false, leader: true })
+      context.setVisibility(true, true)
+      expect(context.services.orchestrator.followVisibleTab).not.toHaveBeenCalled()
+    })
+
+    it("takes over when the leader's report that it's hidden comes just after", () => {
+      context.setVisibility(false)
+      realtimeBus.receiveTabVisibility({ tabId: 'leader-tab', visible: true, returned: false, leader: true })
+      context.setVisibility(true, true)
+      realtimeBus.receiveTabVisibility({ tabId: 'leader-tab', visible: false, returned: false, leader: true })
+      expect(context.services.orchestrator.followVisibleTab).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not take over when it already leads', () => {
+      context.session.setLeader(true)
+      context.setVisibility(true, true)
+      expect(context.services.orchestrator.followVisibleTab).not.toHaveBeenCalled()
+    })
   })
 
   it('tells the orchestrator when the online state changes', () => {
@@ -540,11 +559,6 @@ describe('SyncWorkerContext', () => {
     expect((context.services.orchestrator as any).deps.manifestSyncManager).toBe(context.services.manifestSyncManager)
   })
 
-  it('delegates claimLeader to orchestrator.claimLeader', () => {
-    context.claimLeader()
-    expect(context.services.orchestrator.claimLeader).toHaveBeenCalledTimes(1)
-  })
-
   describe('server I/O stays with the leader', () => {
     it('loads items at session start in the leader', async () => {
       context.session.setLeader(true)
@@ -597,16 +611,16 @@ describe('SyncWorkerContext', () => {
       expect(context.services.orchestrator.flush).toHaveBeenCalled()
     })
 
-    it('does not claim leadership it already has', () => {
+    it('does not claim leadership it already has', async () => {
       context.session.setLeader(true)
 
-      context.becomeLeader()
+      await context.becomeLeader()
 
       expect(context.services.orchestrator.claimLeader).not.toHaveBeenCalled()
     })
 
     it('fails when the claim does not make this tab the leader', async () => {
-      vi.mocked(context.services.orchestrator.claimLeader).mockImplementation(() => {})
+      vi.mocked(context.services.orchestrator.claimLeader).mockResolvedValue(false)
 
       await expect(context.fullResync()).rejects.toThrow(/could not take over/)
       expect(context.services.orchestrator.syncManifest).not.toHaveBeenCalled()
