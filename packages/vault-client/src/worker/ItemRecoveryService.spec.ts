@@ -12,7 +12,7 @@ describe('ItemRecoveryService', () => {
   let syncManifest: any
   let mockItemOperations: any
   let onLocalCopyDiscarded: Mock<(documentId: DocumentId) => void>
-  let becomeLeader: Mock<() => void>
+  let becomeLeader: Mock<() => Promise<void>>
   let service: ItemRecoveryService
 
   beforeEach(() => {
@@ -38,7 +38,7 @@ describe('ItemRecoveryService', () => {
       recreateOversizedItem: vi.fn().mockResolvedValue('item-new'),
     }
     onLocalCopyDiscarded = vi.fn()
-    becomeLeader = vi.fn()
+    becomeLeader = vi.fn().mockResolvedValue(undefined)
     service = new ItemRecoveryService({
       repoManager: mockRepoManager,
       docStore: mockDocStore,
@@ -73,9 +73,7 @@ describe('ItemRecoveryService', () => {
     })
 
     it('keeps the local copy when this tab cannot take over syncing', async () => {
-      becomeLeader.mockImplementation(() => {
-        throw new Error('This tab could not take over syncing')
-      })
+      becomeLeader.mockRejectedValue(new Error('This tab could not take over syncing'))
 
       await expect(service.replaceFromServer('item-1' as ItemId)).rejects.toThrow(/could not take over/)
 

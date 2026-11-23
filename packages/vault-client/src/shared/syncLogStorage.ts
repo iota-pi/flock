@@ -10,7 +10,7 @@ export const SYNC_LOG_STORES = {
   outbox: 'outbox',
   /** Log entries that couldn't be applied yet, by seq */
   parked: 'parked',
-  /** Items whose server heads aren't known yet (see FirstStart) */
+  /** Unused: first start's records, which nothing reads now. Kept because names never change. */
   firstStart: 'first-start',
   /**
    * Items with pulled changes no snapshot has confirmed, from before they moved into each item's

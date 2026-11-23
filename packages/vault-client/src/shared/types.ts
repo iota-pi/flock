@@ -24,11 +24,10 @@ export interface UnsyncedChanges {
 }
 
 /**
- * What holds up an item's changes: first start waiting for the server's copy (`awaitingHeads`) or
- * for this device's own snapshot (`awaitingSnapshot`), a change only a snapshot can deliver
- * (`snapshotOnly`), a doc this device can't load (`unloadable`), or nothing known (`unknown`)
+ * What holds up an item's changes: a change only a snapshot can deliver (`snapshotOnly`), a doc this
+ * device can't load (`unloadable`), or nothing known (`unknown`)
  */
-export type StuckReason = 'awaitingHeads' | 'awaitingSnapshot' | 'snapshotOnly' | 'unloadable' | 'unknown'
+export type StuckReason = 'snapshotOnly' | 'unloadable' | 'unknown'
 
 /** Counts of stuck items by reason. A reason with none is absent. */
 export type StuckItems = Partial<Record<StuckReason, number>>
@@ -76,14 +75,14 @@ export interface ReencryptResult {
 
 /**
  * What a re-encryption is doing: waiting for this tab to lead (only the leader pushes), waiting for
- * first start to allow pushes, or rewriting snapshots
+ * catch-up's manifest sync to merge the server's snapshots, or rewriting snapshots
  */
 export type ReencryptStage = 'waitingForLeader' | 'waitingForSync' | 'reencrypting'
 
 /** Options for a re-encryption run, or for preparing one */
 export interface ReencryptOptions {
   /**
-   * How long to wait for leadership and for first start before giving up with a
+   * How long to wait for leadership and for catch-up before giving up with a
    * `ReencryptionWaitError`. Without it, a run waits as long as it takes.
    */
   waitTimeoutMs?: number
@@ -101,12 +100,8 @@ export interface ReencryptCallOptions extends ReencryptOptions {
 export interface SyncDiagnostics {
   isLeader: boolean
   isOnline: boolean
-  /** Whether first start's network part has finished on this device */
-  firstStartSynced: boolean
-  /** Whether first start lets pushes go ahead (its manifest sync has run) */
-  firstStartReadyToPush: boolean
-  /** Why first start's network part last failed, or null */
-  firstStartError: string | null
+  /** Whether this device has caught up with the server, so rewrites can go ahead (see `SyncLogPuller.isCaughtUp`) */
+  caughtUp: boolean
   /** The stage of the re-encryption running now, or null */
   reencryptStage: ReencryptStage | null
 }

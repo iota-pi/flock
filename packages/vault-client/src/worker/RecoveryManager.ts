@@ -33,43 +33,58 @@ export interface QuarantineOptions {
   serverVersion?: number
 }
 
+/**
+ * Tracks in-flight quarantines and cooldowns by item and kind, so that a report of one kind never hides
+ * another kind for the same item. The store serialises writes to an item and keeps the stronger kind.
+ */
 export class RecoveryManager {
-  private inFlightItemIds = new Set<ItemId>()
-  private cooldownUntilByItemId = new Map<ItemId, number>()
+  private inFlightKinds = new Map<ItemId, Set<ManualRecoveryKind>>()
+  private cooldownUntilByItemId = new Map<ItemId, Map<ManualRecoveryKind, number>>()
 
   constructor(private readonly deps: RecoveryManagerDeps) {}
 
-  private isInFlight(itemId: ItemId): boolean {
-    return this.inFlightItemIds.has(itemId)
+  private isInFlight(itemId: ItemId, kind?: ManualRecoveryKind): boolean {
+    const kinds = this.inFlightKinds.get(itemId)
+    if (!kinds) return false
+    return kind ? kinds.has(kind) : kinds.size > 0
   }
 
-  private setInFlight(itemId: ItemId, inFlight: boolean): void {
+  private setInFlight(itemId: ItemId, kind: ManualRecoveryKind, inFlight: boolean): void {
+    const kinds = this.inFlightKinds.get(itemId) ?? new Set<ManualRecoveryKind>()
     if (inFlight) {
-      this.inFlightItemIds.add(itemId)
+      kinds.add(kind)
+      this.inFlightKinds.set(itemId, kinds)
     } else {
-      this.inFlightItemIds.delete(itemId)
+      kinds.delete(kind)
+      if (kinds.size === 0) this.inFlightKinds.delete(itemId)
     }
   }
 
-  private getRecoveryCooldownUntil(itemId: ItemId): number {
-    const cooldownUntil = this.cooldownUntilByItemId.get(itemId) || 0
+  private getRecoveryCooldownUntil(itemId: ItemId, kind: ManualRecoveryKind): number {
+    const byKind = this.cooldownUntilByItemId.get(itemId)
+    const cooldownUntil = byKind?.get(kind) || 0
     if (cooldownUntil <= Date.now()) {
-      this.cooldownUntilByItemId.delete(itemId)
+      byKind?.delete(kind)
+      if (byKind?.size === 0) this.cooldownUntilByItemId.delete(itemId)
       return 0
     }
     return cooldownUntil
   }
 
-  private setRecoveryCooldown(itemId: ItemId, cooldownUntil: number): void {
-    this.cooldownUntilByItemId.set(itemId, cooldownUntil)
+  private setRecoveryCooldown(itemId: ItemId, kind: ManualRecoveryKind, cooldownUntil: number): void {
+    const byKind = this.cooldownUntilByItemId.get(itemId) ?? new Map<ManualRecoveryKind, number>()
+    byKind.set(kind, cooldownUntil)
+    this.cooldownUntilByItemId.set(itemId, byKind)
   }
 
-  private clearRecoveryCooldown(itemId: ItemId): void {
+  /** Forgets an item's cooldowns and in-flight quarantines of every kind */
+  private clearRecoveryState(itemId: ItemId): void {
     this.cooldownUntilByItemId.delete(itemId)
+    this.inFlightKinds.delete(itemId)
   }
 
   resetRecoveryState(): void {
-    this.inFlightItemIds.clear()
+    this.inFlightKinds.clear()
     this.cooldownUntilByItemId.clear()
   }
 
@@ -101,27 +116,22 @@ export class RecoveryManager {
     const accountId = this.deps.accountId
     if (!itemId) return
 
-    const now = Date.now()
-    if (options?.checkCooldown) {
-      if (this.isInFlight(itemId) || this.getRecoveryCooldownUntil(itemId) > now) {
-        return
-      }
-    } else if (this.isInFlight(itemId)) {
-      return
-    }
+    // A repeat of a kind already being recorded is dropped, but a different kind is recorded too
+    if (this.isInFlight(itemId, kind)) return
+    if (options?.checkCooldown && this.getRecoveryCooldownUntil(itemId, kind) > Date.now()) return
 
-    this.setInFlight(itemId, true)
+    this.setInFlight(itemId, kind, true)
     try {
       await upsertManualRecoveryEntry(accountId, { itemId, detail, kind, serverVersion: options?.serverVersion })
       await this.pushRecoveryItems()
 
       const cooldownMs = options?.cooldownMs ?? SYNC_TIMEOUTS.recoveryCooldown
-      this.setRecoveryCooldown(itemId, Date.now() + cooldownMs)
+      this.setRecoveryCooldown(itemId, kind, Date.now() + cooldownMs)
     } catch (err) {
       log.error(`Failed to quarantine item ${itemId}:`, err)
       throw err
     } finally {
-      this.setInFlight(itemId, false)
+      this.setInFlight(itemId, kind, false)
     }
   }
 
@@ -136,8 +146,7 @@ export class RecoveryManager {
       throw error
     }
 
-    this.clearRecoveryCooldown(itemId)
-    this.setInFlight(itemId, false)
+    this.clearRecoveryState(itemId)
 
     await this.pushRecoveryItems()
   }
@@ -154,8 +163,7 @@ export class RecoveryManager {
       const removed = await removeManualRecoveryEntryIfKind(accountId, itemId, kinds)
       if (removed) {
         removedAny = true
-        this.clearRecoveryCooldown(itemId)
-        this.setInFlight(itemId, false)
+        this.clearRecoveryState(itemId)
       }
     }
 

@@ -110,11 +110,13 @@ beforeEach(() => {
 
 describe('migrateLegacyLocalData', () => {
   let importRecords: MockInstance<typeof vaultWorker.importItemSyncRecords>
+  let dateMarks: MockInstance<typeof vaultWorker.datePendingMarks>
 
   beforeEach(() => {
     vi.clearAllMocks()
     resetStores()
     importRecords = vi.spyOn(vaultWorker, 'importItemSyncRecords').mockResolvedValue(undefined)
+    dateMarks = vi.spyOn(vaultWorker, 'datePendingMarks').mockResolvedValue(undefined)
     // Most tests don't care about manual recovery, so mark it done
     metadataStore().data.set('manualRecoveryMigrated', true)
   })
@@ -207,6 +209,12 @@ describe('migrateLegacyLocalData', () => {
     await migrateLegacyLocalData(accountId)
 
     expect(importRecords).not.toHaveBeenCalled()
+  })
+
+  it('dates pending marks from builds before marks had an age', async () => {
+    await migrateLegacyLocalData(accountId)
+
+    expect(dateMarks).toHaveBeenCalledWith(accountId)
   })
 
   it('keeps the whole-account values when the records fail to import, so a later run repeats', async () => {
@@ -323,6 +331,7 @@ describe('manual recovery migration', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     resetStores()
+    vi.spyOn(vaultWorker, 'datePendingMarks').mockResolvedValue(undefined)
   })
 
   it('keys legacy entries by item ID and sets the flag', async () => {

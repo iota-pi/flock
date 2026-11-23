@@ -22,7 +22,7 @@ Two changes protect data at rest. **Part 1** derives the password key with Argon
 | Manual recovery (`manualRecoveryDatabase` + account) | Item IDs, recovery kinds and reason codes (`ManualRecoveryDetail`: fixed codes plus sizes and stages, never an error message) | Plaintext, no user content: error messages can quote decrypted content, so they're only logged, and older free-text reasons are scrubbed when read |
 | Keyring cache, biometric data (localStorage) | Data keys | Encrypted (master key / WebAuthn PRF) |
 | Account metadata (localStorage) | Account ID, salt, key derivation parameters | Plaintext, needed before login |
-| Plaintext Automerge database, `indexDoc`, WALs (plaintext and sealed) | Left by older builds | Retired by the upgrade; WALs are never read and are cleared at first start (sync-design.md) |
+| Plaintext Automerge database, `indexDoc`, WALs (plaintext and sealed) | Left by older builds | Retired by the upgrade; WALs are never read and are cleared by the migration app ("Moving onto the log" in sync-design.md) |
 
 The session token is kept only in memory (see "Session tokens").
 
@@ -206,7 +206,7 @@ Deleting a database under a live old-build tab is unsafe: it reconnects to a fre
 
 ### Data levels
 
-- **`SEALED_DATA_VERSION` 3, with `MIN_DEVICE_DATA_VERSION` at or above it** (now 4, for first start). The device gate sends a device below it with local data to `/migrate/` before its worker starts, and `hasLegacyLocalData` also reports the plaintext Automerge and WAL databases. The migration app seals the data, so nothing is lost.
+- **`SEALED_DATA_VERSION` 3, with `MIN_DEVICE_DATA_VERSION` at or above it** (now 4, for the sync reset). The device gate sends a device below it with local data to `/migrate/` before its worker starts, and `hasLegacyLocalData` also reports the plaintext Automerge and WAL databases. The migration app seals the data, so nothing is lost.
 - **Both workers seal** (`upgradeLocalEncryption: true`). The main app needs it to seal a new device and to merge plaintext an old tab wrote since. The migration app needs it too, or after the main app retired the plaintext stores it would find them empty and download everything into plaintext again.
 - **Both pass `sealedDataVersion: 3`,** so `DataVersionTracker` records at most 2 until the session is sealed with no plaintext stores left. The quota fallback and the password-derived-key guard never record level 3.
 - **A device that can't seal** (an account still on v1) stays below 3 until the account rotates off v1, at an unlock or in the migration app.

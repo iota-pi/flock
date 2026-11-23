@@ -354,7 +354,6 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
   readonly recreateOversizedItem = this.forward('recreateOversizedItem')
   readonly dismissRecoveryItem = this.forward('dismissRecoveryItem')
   readonly updateVaultKey = this.forward('updateVaultKey')
-  readonly claimLeader = this.forward('claimLeader')
 
   listRecoveryItems(options?: ReadManualRecoveryOptions): Promise<ManualRecoveryEntry[]> {
     return this.execute(async api => {

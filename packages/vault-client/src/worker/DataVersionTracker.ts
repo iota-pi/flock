@@ -29,7 +29,7 @@ export interface DataVersionTrackerDeps {
   raiseAccountDataVersion: () => Promise<{ dataVersion: number, blockers: string[], blockedItems?: Record<string, number> }>
   /**
    * The highest level this device's local data has reached, when some of it is still in an older
-   * layout (such as plaintext stores not yet retired) or first start hasn't finished. The recorded
+   * layout (such as plaintext stores not yet retired) or the sync reset hasn't finished. The recorded
    * level never exceeds it.
    */
   maxDeviceVersion?: () => number | Promise<number>
@@ -43,7 +43,7 @@ export interface DataVersionTrackerDeps {
  *   without failures. By then the session has run every local migration: the app's
  *   `migrateLocalData` hook before any store was read, and legacy settings during the sync. A device with no
  *   local data starts at the current version. Each status check writes it again after such a sync,
- *   so a level reached between syncs (first start finishing, say) doesn't wait for the next one.
+ *   so a level reached between syncs (the WAL cleared, say) doesn't wait for the next one.
  * - The account level is raised by the server, which checks the account's stored data first. The
  *   leader asks once per session, after this device has rewritten its snapshots.
  */

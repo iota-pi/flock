@@ -4,7 +4,7 @@ import { exposeSyncWorker } from '@vault/client/worker'
 import { FLOCK_STORAGE_NAMES } from './storageNames'
 import { flockSyncDomain } from './syncDomain'
 import { hasLegacyLocalData, MIN_DEVICE_DATA_VERSION } from '../../migrate/detection'
-import { FIRST_START_DATA_VERSION, SEALED_DATA_VERSION } from '../../shared/flockDataVersion'
+import { SEALED_DATA_VERSION } from '../../shared/flockDataVersion'
 
 exposeSyncWorker({
   endpoint: env.VAULT_ENDPOINT,
@@ -17,6 +17,5 @@ exposeSyncWorker({
   // plaintext stores gone and downloads everything into new ones.
   upgradeLocalEncryption: true,
   sealedDataVersion: SEALED_DATA_VERSION,
-  // At or below the device gate, so this app never runs first start (the migration app does)
-  firstStartDataVersion: FIRST_START_DATA_VERSION,
+  // No `syncResetDataVersion`: the device gate is at its level, so only the migration app resets
 })

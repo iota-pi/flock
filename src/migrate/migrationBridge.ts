@@ -49,7 +49,6 @@ const sink: SyncStateSink = {
   clearSyncWarning: () => setState({ warning: null }),
   setFatalError: fatalError => setState({ fatalError }),
   setQuotaExceeded: () => {},
-  setLeaderConflict: () => {},
   startRequest: () => {},
   finishRequest: () => {},
   reset: () => setState(initialState),

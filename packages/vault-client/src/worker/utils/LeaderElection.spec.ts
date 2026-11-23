@@ -1,19 +1,106 @@
-import { LeaderElection } from './LeaderElection'
+import { LeaderElection, type LeaderElectionCallbacks, type LeaderElectionOptions } from './LeaderElection'
+
+const LOCK_NAME = 'test-vault-leader-acc-1'
+const PRESENCE_CHANNEL = 'test-vault-leader-presence-acc-1'
+
+function abortError(): DOMException {
+  return new DOMException('The request was aborted.', 'AbortError')
+}
+
+interface LockEntry {
+  name: string
+  callback: (lock: { name: string }) => unknown
+  resolve: (value: unknown) => void
+  reject: (error: unknown) => void
+}
+
+/**
+ * The Web Locks a set of tabs share: one holder per name, queued requests granted in order, a
+ * `signal` that drops a queued request, and `steal`, which rejects the holder's request with an
+ * `AbortError` and grants at once.
+ */
+class FakeLockManager {
+  private readonly held = new Map<string, LockEntry>()
+  private readonly queue: LockEntry[] = []
+  readonly requests: Array<{ name: string; options: LockOptions }> = []
+
+  request = vi.fn((name: string, options: LockOptions, callback: LockEntry['callback']) => {
+    this.requests.push({ name, options })
+    return new Promise<unknown>((resolve, reject) => {
+      const entry: LockEntry = { name, callback, resolve, reject }
+      if (options.signal?.aborted) {
+        reject(abortError())
+        return
+      }
+      if (options.steal) {
+        const holder = this.held.get(name)
+        this.held.delete(name)
+        holder?.reject(abortError())
+        this.grant(entry)
+        return
+      }
+      options.signal?.addEventListener('abort', () => {
+        const index = this.queue.indexOf(entry)
+        if (index === -1) return
+        this.queue.splice(index, 1)
+        reject(abortError())
+      })
+      this.queue.push(entry)
+      this.grantNext(name)
+    })
+  })
+
+  query = vi.fn(async () => ({
+    held: Array.from(this.held.keys(), name => ({ name })),
+    pending: this.queue.map(({ name }) => ({ name })),
+  }))
+
+  isHeld(name = LOCK_NAME): boolean {
+    return this.held.has(name)
+  }
+
+  private grantNext(name: string): void {
+    if (this.held.has(name)) return
+    const index = this.queue.findIndex(entry => entry.name === name)
+    if (index === -1) return
+    const [entry] = this.queue.splice(index, 1)
+    this.grant(entry)
+  }
+
+  private grant(entry: LockEntry): void {
+    this.held.set(entry.name, entry)
+    const settle = () => {
+      if (this.held.get(entry.name) !== entry) return
+      this.held.delete(entry.name)
+      this.grantNext(entry.name)
+    }
+    Promise.resolve()
+      .then(() => entry.callback({ name: entry.name }))
+      .then(
+        value => {
+          settle()
+          entry.resolve(value)
+        },
+        error => {
+          settle()
+          entry.reject(error)
+        },
+      )
+  }
+}
 
 class MockBroadcastChannel {
-  name: string
-  onmessage: ((ev: MessageEvent) => any) | null = null
-  static channels = new Set<MockBroadcastChannel>()
+  static readonly channels = new Set<MockBroadcastChannel>()
+  onmessage: ((event: MessageEvent) => void) | null = null
 
-  constructor(name: string) {
-    this.name = name
+  constructor(readonly name: string) {
     MockBroadcastChannel.channels.add(this)
   }
 
-  postMessage(data: any): void {
-    for (const ch of Array.from(MockBroadcastChannel.channels)) {
-      if (ch !== this && ch.name === this.name && ch.onmessage) {
-        ch.onmessage({ data } as MessageEvent)
+  postMessage(data: unknown): void {
+    for (const channel of Array.from(MockBroadcastChannel.channels)) {
+      if (channel !== this && channel.name === this.name) {
+        channel.onmessage?.({ data } as MessageEvent)
       }
     }
   }
@@ -23,1066 +110,281 @@ class MockBroadcastChannel {
   }
 }
 
+function stubNavigator(value: object): void {
+  Object.defineProperty(global, 'navigator', { value, writable: true, configurable: true })
+}
+
 /** Lets every pending promise callback run, for checking that something has not happened */
 const flushPromises = () => new Promise(resolve => setTimeout(resolve, 0))
 
 describe('LeaderElection', () => {
-  let originalNavigator: any
+  let originalNavigator: Navigator
+  let locks: FakeLockManager
+  const elections: LeaderElection[] = []
+
+  function createTab(options?: LeaderElectionOptions, accountId = 'acc-1') {
+    const callbacks = {
+      onLeaderGranted: vi.fn(),
+      onLeaderRevoked: vi.fn(),
+    } satisfies LeaderElectionCallbacks
+    const election = new LeaderElection(accountId, callbacks, options)
+    elections.push(election)
+    return { election, ...callbacks }
+  }
+
+  /** A tab that has acquired the lock and leads */
+  async function startLeader(options?: LeaderElectionOptions) {
+    const tab = createTab(options)
+    await tab.election.acquire()
+    await vi.waitFor(() => expect(tab.election.leader).toBe(true))
+    return tab
+  }
+
+  /** A tab queued behind the leader */
+  async function startFollower(options?: LeaderElectionOptions) {
+    const tab = createTab(options)
+    await tab.election.acquire()
+    await flushPromises()
+    expect(tab.election.leader).toBe(false)
+    return tab
+  }
 
   beforeEach(() => {
     originalNavigator = global.navigator
+    locks = new FakeLockManager()
+    stubNavigator({ locks })
     vi.stubGlobal('BroadcastChannel', MockBroadcastChannel)
     MockBroadcastChannel.channels.clear()
   })
 
   afterEach(() => {
-    Object.defineProperty(global, 'navigator', {
-      value: originalNavigator,
-      writable: true,
-      configurable: true,
-    })
+    for (const election of elections.splice(0)) {
+      election.release()
+    }
+    stubNavigator(originalNavigator)
     MockBroadcastChannel.channels.clear()
     vi.unstubAllGlobals()
-    vi.restoreAllMocks()
   })
 
-  it('falls back to granting leadership when navigator.locks is undefined', async () => {
-    Object.defineProperty(global, 'navigator', {
-      value: {},
-      writable: true,
-      configurable: true,
-    })
+  it('leads in every tab when navigator.locks is undefined', async () => {
+    stubNavigator({})
+    const a = createTab()
+    const b = createTab()
 
-    const onLeaderGranted = vi.fn()
-    const onLeaderRevoked = vi.fn()
-    const election = new LeaderElection('acc-1', { onLeaderGranted, onLeaderRevoked })
+    await a.election.acquire()
+    await b.election.acquire()
 
-    await election.acquire()
+    expect(a.election.leader).toBe(true)
+    expect(b.election.leader).toBe(true)
+    expect(await b.election.claimLeadership()).toBe(true)
+    expect(a.onLeaderGranted).toHaveBeenCalledTimes(1)
+  })
 
-    expect(onLeaderGranted).toHaveBeenCalledTimes(1)
-    expect(onLeaderRevoked).not.toHaveBeenCalled()
-    expect(election.leader).toBe(true)
-    expect(election.fallback).toBe(true)
-    election.release()
+  it('grants the lock to the first tab and queues the next behind it', async () => {
+    const a = await startLeader()
+    const b = await startFollower()
+
+    expect(a.onLeaderGranted).toHaveBeenCalledTimes(1)
+    expect(b.onLeaderGranted).not.toHaveBeenCalled()
+
+    a.election.release()
+
+    expect(a.onLeaderRevoked).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(b.election.leader).toBe(true))
   })
 
   describe('isLockHeldElsewhere', () => {
-    function stubLocks(held: Array<{ name: string }>, grant: boolean) {
-      Object.defineProperty(global, 'navigator', {
-        value: {
-          locks: {
-            request: vi.fn().mockImplementation((_name, _options, callback) => (grant ? callback() : new Promise(() => {}))),
-            query: vi.fn().mockResolvedValue({ held, pending: [] }),
-          },
-        },
-        writable: true,
-        configurable: true,
-      })
-    }
-
     it('says so while another tab holds the lock', async () => {
-      stubLocks([{ name: 'test-vault-leader-acc-1' }], false)
-      const election = new LeaderElection('acc-1', { onLeaderGranted: vi.fn(), onLeaderRevoked: vi.fn() })
-      await election.acquire()
+      await startLeader()
+      const b = await startFollower()
 
-      expect(await election.isLockHeldElsewhere()).toBe(true)
-      election.release()
+      expect(await b.election.isLockHeldElsewhere()).toBe(true)
     })
 
     it("ignores other accounts' locks", async () => {
-      stubLocks([{ name: 'test-vault-leader-acc-2' }], false)
-      const election = new LeaderElection('acc-1', { onLeaderGranted: vi.fn(), onLeaderRevoked: vi.fn() })
-      await election.acquire()
+      await startLeader()
+      const other = createTab(undefined, 'acc-2')
+      await other.election.acquire()
 
-      expect(await election.isLockHeldElsewhere()).toBe(false)
-      election.release()
+      expect(await other.election.isLockHeldElsewhere()).toBe(false)
     })
 
     it('says no once this tab leads', async () => {
-      stubLocks([{ name: 'test-vault-leader-acc-1' }], true)
-      const election = new LeaderElection('acc-1', { onLeaderGranted: vi.fn(), onLeaderRevoked: vi.fn() })
-      await election.acquire()
+      const a = await startLeader()
 
-      expect(await election.isLockHeldElsewhere()).toBe(false)
-      election.release()
+      expect(await a.election.isLockHeldElsewhere()).toBe(false)
     })
   })
 
-  it('grants leadership when lock is acquired and revokes on release', async () => {
-    const requestMock = vi.fn().mockImplementation((name, options, callback) => {
-      return callback()
+  describe('claimLeadership', () => {
+    it('steals the lock, and the tab that held it stops leading and queues again', async () => {
+      const a = await startLeader()
+      const b = await startFollower()
+
+      expect(await b.election.claimLeadership()).toBe(true)
+
+      expect(b.election.leader).toBe(true)
+      expect(locks.requests.at(-2)?.options).toEqual({ steal: true })
+      await vi.waitFor(() => expect(a.election.leader).toBe(false))
+      expect(a.onLeaderRevoked).toHaveBeenCalledTimes(1)
+
+      b.election.release()
+      await vi.waitFor(() => expect(a.election.leader).toBe(true))
+      expect(a.onLeaderGranted).toHaveBeenCalledTimes(2)
     })
 
-    Object.defineProperty(global, 'navigator', {
-      value: {
-        locks: {
-          request: requestMock,
-        },
-      },
-      writable: true,
-      configurable: true,
+    it('drops its own queued request, so it holds the lock once', async () => {
+      await startLeader()
+      const b = await startFollower()
+
+      await b.election.claimLeadership()
+      b.election.release()
+      await flushPromises()
+
+      // The leader's re-queued request has the lock, and nothing of B's is left to be granted it
+      expect(b.onLeaderGranted).toHaveBeenCalledTimes(1)
+      expect(locks.isHeld()).toBe(true)
     })
 
-    const onLeaderGranted = vi.fn()
-    const onLeaderRevoked = vi.fn()
-    const election = new LeaderElection('acc-1', { onLeaderGranted, onLeaderRevoked })
+    it('hands leadership back and forth', async () => {
+      const a = await startLeader()
+      const b = await startFollower()
 
-    await election.acquire()
+      await b.election.claimLeadership()
+      await vi.waitFor(() => expect(a.election.leader).toBe(false))
+      await a.election.claimLeadership()
+      await vi.waitFor(() => expect(b.election.leader).toBe(false))
 
-    expect(requestMock).toHaveBeenCalledWith(
-      'test-vault-leader-acc-1',
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
-      expect.any(Function)
-    )
-    expect(onLeaderGranted).toHaveBeenCalledTimes(1)
-    expect(election.leader).toBe(true)
-    expect(election.fallback).toBe(false)
+      expect(a.election.leader).toBe(true)
+      expect(a.onLeaderGranted).toHaveBeenCalledTimes(2)
+      expect(b.onLeaderRevoked).toHaveBeenCalledTimes(1)
+    })
 
-    election.release()
-    expect(onLeaderRevoked).toHaveBeenCalledTimes(1)
-    expect(election.leader).toBe(false)
+    it('shares one steal between concurrent claims', async () => {
+      await startLeader()
+      const b = await startFollower()
+
+      const results = await Promise.all([b.election.claimLeadership(), b.election.claimLeadership()])
+
+      expect(results).toEqual([true, true])
+      expect(locks.requests.filter(({ options }) => options.steal)).toHaveLength(1)
+    })
+
+    it('resolves at once in the leader, without stealing', async () => {
+      const a = await startLeader()
+
+      expect(await a.election.claimLeadership()).toBe(true)
+      expect(locks.requests.filter(({ options }) => options.steal)).toHaveLength(0)
+    })
+
+    it('does nothing once released', async () => {
+      const a = createTab()
+
+      expect(await a.election.claimLeadership()).toBe(false)
+      expect(locks.request).not.toHaveBeenCalled()
+    })
+
+    it('gives the lock straight back if released while the steal is in flight', async () => {
+      const a = await startLeader()
+      const b = await startFollower()
+
+      const claim = b.election.claimLeadership()
+      b.election.release()
+
+      expect(await claim).toBe(false)
+      expect(b.onLeaderGranted).not.toHaveBeenCalled()
+      await vi.waitFor(() => expect(a.election.leader).toBe(true))
+    })
   })
 
-  it('aborts pending lock request when release is called before lock is granted', async () => {
-    let abortSignal: AbortSignal | null = null
+  describe('lock errors', () => {
+    it('retries after a failed request without leading in between', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      locks.request.mockImplementationOnce(() => Promise.reject(new Error('Transient')))
+      const a = createTab({ retryDelayMs: 10 })
 
-    const requestMock = vi.fn().mockImplementation((name, options) => {
-      abortSignal = options.signal
-      return new Promise<void>((_, reject) => {
-        if (options.signal) {
-          options.signal.addEventListener('abort', () => {
-            const abortError = new Error('The request was aborted')
-            abortError.name = 'AbortError'
-            reject(abortError)
-          })
-        }
-      })
+      await a.election.acquire()
+      await vi.waitFor(() => expect(consoleError).toHaveBeenCalledWith(
+        expect.stringContaining('[LeaderElection] Failed to acquire lock (attempt 1/3)'),
+        expect.any(Error),
+      ))
+      expect(a.election.leader).toBe(false)
+
+      await vi.waitFor(() => expect(a.election.leader).toBe(true))
+      expect(locks.request).toHaveBeenCalledTimes(2)
     })
 
-    Object.defineProperty(global, 'navigator', {
-      value: {
-        locks: {
-          request: requestMock,
-        },
-      },
-      writable: true,
-      configurable: true,
-    })
-
-    const onLeaderGranted = vi.fn()
-    const onLeaderRevoked = vi.fn()
-    const election = new LeaderElection('acc-1', { onLeaderGranted, onLeaderRevoked })
-
-    await election.acquire()
-
-    expect(requestMock).toHaveBeenCalled()
-    expect(abortSignal).toBeDefined()
-    expect((abortSignal as any)?.aborted).toBe(false)
-    expect(onLeaderGranted).not.toHaveBeenCalled()
-
-    // Call release while pending
-    election.release()
-
-    expect((abortSignal as any)?.aborted).toBe(true)
-    expect(onLeaderRevoked).not.toHaveBeenCalled()
-
-    // Ensure onLeaderGranted is never called even after catch handles AbortError
-    await flushPromises()
-    expect(onLeaderGranted).not.toHaveBeenCalled()
-  })
-
-  it('does not immediately grant leadership on initial non-abort error and waits for retry', async () => {
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const requestMock = vi.fn().mockRejectedValue(new Error('Transient lock error'))
-
-    Object.defineProperty(global, 'navigator', {
-      value: {
-        locks: {
-          request: requestMock,
-        },
-      },
-      writable: true,
-      configurable: true,
-    })
-
-    const onLeaderGranted = vi.fn()
-    const onLeaderRevoked = vi.fn()
-    const election = new LeaderElection(
-      'acc-1',
-      { onLeaderGranted, onLeaderRevoked },
-      { maxLockRetries: 3, retryDelayMs: 200 }
-    )
-
-    await election.acquire()
-    await vi.waitFor(() => expect(consoleErrorSpy).toHaveBeenCalled())
-
-    // Initial failure should not grant leadership
-    expect(onLeaderGranted).not.toHaveBeenCalled()
-    expect(election.leader).toBe(false)
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[LeaderElection] Failed to acquire lock (attempt 1/3)'),
-      expect.any(Error)
-    )
-
-    election.release()
-    consoleErrorSpy.mockRestore()
-  })
-
-  it('acquires leadership successfully on retry after transient failure', async () => {
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    let attempts = 0
-    const requestMock = vi.fn().mockImplementation((name, options, callback) => {
-      attempts += 1
-      if (attempts === 1) {
-        return Promise.reject(new Error('Transient error on attempt 1'))
-      }
-      return callback()
-    })
-
-    Object.defineProperty(global, 'navigator', {
-      value: {
-        locks: {
-          request: requestMock,
-        },
-      },
-      writable: true,
-      configurable: true,
-    })
-
-    const onLeaderGranted = vi.fn()
-    const onLeaderRevoked = vi.fn()
-    const election = new LeaderElection(
-      'acc-1',
-      { onLeaderGranted, onLeaderRevoked },
-      { maxLockRetries: 3, retryDelayMs: 20 }
-    )
-
-    await election.acquire()
-
-    // Wait for attempt 1 failure and retry delay
-    await vi.waitFor(
-      () => {
-        expect(onLeaderGranted).toHaveBeenCalledTimes(1)
-      },
-      { timeout: 500 }
-    )
-
-    expect(attempts).toBe(2)
-    expect(election.leader).toBe(true)
-    expect(election.fallback).toBe(false)
-
-    election.release()
-    expect(onLeaderRevoked).toHaveBeenCalledTimes(1)
-    consoleErrorSpy.mockRestore()
-  })
-
-  it('falls back to granting leadership after exceeding maxLockRetries', async () => {
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const requestMock = vi.fn().mockRejectedValue(new Error('Permanent lock failure'))
-
-    Object.defineProperty(global, 'navigator', {
-      value: {
-        locks: {
-          request: requestMock,
-        },
-      },
-      writable: true,
-      configurable: true,
-    })
-
-    const onLeaderGranted = vi.fn()
-    const onLeaderRevoked = vi.fn()
-    const election = new LeaderElection(
-      'acc-1',
-      { onLeaderGranted, onLeaderRevoked },
-      { maxLockRetries: 3, retryDelayMs: 15 }
-    )
-
-    await election.acquire()
-
-    // Wait for all retries to complete and fallback to trigger
-    await vi.waitFor(
-      () => {
-        expect(onLeaderGranted).toHaveBeenCalledTimes(1)
-      },
-      { timeout: 500 }
-    )
-
-    expect(election.leader).toBe(true)
-    expect(election.fallback).toBe(true)
-    expect(consoleWarnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[LeaderElection] Web Locks permanently failed after 3 attempts'),
-      expect.any(Error)
-    )
-
-    election.release()
-    expect(onLeaderRevoked).toHaveBeenCalledTimes(1)
-    consoleErrorSpy.mockRestore()
-    consoleWarnSpy.mockRestore()
-  })
-
-  it('revokes leadership if lock callback rejects unexpectedly', async () => {
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    let rejectCallbackPromise: (err: Error) => void
-
-    let callCount = 0
-    const requestMock = vi.fn().mockImplementation((name, options, callback) => {
-      callCount += 1
-      if (callCount === 1) {
-        callback()
-        return new Promise<void>((_, reject) => {
-          rejectCallbackPromise = reject
-        })
-      }
-      return new Promise<void>(() => {})
-    })
-
-    Object.defineProperty(global, 'navigator', {
-      value: {
-        locks: {
-          request: requestMock,
-        },
-      },
-      writable: true,
-      configurable: true,
-    })
-
-    const onLeaderGranted = vi.fn()
-    const onLeaderRevoked = vi.fn()
-    const election = new LeaderElection(
-      'acc-1',
-      { onLeaderGranted, onLeaderRevoked },
-      { maxLockRetries: 3, retryDelayMs: 1000 }
-    )
-
-    await election.acquire()
-    expect(onLeaderGranted).toHaveBeenCalledTimes(1)
-    expect(election.leader).toBe(true)
-
-    // Unexpected failure while holding lock
-    rejectCallbackPromise!(new Error('Lock terminated unexpectedly'))
-    await vi.waitFor(() => {
-      expect(onLeaderRevoked).toHaveBeenCalledTimes(1)
-    })
-
-    expect(election.leader).toBe(false)
-
-    election.release()
-    consoleErrorSpy.mockRestore()
-  })
-
-  it('cancels scheduled retry when release is called', async () => {
-    vi.useFakeTimers()
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    let attempts = 0
-    const requestMock = vi.fn().mockImplementation(() => {
-      attempts += 1
-      return Promise.reject(new Error('Lock error'))
-    })
-
-    Object.defineProperty(global, 'navigator', {
-      value: {
-        locks: {
-          request: requestMock,
-        },
-      },
-      writable: true,
-      configurable: true,
-    })
-
-    const onLeaderGranted = vi.fn()
-    const onLeaderRevoked = vi.fn()
-    const election = new LeaderElection(
-      'acc-1',
-      { onLeaderGranted, onLeaderRevoked },
-      { maxLockRetries: 3, retryDelayMs: 50 }
-    )
-
-    await election.acquire()
-    await vi.advanceTimersByTimeAsync(0)
-    expect(attempts).toBe(1)
-    expect(vi.getTimerCount()).toBe(1)
-
-    // Release before retry fires
-    election.release()
-
-    // Run past the retry delay
-    await vi.advanceTimersByTimeAsync(100)
-    expect(attempts).toBe(1)
-    expect(onLeaderGranted).not.toHaveBeenCalled()
-
-    consoleErrorSpy.mockRestore()
-    vi.useRealTimers()
-  })
-
-  it('detects multiple leaders via presence channel and restores sole leader when other releases', async () => {
-    const onMultipleLeadersDetected1 = vi.fn()
-    const onSoleLeaderRestored1 = vi.fn()
-    const onMultipleLeadersDetected2 = vi.fn()
-    const onSoleLeaderRestored2 = vi.fn()
-
-    // Two fallback elections simulating two tabs in an environment without web locks
-    const election1 = new LeaderElection(
-      'acc-1',
-      {
-        onLeaderGranted: vi.fn(),
-        onLeaderRevoked: vi.fn(),
-        onMultipleLeadersDetected: onMultipleLeadersDetected1,
-        onSoleLeaderRestored: onSoleLeaderRestored1,
-      },
-      { presenceHeartbeatIntervalMs: 50, presenceTimeoutMs: 150 }
-    )
-
-    const election2 = new LeaderElection(
-      'acc-1',
-      {
-        onLeaderGranted: vi.fn(),
-        onLeaderRevoked: vi.fn(),
-        onMultipleLeadersDetected: onMultipleLeadersDetected2,
-        onSoleLeaderRestored: onSoleLeaderRestored2,
-      },
-      { presenceHeartbeatIntervalMs: 50, presenceTimeoutMs: 150 }
-    )
-
-    // Both tabs acquire leadership (navigator.locks is undefined)
-    await election1.acquire()
-    await election2.acquire()
-
-    // Both should detect the other leader via presence heartbeat
-    await vi.waitFor(() => {
-      expect(onMultipleLeadersDetected1).toHaveBeenCalled()
-      expect(onMultipleLeadersDetected2).toHaveBeenCalled()
-    })
-
-    expect(election1['otherLeaders'].size).toBe(1)
-    expect(election2['otherLeaders'].size).toBe(1)
-
-    // Tab 2 releases
-    election2.release()
-
-    // Tab 1 should see release message and restore sole leader status
-    await vi.waitFor(() => {
-      expect(onSoleLeaderRestored1).toHaveBeenCalled()
-    })
-
-    expect(election1['otherLeaders'].size).toBe(0)
-
-    election1.release()
-  })
-
-  it('restores sole leader when other leader heartbeats time out', async () => {
-    const onMultipleLeadersDetected = vi.fn()
-    const onSoleLeaderRestored = vi.fn()
-
-    const election1 = new LeaderElection(
-      'acc-1',
-      {
-        onLeaderGranted: vi.fn(),
-        onLeaderRevoked: vi.fn(),
-        onMultipleLeadersDetected,
-        onSoleLeaderRestored,
-      },
-      { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 80 }
-    )
-
-    await election1.acquire()
-
-    // Simulate another tab's heartbeat arriving from an external source
-    const peerPresenceChannel = new MockBroadcastChannel('test-vault-leader-presence-acc-1')
-    peerPresenceChannel.postMessage({
-      type: 'heartbeat',
-      leaderId: 'other-leader-abc',
-      isFallback: true,
-    })
-
-    await vi.waitFor(() => {
-      expect(onMultipleLeadersDetected).toHaveBeenCalled()
-    })
-    expect(election1['otherLeaders'].size).toBe(1)
-
-    // Wait for presenceTimeoutMs to expire without any more heartbeats from other-leader-abc
-    await vi.waitFor(
-      () => {
-        expect(onSoleLeaderRestored).toHaveBeenCalled()
-      },
-      { timeout: 300 }
-    )
-
-    expect(election1['otherLeaders'].size).toBe(0)
-
-    election1.release()
-    peerPresenceChannel.close()
-  })
-
-  it('does not fire onMultipleLeadersDetected on non-leader tab when receiving heartbeats from a sole leader', async () => {
-    const onMultipleLeadersDetected = vi.fn()
-    const onSoleLeaderRestored = vi.fn()
-
-    const followerElection = new LeaderElection(
-      'acc-1',
-      {
-        onLeaderGranted: vi.fn(),
-        onLeaderRevoked: vi.fn(),
-        onMultipleLeadersDetected,
-        onSoleLeaderRestored,
-      },
-      { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
-    )
-
-    // Simulate non-leader tab listening to presence channel
-    ;(followerElection as any).setupPresence()
-    expect(followerElection.leader).toBe(false)
-
-    const peerChannel = new MockBroadcastChannel('test-vault-leader-presence-acc-1')
-    peerChannel.postMessage({
-      type: 'heartbeat',
-      leaderId: 'sole-leader-xyz',
-      createdAt: 100,
-    })
-
-    // Follower knows about sole leader, but should NOT fire multipleLeadersDetected
-    await vi.waitFor(() => expect(followerElection['otherLeaders'].size).toBe(1))
-    expect(onMultipleLeadersDetected).not.toHaveBeenCalled()
-
-    // When a second leader sends a heartbeat, multipleLeadersDetected MUST fire
-    peerChannel.postMessage({
-      type: 'heartbeat',
-      leaderId: 'second-leader-abc',
-      createdAt: 200,
-    })
-
-    await vi.waitFor(() => {
-      expect(onMultipleLeadersDetected).toHaveBeenCalledTimes(1)
-    })
-    expect(followerElection['otherLeaders'].size).toBe(2)
-
-    // When both release, sole leader status is restored
-    peerChannel.postMessage({
-      type: 'release',
-      leaderId: 'second-leader-abc',
-    })
-    peerChannel.postMessage({
-      type: 'release',
-      leaderId: 'sole-leader-xyz',
-    })
-
-    await vi.waitFor(() => {
-      expect(onSoleLeaderRestored).toHaveBeenCalledTimes(1)
-    })
-
-    followerElection.release()
-    peerChannel.close()
-  })
-
-  it('does not fire onMultipleLeadersDetected on yielded tab when receiving heartbeats from the active leader', async () => {
-    const onMultipleLeadersDetected1 = vi.fn()
-    const onMultipleLeadersDetected2 = vi.fn()
-
-    const election1 = new LeaderElection(
-      'acc-1',
-      {
-        onLeaderGranted: vi.fn(),
-        onLeaderRevoked: vi.fn(),
-        onMultipleLeadersDetected: onMultipleLeadersDetected1,
-      },
-      { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
-    )
-
-    vi.setSystemTime(100)
-    await election1.acquire()
-
-    const election2 = new LeaderElection(
-      'acc-1',
-      {
-        onLeaderGranted: vi.fn(),
-        onLeaderRevoked: vi.fn(),
-        onMultipleLeadersDetected: onMultipleLeadersDetected2,
-      },
-      { presenceHeartbeatIntervalMs: 200, presenceTimeoutMs: 100 }
-    )
-
-    vi.setSystemTime(200)
-    await election2.acquire()
-
-    // election2 yields to older election1
-    await vi.waitFor(() => {
-      expect(election2['isYielded']).toBe(true)
-      expect(election2.leader).toBe(false)
-    })
-
-    onMultipleLeadersDetected2.mockClear()
-
-    // election1 sends another heartbeat as the sole active leader
-    ;(election1 as any).sendHeartbeat()
-    await flushPromises()
-
-    // Yielded tab receives heartbeat from sole leader without firing onMultipleLeadersDetected
-    expect(onMultipleLeadersDetected2).not.toHaveBeenCalled()
-
-    election1.release()
-    election2.release()
-    vi.useRealTimers()
-  })
-
-  describe('Leader Conflict & Claim Leadership (Approach B)', () => {
-    it('newer tab yields leadership and notifies onLeaderConflict(true) when two tabs enter fallback mode', async () => {
-      const onConflict1 = vi.fn()
-      const onConflict2 = vi.fn()
-      const onLeaderRevoked2 = vi.fn()
-
-      const election1 = new LeaderElection(
-        'acc-1',
-        {
-          onLeaderGranted: vi.fn(),
-          onLeaderRevoked: vi.fn(),
-          onLeaderConflict: onConflict1,
-        },
-        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
+    it('leads without the lock once every retry has failed', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      locks.request.mockImplementation(() => Promise.reject(new Error('Permanent')))
+      const a = createTab({ retryDelayMs: 5 })
+
+      await a.election.acquire()
+
+      await vi.waitFor(() => expect(a.election.leader).toBe(true))
+      expect(locks.request).toHaveBeenCalledTimes(3)
+      expect(consoleWarn).toHaveBeenCalledWith(
+        expect.stringContaining('[LeaderElection] Web Locks permanently failed after 3 attempts'),
+        expect.any(Error),
       )
-
-      // Tab 1 acquires at T=100
-      vi.setSystemTime(100)
-      await election1.acquire()
-      expect(election1.leader).toBe(true)
-      expect(election1['isYielded']).toBe(false)
-
-      const election2 = new LeaderElection(
-        'acc-1',
-        {
-          onLeaderGranted: vi.fn(),
-          onLeaderRevoked: onLeaderRevoked2,
-          onLeaderConflict: onConflict2,
-        },
-        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
-      )
-
-      // Tab 2 acquires later at T=200
-      vi.setSystemTime(200)
-      await election2.acquire()
-
-      // Tab 2 should detect Tab 1 is older and yield leadership
-      await vi.waitFor(() => {
-        expect(onConflict2).toHaveBeenCalledWith(true)
-        expect(onLeaderRevoked2).toHaveBeenCalled()
-        expect(election2['isYielded']).toBe(true)
-        expect(election2.leader).toBe(false)
-      })
-
-      // Tab 1 remains active leader without conflict
-      expect(election1.leader).toBe(true)
-      expect(election1['isYielded']).toBe(false)
-      expect(onConflict1).not.toHaveBeenCalledWith(true)
-
-      election1.release()
-      election2.release()
-      vi.useRealTimers()
     })
 
-    it('allows yielded tab to reclaim leadership via claimLeadership, causing older tab to yield', async () => {
-      const onConflict1 = vi.fn()
-      const onConflict2 = vi.fn()
-      const onLeaderGranted2 = vi.fn()
-
-      const election1 = new LeaderElection(
-        'acc-1',
-        {
-          onLeaderGranted: vi.fn(),
-          onLeaderRevoked: vi.fn(),
-          onLeaderConflict: onConflict1,
-        },
-        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
-      )
-
-      vi.setSystemTime(100)
-      await election1.acquire()
-
-      const election2 = new LeaderElection(
-        'acc-1',
-        {
-          onLeaderGranted: onLeaderGranted2,
-          onLeaderRevoked: vi.fn(),
-          onLeaderConflict: onConflict2,
-        },
-        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
-      )
-
-      vi.setSystemTime(200)
-      await election2.acquire()
-
-      await vi.waitFor(() => {
-        expect(election2['isYielded']).toBe(true)
-      })
-
-      // Tab 2 claims leadership
-      onLeaderGranted2.mockClear()
-      election2.claimLeadership()
-
-      // Tab 2 becomes leader and clears conflict
-      expect(election2.leader).toBe(true)
-      expect(election2['isYielded']).toBe(false)
-      expect(onLeaderGranted2).toHaveBeenCalled()
-      expect(onConflict2).toHaveBeenCalledWith(false)
-
-      // Tab 1 receives claim and yields
-      await vi.waitFor(() => {
-        expect(election1.leader).toBe(false)
-        expect(election1['isYielded']).toBe(true)
-        expect(onConflict1).toHaveBeenCalledWith(true)
-      })
-
-      election1.release()
-      election2.release()
-      vi.useRealTimers()
-    })
-
-    it('auto-recovers leadership on yielded tab when active leader tab releases', async () => {
-      const onConflict2 = vi.fn()
-      const onLeaderGranted2 = vi.fn()
-
-      const election1 = new LeaderElection(
-        'acc-1',
-        {
-          onLeaderGranted: vi.fn(),
-          onLeaderRevoked: vi.fn(),
-        },
-        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
-      )
-
-      vi.setSystemTime(100)
-      await election1.acquire()
-
-      const election2 = new LeaderElection(
-        'acc-1',
-        {
-          onLeaderGranted: onLeaderGranted2,
-          onLeaderRevoked: vi.fn(),
-          onLeaderConflict: onConflict2,
-        },
-        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
-      )
-
-      vi.setSystemTime(200)
-      await election2.acquire()
-
-      await vi.waitFor(() => {
-        expect(election2['isYielded']).toBe(true)
-      })
-
-      onLeaderGranted2.mockClear()
-      onConflict2.mockClear()
-
-      // Tab 1 closes / releases
-      election1.release()
-
-      // Tab 2 automatically un-yields and reclaims leadership
-      await vi.waitFor(() => {
-        expect(election2.leader).toBe(true)
-        expect(election2['isYielded']).toBe(false)
-        expect(onLeaderGranted2).toHaveBeenCalled()
-        expect(onConflict2).toHaveBeenCalledWith(false)
-      })
-
-      election2.release()
-      vi.useRealTimers()
-    })
-
-    it('fallback leader yields immediately when receiving a heartbeat from a true leader', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-
-      const onConflictFallback = vi.fn()
-      const onRevokedFallback = vi.fn()
-      const onGrantedFallback = vi.fn()
-
-      const onConflictTrue = vi.fn()
-      const onRevokedTrue = vi.fn()
-      const onGrantedTrue = vi.fn()
-
-      let trueLockRelease: (() => void) | undefined
-      const requestMock = vi.fn().mockImplementation((name, options, callback) => {
-        if (requestMock.mock.calls.length === 1) {
-          return new Promise<void>(resolve => {
-            trueLockRelease = resolve
-            callback()
-          })
-        }
-        // Tab B fails lock acquisition
-        return Promise.reject(new Error('Lock acquisition failed for Tab B'))
-      })
-
-      Object.defineProperty(global, 'navigator', {
-        value: {
-          locks: {
-            request: requestMock,
-          },
-        },
-        writable: true,
-        configurable: true,
-      })
-
-      // Tab A acquires true Web Lock (isFallback: false)
-      const electionTrue = new LeaderElection(
-        'acc-1',
-        {
-          onLeaderGranted: onGrantedTrue,
-          onLeaderRevoked: onRevokedTrue,
-          onLeaderConflict: onConflictTrue,
-        },
-        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
-      )
-
-      await electionTrue.acquire()
-      expect(electionTrue.leader).toBe(true)
-      expect(electionTrue.fallback).toBe(false)
-      expect(electionTrue['isYielded']).toBe(false)
-
-      // Tab B is created in fallback mode after retries fail
-      const electionFallback = new LeaderElection(
-        'acc-1',
-        {
-          onLeaderGranted: onGrantedFallback,
-          onLeaderRevoked: onRevokedFallback,
-          onLeaderConflict: onConflictFallback,
-        },
-        { maxLockRetries: 1, retryDelayMs: 10, presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
-      )
-
-      await electionFallback.acquire()
-
-      // Tab B receives true leader's heartbeat with isFallback: false
-      // Tab B must yield immediately and trigger onLeaderConflict(true)
-      await vi.waitFor(() => {
-        expect(electionFallback.leader).toBe(false)
-        expect(electionFallback['isYielded']).toBe(true)
-        expect(onConflictFallback).toHaveBeenCalledWith(true)
-        expect(onRevokedFallback).toHaveBeenCalled()
-      })
-
-      // Tab A (true leader) remains active leader
-      expect(electionTrue.leader).toBe(true)
-      expect(electionTrue.fallback).toBe(false)
-      expect(electionTrue['isYielded']).toBe(false)
-      expect(onConflictTrue).not.toHaveBeenCalledWith(true)
-
-      // When Tab A releases, Tab B should auto-recover as fallback leader
-      electionTrue.release()
-      trueLockRelease?.()
-
-      await vi.waitFor(() => {
-        expect(electionFallback.leader).toBe(true)
-        expect(electionFallback.fallback).toBe(true)
-        expect(electionFallback['isYielded']).toBe(false)
-        expect(onConflictFallback).toHaveBeenCalledWith(false)
-      })
-
-      electionFallback.release()
-      consoleErrorSpy.mockRestore()
-      consoleWarnSpy.mockRestore()
-    })
-
-    it('fallback leader yields to true leader even if fallback leader was created earlier', async () => {
-      const onConflictFallback = vi.fn()
-      const onRevokedFallback = vi.fn()
-
-      const requestMock = vi.fn().mockImplementation((name, options, callback) => {
-        return callback()
-      })
-
-      Object.defineProperty(global, 'navigator', {
-        value: {
-          locks: {
-            request: requestMock,
-          },
-        },
-        writable: true,
-        configurable: true,
-      })
-
-      vi.setSystemTime(100)
-      const electionFallback = new LeaderElection(
-        'acc-1',
-        {
-          onLeaderGranted: vi.fn(),
-          onLeaderRevoked: onRevokedFallback,
-          onLeaderConflict: onConflictFallback,
-        },
-        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
-      )
-      electionFallback.claimLeadership()
-      expect(electionFallback.leader).toBe(true)
-      expect(electionFallback.fallback).toBe(true)
-
-      // Later at T=500, a true leader starts
-      vi.setSystemTime(500)
-      const electionTrue = new LeaderElection(
-        'acc-1',
-        {
-          onLeaderGranted: vi.fn(),
-          onLeaderRevoked: vi.fn(),
-          onLeaderConflict: vi.fn(),
-        },
-        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
-      )
-      await electionTrue.acquire()
-      expect(electionTrue.leader).toBe(true)
-      expect(electionTrue.fallback).toBe(false)
-
-      // Even though fallback leader is older (T=100 vs T=500), it MUST yield to the true leader
-      await vi.waitFor(() => {
-        expect(electionFallback.leader).toBe(false)
-        expect(electionFallback['isYielded']).toBe(true)
-        expect(onConflictFallback).toHaveBeenCalledWith(true)
-        expect(onRevokedFallback).toHaveBeenCalled()
-      })
-
-      expect(electionTrue.leader).toBe(true)
-      expect(electionTrue['isYielded']).toBe(false)
-
-      electionFallback.release()
-      electionTrue.release()
-      vi.useRealTimers()
-    })
-
-    it('true leader that yields to a claim re-grants leadership with isFallback: false when claimer releases', async () => {
-      let trueLockRelease: (() => void) | undefined
-      const requestMock = vi.fn().mockImplementation((name, options, callback) => {
-        return new Promise<void>(resolve => {
-          trueLockRelease = resolve
-          callback()
+    it('stops leading if its held lock fails, then queues again', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      let fail!: (error: Error) => void
+      locks.request.mockImplementationOnce((name, _options, callback) => {
+        void callback({ name })
+        return new Promise((_, reject) => {
+          fail = reject
         })
       })
+      const a = createTab({ retryDelayMs: 10 })
+      await a.election.acquire()
+      expect(a.election.leader).toBe(true)
 
-      Object.defineProperty(global, 'navigator', {
-        value: {
-          locks: {
-            request: requestMock,
-          },
-        },
-        writable: true,
-        configurable: true,
-      })
+      fail(new Error('Lock lost'))
 
-      const onConflictTrue = vi.fn()
-      const electionTrue = new LeaderElection(
-        'acc-1',
-        {
-          onLeaderGranted: vi.fn(),
-          onLeaderRevoked: vi.fn(),
-          onLeaderConflict: onConflictTrue,
-        },
-        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
-      )
+      await vi.waitFor(() => expect(a.onLeaderRevoked).toHaveBeenCalledTimes(1))
+      await vi.waitFor(() => expect(a.election.leader).toBe(true))
+      expect(locks.request).toHaveBeenCalledTimes(2)
+    })
+  })
 
-      await electionTrue.acquire()
-      expect(electionTrue.leader).toBe(true)
-      expect(electionTrue.fallback).toBe(false)
+  describe('claims for tabs of the previous release', () => {
+    function listen() {
+      const messages: unknown[] = []
+      const channel = new MockBroadcastChannel(PRESENCE_CHANNEL)
+      channel.onmessage = event => messages.push(event.data)
+      return messages
+    }
 
-      const electionClaimer = new LeaderElection(
-        'acc-1',
-        {
-          onLeaderGranted: vi.fn(),
-          onLeaderRevoked: vi.fn(),
-          onLeaderConflict: vi.fn(),
-        },
-        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
-      )
+    it('claims on the presence channel while it leads, and releases when it stops', async () => {
+      const messages = listen()
+      const a = await startLeader({ legacyClaimIntervalMs: 10 })
 
-      // Claimer claims leadership
-      electionClaimer.claimLeadership()
+      expect(messages).toEqual([expect.objectContaining({ type: 'claim', isFallback: false })])
+      await vi.waitFor(() => expect(messages.length).toBeGreaterThanOrEqual(3))
 
-      // True leader yields to claim
-      await vi.waitFor(() => {
-        expect(electionTrue.leader).toBe(false)
-        expect(electionTrue['isYielded']).toBe(true)
-      })
-
-      // When claimer releases, true leader should un-yield and preserve isFallback: false
-      electionClaimer.release()
-
-      await vi.waitFor(() => {
-        expect(electionTrue.leader).toBe(true)
-        expect(electionTrue['isYielded']).toBe(false)
-        expect(electionTrue.fallback).toBe(false)
-      })
-
-      electionTrue.release()
-      trueLockRelease?.()
+      a.election.release()
+      expect(messages.at(-1)).toEqual({ type: 'release', leaderId: expect.any(String) })
+      const count = messages.length
+      await new Promise(resolve => setTimeout(resolve, 30))
+      expect(messages).toHaveLength(count)
     })
 
-    it('preserves original createdAt when yielded leader is restored, preventing flip in fallback tie-breaking', async () => {
-      // Tab 1 acquires at T=100
-      vi.setSystemTime(100)
-      const election1 = new LeaderElection(
-        'acc-1',
-        {
-          onLeaderGranted: vi.fn(),
-          onLeaderRevoked: vi.fn(),
-        },
-        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
-      )
-      await election1.acquire()
+    it('stops claiming when another tab steals the lock', async () => {
+      const messages = listen()
+      const a = await startLeader({ legacyClaimIntervalMs: 1000 })
+      const b = await startFollower({ legacyClaimIntervalMs: 1000 })
 
-      // Tab 2 acquires at T=200
-      vi.setSystemTime(200)
-      const election2 = new LeaderElection(
-        'acc-1',
-        {
-          onLeaderGranted: vi.fn(),
-          onLeaderRevoked: vi.fn(),
-          onLeaderConflict: vi.fn(),
-        },
-        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
-      )
-      await election2.acquire()
+      await b.election.claimLeadership()
+      await vi.waitFor(() => expect(a.election.leader).toBe(false))
 
-      // Tab 2 yields to older Tab 1
-      await vi.waitFor(() => {
-        expect(election2['isYielded']).toBe(true)
-      })
-
-      // Tab 3 acquires at T=250
-      vi.setSystemTime(250)
-      const election3 = new LeaderElection(
-        'acc-1',
-        {
-          onLeaderGranted: vi.fn(),
-          onLeaderRevoked: vi.fn(),
-          onLeaderConflict: vi.fn(),
-        },
-        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
-      )
-      await election3.acquire()
-
-      // Tab 3 also yields to older Tab 1
-      await vi.waitFor(() => {
-        expect(election3['isYielded']).toBe(true)
-      })
-
-      // Advance time and timers past presenceTimeoutMs (100ms) to T=360
-      vi.setSystemTime(360)
-      ;(election2 as any).pruneStaleLeaders()
-      ;(election3 as any).pruneStaleLeaders()
-
-      // Tab 1 closes / releases at T=360
-      election1.release()
-
-      // Tab 2 (createdAt=200) was older than Tab 3 (createdAt=250).
-      // Tab 2 auto-recovers on release and retains createdAt=200
-      expect(election2.leader).toBe(true)
-      expect(election2['isYielded']).toBe(false)
-      expect((election2 as any).createdAt).toBe(200)
-
-      // When Tab 2 sends a heartbeat, Tab 3 (createdAt=250) receives it and yields to Tab 2
-      ;(election2 as any).sendHeartbeat()
-      expect(election3.leader).toBe(false)
-      expect(election3['isYielded']).toBe(true)
-      expect((election3 as any).createdAt).toBe(250)
-
-      election2.release()
-      election3.release()
-      vi.useRealTimers()
+      const types = messages.map(message => (message as { type: string; leaderId: string }))
+      const leaderA = types[0].leaderId
+      expect(types.filter(message => message.leaderId === leaderA).map(message => message.type)).toEqual(['claim', 'release'])
+      expect(types.filter(message => message.leaderId !== leaderA).map(message => message.type)).toEqual(['claim'])
     })
   })
 })
-

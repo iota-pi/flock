@@ -22,7 +22,6 @@ const realtimeListeners: Array<(itemIds: string[]) => void> = []
 // Mock SyncWorkerContext — the worker delegates all service management here
 const mockContextInitialize = vi.fn().mockResolvedValue(undefined)
 const mockContextShutdown = vi.fn().mockResolvedValue(undefined)
-const mockContextClaimLeader = vi.fn()
 const mockContextRetrySave = vi.fn().mockResolvedValue({ success: true })
 const mockIndexManagerListItemIds = vi.fn().mockResolvedValue([])
 const mockIndexManagerAddItemIds = vi.fn().mockResolvedValue(undefined)
@@ -144,7 +143,6 @@ beforeEach(() => {
       initialize = mockContextInitialize
       setOnlineState = mockContextSetOnlineState
       shutdown = mockContextShutdown
-      claimLeader = mockContextClaimLeader
       retrySave = mockContextRetrySave
       rewrapDeviceKey = vi.fn().mockResolvedValue(undefined)
       markRestored = vi.fn().mockResolvedValue(undefined)
@@ -380,13 +378,6 @@ describe('SyncWorker handle replacement / change listener rebinding', () => {
     expect(handle.off).toHaveBeenCalledWith('change', registeredListener)
   })
 
-  it('delegates claimLeader to context.claimLeader', async () => {
-    const worker = new SyncWorker(workerConfig)
-    await worker.initRepo('account-1', 'vault-key-1')
-
-    await worker.claimLeader()
-    expect(mockContextClaimLeader).toHaveBeenCalledTimes(1)
-  })
 })
 
 function createDeferred<T = void>() {

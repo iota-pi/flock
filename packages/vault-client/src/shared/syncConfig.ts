@@ -44,6 +44,13 @@ export const SYNC_TIMEOUTS = {
    */
   leadershipSettle: 5000,
   /**
+   * A tab the user comes back to takes over syncing if the leader's tab is hidden when it returns, or
+   * reports that it's hidden within this long (switching tabs, the old one's report can come second)
+   */
+  leaderHandoffWindow: 2000,
+  /** The most often a tab takes over syncing because the user came back to it, so tabs can't thrash */
+  leaderHandoffMinGap: 10_000,
+  /**
    * The poll's manifest phase runs at most this often unasked, counting from the last sync that
    * fetched the manifest, so one with item failures retries hourly rather than at every poll
    */
@@ -92,18 +99,9 @@ export const SYNC_TIMEOUTS = {
   missingChangesQuarantine: 24 * 60 * 60 * 1000,
   /** Debounce before checking whether doc changes (from other tabs, say) need pushing */
   docChangeCheck: 200,
-  /**
-   * The least time between tries at resolving an item first start is stuck on. First start runs only
-   * in the migration app, where polls run a manifest sync for any try that's due, so an item stuck
-   * through every try is quarantined within a couple of minutes, before the update counts as stalled.
-   */
-  firstStartRetryGap: 20_000,
   /** How long an item's changes may wait to be pushed before the sync status reports it as stuck */
   stuckPendingAge: 24 * 60 * 60 * 1000,
 } as const
-
-/** Tries first start makes at an item it's stuck on before quarantining it for manual recovery */
-export const FIRST_START_MAX_ATTEMPTS = 3
 
 /** Delays between attempts to heal an item that still waits for changes, repeating the last */
 export const GAP_HEAL_DELAYS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000] as const

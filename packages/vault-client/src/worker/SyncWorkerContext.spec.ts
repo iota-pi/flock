@@ -11,8 +11,7 @@ import { MigrationRequiredError } from './DataVersionTracker'
 import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
 import { AbortError } from '../utils/abort'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
-import { FINISHED_FIRST_START, FirstStart, type FirstStartState } from './FirstStart'
-import * as firstStartModule from './FirstStart'
+import * as syncResetModule from './syncReset'
 import { LocalCipher, LocalKeyUnavailableError } from './localEncryption/LocalCipher'
 import { toDocumentIdFromItemId } from './utils/automerge'
 import { DSK_KEY } from './localEncryption/openLocalStorage'
@@ -137,8 +136,6 @@ beforeEach(() => {
       repo = {} /* mock Repo */
       storage = { has: vi.fn().mockResolvedValue(false), removeRange: vi.fn().mockResolvedValue(undefined) }
       close = vi.fn().mockResolvedValue(undefined)
-      pauseBroadcastSync = vi.fn()
-      resumeBroadcastSync = vi.fn()
     },
   })
   spyOnExports(snapshotManagerModule, {
@@ -167,9 +164,12 @@ beforeEach(() => {
       shutdown = vi.fn().mockResolvedValue(undefined)
       onOnlineStateChange = vi.fn()
       constructor(readonly deps: SyncOrchestratorDeps) {}
-      claimLeader = vi.fn(() => {
+      claimLeader = vi.fn(async () => {
         this.deps.session.setLeader(true)
+        return true
       })
+
+      followVisibleTab = vi.fn()
 
       settleLeadership = vi.fn(async () => this.deps.session.isLeader)
       flush = vi.fn()
@@ -316,22 +316,40 @@ describe('SyncWorkerContext', () => {
     expect(context.services.snapshotManager.onLeaderChange).toHaveBeenCalledTimes(1)
   })
 
-  it('pauses BroadcastChannel sync when multiple leaders are detected', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    depsOf<SyncOrchestratorDeps>(context.services.orchestrator).onLeaderOverlapChange!(true)
-    expect(context.services.repoManager.pauseBroadcastSync).toHaveBeenCalledTimes(1)
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[SyncWorkerContext] Multiple leaders detected. Pausing BroadcastChannel sync to prevent feedback loop.'
-    )
-    warnSpy.mockRestore()
+  it('tells the other tabs when it starts or stops leading, while visible', () => {
+    context.setVisibility(true)
+    context.session.setLeader(true)
+    depsOf<SyncOrchestratorDeps>(context.services.orchestrator).onLeaderChange!(true)
+    expect(realtimeBus.publishTabVisibility).toHaveBeenLastCalledWith(expect.objectContaining({ visible: true, leader: true }))
   })
 
-  it('resumes BroadcastChannel sync when the sole leader is restored', () => {
-    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
-    depsOf<SyncOrchestratorDeps>(context.services.orchestrator).onLeaderOverlapChange!(false)
-    expect(context.services.repoManager.resumeBroadcastSync).toHaveBeenCalledTimes(1)
-    expect(infoSpy).toHaveBeenCalledWith('[SyncWorkerContext] Sole leader restored. Resuming BroadcastChannel sync.')
-    infoSpy.mockRestore()
+  describe('following the visible tab', () => {
+    it('takes over when the user comes back while no visible tab leads', () => {
+      context.setVisibility(false)
+      context.setVisibility(true, true)
+      expect(context.services.orchestrator.followVisibleTab).toHaveBeenCalledTimes(1)
+    })
+
+    it('leaves a visible leader alone', () => {
+      context.setVisibility(false)
+      realtimeBus.receiveTabVisibility({ tabId: 'leader-tab', visible: true, returned: false, leader: true })
+      context.setVisibility(true, true)
+      expect(context.services.orchestrator.followVisibleTab).not.toHaveBeenCalled()
+    })
+
+    it("takes over when the leader's report that it's hidden comes just after", () => {
+      context.setVisibility(false)
+      realtimeBus.receiveTabVisibility({ tabId: 'leader-tab', visible: true, returned: false, leader: true })
+      context.setVisibility(true, true)
+      realtimeBus.receiveTabVisibility({ tabId: 'leader-tab', visible: false, returned: false, leader: true })
+      expect(context.services.orchestrator.followVisibleTab).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not take over when it already leads', () => {
+      context.session.setLeader(true)
+      context.setVisibility(true, true)
+      expect(context.services.orchestrator.followVisibleTab).not.toHaveBeenCalled()
+    })
   })
 
   it('tells the orchestrator when the online state changes', () => {
@@ -456,15 +474,11 @@ describe('SyncWorkerContext', () => {
       dirty?: string[]
       quarantined?: string[]
       markedAt?: number
-      firstStart?: Array<[string, FirstStartState]>
     }) {
       const marked = (options.marked ?? []) as ItemId[]
       vi.spyOn(context.services.changeOutbox, 'listPending').mockResolvedValue(marked)
       vi.spyOn(context.services.changeOutbox, 'listMarks').mockResolvedValue(
         marked.map(itemId => ({ itemId, tick: 1, createdAt: options.markedAt ?? Date.now() })),
-      )
-      vi.spyOn(context.services.firstStart, 'readStates').mockResolvedValue(
-        new Map((options.firstStart ?? []) as Array<[ItemId, FirstStartState]>),
       )
       vi.spyOn(context.services.snapshotManager.schedule, 'getDirtyItemIds').mockReturnValue((options.dirty ?? []) as ItemId[])
       vi.spyOn(context.services.recoveryManager, 'listRecoveryItems').mockResolvedValue(
@@ -512,13 +526,12 @@ describe('SyncWorkerContext', () => {
         marked: ['item-1', 'item-2', 'item-3'],
         quarantined: ['item-3'],
         markedAt: Date.now() - SYNC_TIMEOUTS.stuckPendingAge,
-        firstStart: [['item-1', 'awaitingHeads']],
       })
 
       expect(await context.countUnpushedChanges()).toEqual({
         pendingItems: 2,
         quarantinedItems: 1,
-        stuckItems: { awaitingHeads: 1, unknown: 1 },
+        stuckItems: { unknown: 2 },
       })
     })
 
@@ -558,11 +571,6 @@ describe('SyncWorkerContext', () => {
 
   it('wires manifestSyncManager into orchestrator on construction', () => {
     expect((context.services.orchestrator as any).deps.manifestSyncManager).toBe(context.services.manifestSyncManager)
-  })
-
-  it('delegates claimLeader to orchestrator.claimLeader', () => {
-    context.claimLeader()
-    expect(context.services.orchestrator.claimLeader).toHaveBeenCalledTimes(1)
   })
 
   describe('server I/O stays with the leader', () => {
@@ -617,16 +625,16 @@ describe('SyncWorkerContext', () => {
       expect(context.services.orchestrator.flush).toHaveBeenCalled()
     })
 
-    it('does not claim leadership it already has', () => {
+    it('does not claim leadership it already has', async () => {
       context.session.setLeader(true)
 
-      context.becomeLeader()
+      await context.becomeLeader()
 
       expect(context.services.orchestrator.claimLeader).not.toHaveBeenCalled()
     })
 
     it('fails when the claim does not make this tab the leader', async () => {
-      vi.mocked(context.services.orchestrator.claimLeader).mockImplementation(() => {})
+      vi.mocked(context.services.orchestrator.claimLeader).mockResolvedValue(false)
 
       await expect(context.fullResync()).rejects.toThrow(/could not take over/)
       expect(context.services.orchestrator.syncManifest).not.toHaveBeenCalled()
@@ -753,12 +761,14 @@ describe('SyncWorkerContext', () => {
     })
   })
 
-  describe('first start', () => {
-    let runLocalPart: ReturnType<typeof vi.fn>
+  describe('sync reset', () => {
+    let resetSyncState: ReturnType<typeof vi.fn>
+    let hasFinishedSyncReset: ReturnType<typeof vi.fn>
 
     beforeEach(() => {
-      runLocalPart = vi.fn().mockResolvedValue(undefined)
-      spyOnExports(firstStartModule, { runFirstStartLocalPart: runLocalPart })
+      resetSyncState = vi.fn().mockResolvedValue(undefined)
+      hasFinishedSyncReset = vi.fn().mockResolvedValue(false)
+      spyOnExports(syncResetModule, { resetSyncState, hasFinishedSyncReset })
     })
 
     async function createContext(accountId: string, minDataVersion?: number) {
@@ -770,32 +780,31 @@ describe('SyncWorkerContext', () => {
         apiClient: new SyncApiClient(),
         minDataVersion,
         sealedDataVersion: 3,
-        firstStartDataVersion: 4,
+        syncResetDataVersion: 4,
       })
       vi.spyOn(ctx.lifecycle, 'start').mockResolvedValue(undefined)
       await ctx.initialize()
       return ctx
     }
 
-    it('caps the device level below its level until it has finished', async () => {
-      const ctx = await createContext('test-account-first-start')
-      const settle = vi.spyOn(ctx.services.firstStart, 'settle').mockResolvedValue(false)
+    it('runs at start, and caps the device level below its level until it has finished', async () => {
+      const ctx = await createContext('test-account-sync-reset')
       const maxDeviceVersion = readMaxDeviceVersion(ctx)
 
-      expect(ctx.services.firstStart).toBeInstanceOf(FirstStart)
-      expect(runLocalPart).toHaveBeenCalledTimes(1)
+      expect(resetSyncState).toHaveBeenCalledTimes(1)
+      expect(resetSyncState).toHaveBeenCalledWith('test-account-sync-reset', expect.any(Function))
       await expect(maxDeviceVersion()).resolves.toBe(3)
 
-      settle.mockResolvedValue(true)
+      hasFinishedSyncReset.mockResolvedValue(true)
       await expect(maxDeviceVersion()).resolves.toBe(Number.POSITIVE_INFINITY)
     })
 
-    it('neither runs nor reads first start behind a device gate at its level', async () => {
-      const ctx = await createContext('test-account-past-first-start', 4)
+    it('neither runs nor caps behind a device gate at its level', async () => {
+      const ctx = await createContext('test-account-past-sync-reset', 4)
 
-      expect(ctx.services.firstStart).toBe(FINISHED_FIRST_START)
-      expect(runLocalPart).not.toHaveBeenCalled()
+      expect(resetSyncState).not.toHaveBeenCalled()
       await expect(readMaxDeviceVersion(ctx)()).resolves.toBe(Number.POSITIVE_INFINITY)
+      expect(hasFinishedSyncReset).not.toHaveBeenCalled()
     })
   })
 

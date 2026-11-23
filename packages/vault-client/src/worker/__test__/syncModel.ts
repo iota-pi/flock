@@ -270,6 +270,25 @@ export class Restart extends DeviceCommand {
   }
 }
 
+/**
+ * Opens the app as the migration app does for a device that synced before the log: it forgets its
+ * server heads and log cursor and marks every item pending (`resetSyncState`), keeping its docs
+ */
+export class ResetSync extends DeviceCommand {
+  async run(model: Model, world: World): Promise<void> {
+    const device = world.devices[this.device]
+    const isOnline = device.isOnline
+    await device.rewindToOldBuild()
+    await device.start()
+    device.setOnline(isOnline)
+    markStored(model, this.device)
+  }
+
+  toString(): string {
+    return `resetSync(${deviceName(this.device)})`
+  }
+}
+
 type InFlight = 'none' | 'poll' | 'upload' | 'manifestSync'
 
 /** The tab dies, maybe in the middle of an operation, and the app is opened again */
@@ -435,6 +454,7 @@ export function commandArbitrary(deviceCount: number): fc.Arbitrary<SyncCommand>
     { weight: 1, arbitrary: device.map(d => new SetOnline(d, false)) },
     { weight: 2, arbitrary: device.map(d => new SetOnline(d, true)) },
     { weight: 1, arbitrary: device.map(d => new Restart(d)) },
+    { weight: 1, arbitrary: device.map(d => new ResetSync(d)) },
     {
       weight: 2,
       arbitrary: fc.tuple(

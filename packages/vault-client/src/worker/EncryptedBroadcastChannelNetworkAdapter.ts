@@ -108,12 +108,6 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
     this.inner.disconnect()
   }
 
-  override pause(): void {
-    super.pause()
-    this.sendQueue.clear()
-    this.receiveQueue.clear()
-  }
-
   send(message: Message): void {
     if (!this.canSend()) {
       return

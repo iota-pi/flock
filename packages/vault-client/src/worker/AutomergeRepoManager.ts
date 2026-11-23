@@ -95,14 +95,6 @@ export class AutomergeRepoManager {
     })
   }
 
-  pauseBroadcastSync(): void {
-    this.broadcastAdapter.pause()
-  }
-
-  resumeBroadcastSync(): void {
-    this.broadcastAdapter.resume()
-  }
-
   async close(): Promise<void> {
     if (this.isClosed) return
     this.isClosed = true

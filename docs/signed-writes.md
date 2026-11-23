@@ -149,7 +149,7 @@ Flock's settings:
 ## Client: signing and errors (`packages/vault-client/src/worker/`)
 
 - **Signing happens in `SyncApiClient.putSnapshots` and `SyncApiClient.pollLog`**, before `executeWithAuth`. The signature doesn't depend on the token, so a token-refresh retry reuses it.
-- **Every write path goes through those two methods:** `snapshotUpload.ts`, `ChangeOutbox`, `ItemRecoveryService` tombstones, `FirstStart`, the account settings document, and the migration app's worker (`src/migrate/migrate.worker.ts`).
+- **Every write path goes through those two methods:** `snapshotUpload.ts`, `ChangeOutbox`, `ItemRecoveryService` tombstones, the account settings document, and the migration app's worker (`src/migrate/migrate.worker.ts`).
 - **A `pollLog` with an empty push** is a read and isn't signed.
 
 **Error codes.** Every rejection uses `PRECONDITION_FAILED` (412) with its own message, chosen to avoid existing client behaviour:

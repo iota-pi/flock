@@ -38,8 +38,6 @@ export interface SyncOrchestratorDeps {
   createLeaderElection?: (accountId: string, callbacks: LeaderElectionCallbacks) => LeaderElectionLike
   /** Called once the session holds new leadership */
   onLeaderChange?: (isLeader: boolean) => void
-  /** Called when another tab also claims leadership, and when this tab is the only leader again */
-  onLeaderOverlapChange?: (hasMultipleLeaders: boolean) => void
   /** Receives each poll's outcome */
   onPollResult?: (outcome: PollOutcome) => void
   /**
@@ -76,6 +74,8 @@ export class SyncOrchestrator {
   private readonly pollTimer = new RetryTimer()
   /** Armed while a flush is queued, so flushes made in the same turn share one poll */
   private readonly flushTimer = new RetryTimer()
+  /** When this tab last took over syncing because the user came back to it */
+  private lastHandoffAt = -Infinity
 
   constructor(private readonly deps: SyncOrchestratorDeps) {}
 
@@ -201,15 +201,6 @@ export class SyncOrchestrator {
       onLeaderRevoked: () => {
         this.setLeader(false)
       },
-      onMultipleLeadersDetected: () => {
-        this.deps.onLeaderOverlapChange?.(true)
-      },
-      onSoleLeaderRestored: () => {
-        this.deps.onLeaderOverlapChange?.(false)
-      },
-      onLeaderConflict: (isConflict: boolean) => {
-        this.deps.clientEventHub.emit({ type: 'leaderConflict', hasConflict: isConflict })
-      },
     }
     this.leaderElection = this.deps.createLeaderElection
       ? this.deps.createLeaderElection(this.deps.accountId, callbacks)
@@ -217,8 +208,21 @@ export class SyncOrchestrator {
     fireAndForget(this.leaderElection.acquire(), 'SyncOrchestrator:leaderElection:acquire')
   }
 
-  claimLeader(): void {
-    this.leaderElection?.claimLeadership()
+  /** Takes leadership from the tab that holds it, resolving whether this tab leads once it's granted */
+  async claimLeader(): Promise<boolean> {
+    return (await this.leaderElection?.claimLeadership()) ?? false
+  }
+
+  /**
+   * Takes leadership for the tab the user came back to while the leader's tab is hidden, where a
+   * browser may freeze it, at most once every `leaderHandoffMinGap`
+   */
+  followVisibleTab(): void {
+    if (this.isShutdown || this.deps.session.isLeader) return
+    const now = Date.now()
+    if (now - this.lastHandoffAt < SYNC_TIMEOUTS.leaderHandoffMinGap) return
+    this.lastHandoffAt = now
+    fireAndForget(this.claimLeader(), 'SyncOrchestrator:followVisibleTab')
   }
 
   /**

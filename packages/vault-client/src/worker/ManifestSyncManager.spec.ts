@@ -547,7 +547,7 @@ describe('ManifestSyncManager', () => {
       mockListItemIds.mockResolvedValue(['item-active' as ItemId])
       mockListTombstoneIds.mockResolvedValue(['item-deleted' as ItemId])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      // Both active and deleted items have their base version tracked in snapshotTracker
+      // Both active and deleted items have their base version tracked in the item sync state
       depsObj.snapshotManager.trackedItems.mockReturnValue([
         ['item-active', 100],
         ['item-deleted', 100],

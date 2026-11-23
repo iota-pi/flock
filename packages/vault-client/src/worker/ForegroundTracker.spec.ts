@@ -163,6 +163,76 @@ describe('ForegroundTracker', () => {
     })
   })
 
+  it('answers a tab it did not know of with its own visibility, while visible', () => {
+    tracker = createTracker(true)
+    tracker.start()
+    const published = fakeBus.publishTabVisibility.mock.calls.length
+
+    fakeBus.receiveTabVisibility({ tabId: 'peer', visible: true, returned: false })
+    fakeBus.receiveTabVisibility({ tabId: 'peer', visible: true, returned: false })
+
+    expect(fakeBus.publishTabVisibility).toHaveBeenCalledTimes(published + 1)
+  })
+
+  describe('leadership', () => {
+    let isLeader: boolean
+    let onLeaderAway: ReturnType<typeof vi.fn<() => void>>
+
+    function createLeaderTracker(isVisible: boolean): ForegroundTracker {
+      return new ForegroundTracker({
+        bus: fakeBus.bus, isVisible, onPeerReturned, isLeader: () => isLeader, onLeaderAway,
+      })
+    }
+
+    beforeEach(() => {
+      isLeader = false
+      onLeaderAway = vi.fn<() => void>()
+    })
+
+    it('says whether it leads, and tells the other tabs when that changes', () => {
+      tracker = createLeaderTracker(true)
+      tracker.start()
+      expect(fakeBus.publishTabVisibility).toHaveBeenLastCalledWith(expect.objectContaining({ leader: false }))
+
+      isLeader = true
+      tracker.onLeaderChange()
+      expect(fakeBus.publishTabVisibility).toHaveBeenLastCalledWith(expect.objectContaining({ visible: true, leader: true }))
+    })
+
+    it('reports the leader away when the user comes back and no visible tab leads', () => {
+      tracker = createLeaderTracker(false)
+      tracker.start()
+      fakeBus.receiveTabVisibility({ tabId: 'follower', visible: true, returned: false, leader: false })
+
+      tracker.setVisible(true, true)
+
+      expect(onLeaderAway).toHaveBeenCalledTimes(1)
+    })
+
+    it('reports a leader that says it is hidden only within the handoff window after coming back', () => {
+      tracker = createLeaderTracker(false)
+      tracker.start()
+      fakeBus.receiveTabVisibility({ tabId: 'leader', visible: true, returned: false, leader: true })
+      tracker.setVisible(true, true)
+      expect(onLeaderAway).not.toHaveBeenCalled()
+
+      vi.advanceTimersByTime(SYNC_TIMEOUTS.leaderHandoffWindow + 1)
+      fakeBus.receiveTabVisibility({ tabId: 'leader', visible: false, returned: false, leader: true })
+
+      expect(onLeaderAway).not.toHaveBeenCalled()
+    })
+
+    it('never reports the leader away while hidden or leading', () => {
+      tracker = createLeaderTracker(false)
+      tracker.start()
+      fakeBus.receiveTabVisibility({ tabId: 'leader', visible: false, returned: false, leader: true })
+      isLeader = true
+      tracker.setVisible(true, true)
+
+      expect(onLeaderAway).not.toHaveBeenCalled()
+    })
+  })
+
   it('tells the other tabs it is hidden when it stops, and stops listening', () => {
     tracker = createTracker(true)
     tracker.start()

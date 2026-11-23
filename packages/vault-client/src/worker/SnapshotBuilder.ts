@@ -17,8 +17,8 @@ const log = createLogger('SnapshotBuilder')
 export type BuildSnapshotResult =
   | { type: 'success'; snapshot: VaultSnapshotInput; heads?: string[] }
   | { type: 'not-ready' }
-  /** The item can't have a snapshot yet: its changes must reach the log first, or its server heads be known */
-  | { type: 'deferred'; reason: 'unpushed' | 'awaitingHeads' }
+  /** The item can't have a snapshot yet: its changes must reach the log first */
+  | { type: 'deferred'; reason: 'unpushed' }
   | { type: 'error'; reason?: string }
 
 export interface PreparedSnapshotItem {

@@ -21,7 +21,6 @@ import BiometricPrompt from './components/BiometricPrompt'
 import useAutoLock from './hooks/useAutoLock'
 import QuotaWarningSnackbar from './components/QuotaWarningSnackbar'
 import QuotaExceededDialog from './components/dialogs/QuotaExceededDialog'
-import LeaderConflictDialog from './components/dialogs/LeaderConflictDialog'
 import LocalDataUnavailableDialog from './components/dialogs/LocalDataUnavailableDialog'
 import DeleteAccountDialog from './components/dialogs/DeleteAccountDialog'
 import AppUpdateSnackbar from './components/AppUpdateSnackbar'
@@ -129,7 +128,6 @@ function RootLayout() {
         open={isQuotaDialogOpen}
         onClose={() => setIsQuotaDialogOpen(false)}
       />
-      <LeaderConflictDialog />
       <LocalDataUnavailableDialog />
       <DeleteAccountDialog />
     </Root>

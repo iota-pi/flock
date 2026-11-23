@@ -26,8 +26,6 @@ describe('ChangeOutbox', () => {
   let encryptBytes: AnyMock
   let requestSnapshot: AnyMock
   let onMarked: AnyMock
-  let awaitingFirstStart: Set<ItemId>
-  let canPush: boolean
   let now: number
   let outbox: ChangeOutbox
 
@@ -50,8 +48,6 @@ describe('ChangeOutbox', () => {
     encryptBytes = vi.fn(async (data: Uint8Array) => ({ iv: 'iv', cipher: 'c'.repeat(data.byteLength), kver: '1', format: 2 }))
     requestSnapshot = vi.fn()
     onMarked = vi.fn()
-    awaitingFirstStart = new Set()
-    canPush = true
     now = 1_000
     outbox = new ChangeOutbox({
       db,
@@ -59,8 +55,6 @@ describe('ChangeOutbox', () => {
       keys: { encryptBytes } as unknown as KeyProvider,
       session,
       itemSyncState,
-      isAwaitingFirstStart: itemId => awaitingFirstStart.has(itemId),
-      canPush: () => canPush,
       exchange,
       requestSnapshot,
       onMarked,
@@ -94,16 +88,6 @@ describe('ChangeOutbox', () => {
       expect(second.createdAt).toBe(1_000)
       expect(second.tick).not.toBe(first.tick)
     })
-
-    it('dates a mark written before marks had an age at the leader\'s next push', async () => {
-      docStore.readChangesSince.mockResolvedValue(null)
-      await db.put(SYNC_LOG_STORES.outbox, { itemId: ITEM, tick: 1 })
-      now = 7_000
-
-      await outbox.pushPending()
-
-      expect(await outbox.listMarks()).toEqual([expect.objectContaining({ itemId: ITEM, createdAt: 7_000 })])
-    })
   })
 
   describe('why a push skipped an item', () => {
@@ -131,15 +115,6 @@ describe('ChangeOutbox', () => {
       await outbox.pushPending()
 
       expect((await markOf(ITEM))?.blocked).toBe('unloadable')
-    })
-
-    it('records nothing for an item first start holds, whose own records say why', async () => {
-      awaitingFirstStart.add(ITEM)
-      await outbox.mark(ITEM)
-
-      await outbox.pushPending()
-
-      expect((await markOf(ITEM))?.blocked).toBeUndefined()
     })
   })
 
@@ -269,8 +244,6 @@ describe('ChangeOutbox', () => {
       keys: { encryptBytes } as unknown as KeyProvider,
       session,
       itemSyncState,
-      isAwaitingFirstStart: () => false,
-      canPush: () => true,
       exchange,
       requestSnapshot,
       onMarked,
@@ -421,25 +394,6 @@ describe('ChangeOutbox', () => {
       await expect(outbox.pushPending()).rejects.toThrow('UNAUTHORIZED')
       expect(itemSyncState.isSnapshotOnly(ITEM)).toBe(false)
     })
-  })
-
-  it('never pushes an item waiting on first start, which would send its whole history', async () => {
-    awaitingFirstStart.add(ITEM)
-    await outbox.mark(ITEM)
-
-    await outbox.pushPending()
-
-    expect(docStore.readChangesSince).not.toHaveBeenCalled()
-    expect(await outbox.listPending()).toEqual([ITEM])
-  })
-
-  it('pushes nothing until first start allows it', async () => {
-    canPush = false
-    await outbox.mark(ITEM)
-
-    await outbox.pushPending()
-
-    expect(docStore.readChangesSince).not.toHaveBeenCalled()
   })
 
   it('keeps the mark of a doc that exists but will not load, and clears one with no doc', async () => {

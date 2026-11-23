@@ -323,6 +323,30 @@ describe('sync log', () => {
       expect(await leader.pending()).toEqual([])
       expect(server.rows).toHaveLength(2)
     })
+
+    it('converges while both tabs lead, as they may just after one steals the lock', async () => {
+      const { leader, follower, b, itemId } = await startTabs()
+      follower.context.session.setLeader(true)
+
+      await leader.edit(itemId, { title: 'from the old leader' })
+      await follower.edit(itemId, { notes: 'from the new leader' })
+      await leader.settle()
+      await vi.waitFor(async () => expect((await follower.read(itemId))?.title).toBe('from the old leader'))
+      await vi.waitFor(async () => expect((await leader.read(itemId))?.notes).toBe('from the new leader'))
+      // Both push what they have, and each pulls the other's rows
+      await Promise.all([leader.sync(), follower.sync()])
+      leader.context.session.setLeader(false)
+      await follower.sync()
+      await b.sync()
+
+      for (const device of [leader, follower, b]) {
+        expect(await device.read(itemId)).toMatchObject({ title: 'from the old leader', notes: 'from the new leader' })
+      }
+      expect(await follower.heads(itemId)).toEqual(await b.heads(itemId))
+      expect(await leader.pending()).toEqual([])
+      expect(await follower.quarantined()).toEqual([])
+      expect(await b.quarantined()).toEqual([])
+    })
   })
 
   describe('both outbound loops', () => {
@@ -450,35 +474,6 @@ describe('sync log', () => {
 
       expect(await b.poll()).toBe('success')
       expect((await b.read(itemId))?.title).toBe('three')
-    })
-
-    it('when first start\'s fetch throws, and fetches once a manifest sync asks again', async () => {
-      const a = await startDevice('device-a')
-      const b = await startDevice('device-b')
-      const itemId = await a.create('item-1', { title: 'first' })
-      await a.sync()
-      await b.sync()
-      await a.edit(itemId, { title: 'only in the snapshot' })
-      await a.sync()
-      server.rows = []
-      server.head = 0
-      // As if b had merged this snapshot, which it never received, so only first start fetches it
-      await b.services.itemSyncState.importBaseVersions([[itemId, server.items.get(itemId)!.version]])
-      await b.rewindToOldBuild()
-      await b.start()
-      const runDue = vi.spyOn(b.services.firstStart, 'runDue')
-      vi.spyOn(b.services.manifestSyncManager, 'fetchSnapshots').mockRejectedValueOnce(new Error('IndexedDB read failed'))
-
-      expect(await b.poll()).toBe('failure')
-      expect(runDue).toHaveBeenCalled()
-      expect(b.services.firstStart.stateOf(itemId)).toBe('awaitingHeads')
-
-      // A try that fails is only asked for again once the gap between tries has passed
-      vi.spyOn(Date, 'now').mockReturnValue(Date.now() + SYNC_TIMEOUTS.firstStartRetryGap + 1000)
-      await b.manifestSync()
-      expect(await b.poll()).toBe('success')
-      expect((await b.read(itemId))?.title).toBe('only in the snapshot')
-      expect(b.services.firstStart.has(itemId)).toBe(false)
     })
 
     it('when applying a page throws, and leaves the cursor for the next poll to read it again', async () => {
@@ -630,8 +625,8 @@ describe('sync log', () => {
     expect((await sealed.read(itemId))?.title).toBe('three')
   })
 
-  describe('first start', () => {
-    /** Restarts a device as the first start of the new build, against a log that starts empty */
+  describe('sync reset', () => {
+    /** Restarts a device as the migration app does, which resets its sync state, against a log that starts empty */
     async function crossTheCut(device: Device, oldHeads?: [ItemId, string[]][]): Promise<void> {
       await device.rewindToOldBuild(oldHeads)
       await device.start()
@@ -640,6 +635,10 @@ describe('sync log', () => {
     function resetLog(): void {
       server.rows = []
       server.head = 0
+    }
+
+    function rowItems(): ItemId[] {
+      return Array.from(new Set(server.rows.map(row => row.itemId)))
     }
 
     it('pushes an unpushed edit, even one old server heads claim is synced', async () => {
@@ -654,13 +653,13 @@ describe('sync log', () => {
       await crossTheCut(a, [[itemId, heads!]])
       expect(await a.poll()).toBe('success')
 
-      expect(server.rows.map(row => row.itemId)).toEqual([itemId])
+      expect(rowItems()).toEqual([itemId])
       const b = await startDevice('device-b')
       await b.poll()
       expect((await b.read(itemId))?.title).toBe('edited on the old build')
     })
 
-    it('pushes nothing for an item matching its snapshot, and clears its mark', async () => {
+    it('pushes the whole history of an item matching its snapshot, and clears its mark', async () => {
       const a = await startDevice('device-a')
       const itemId = await a.create('item-1', { title: 'first' })
       await a.sync()
@@ -668,14 +667,50 @@ describe('sync log', () => {
 
       await crossTheCut(a)
       expect(await a.pending()).toEqual([itemId])
+      expect(a.services.itemSyncState.hasServerHeads(itemId)).toBe(false)
       await a.poll()
 
-      expect(server.rows).toEqual([])
+      expect(rowItems()).toEqual([itemId])
       expect(await a.pending()).toEqual([])
-      expect(a.services.firstStart.has(itemId)).toBe(false)
+      expect(a.services.itemSyncState.getServerHeads(itemId)).toEqual(await a.services.docStore.readHeads(itemId))
+      server.items.clear()
+      const b = await startDevice('device-b')
+      await b.poll()
+      expect((await b.read(itemId))?.title).toBe('first')
     })
 
-    it('uploads a snapshot for an item the server has none of, and its confirmation sets server heads', async () => {
+    it('merges the server\'s snapshot before it pushes, so it pushes only what the snapshot lacks', async () => {
+      const a = await startDevice('device-a')
+      const b = await startDevice('device-b')
+      const itemId = await a.create('item-1', { title: 'first' })
+      await a.sync()
+      await b.sync()
+      await a.edit(itemId, { title: 'only in the snapshot' })
+      await a.sync()
+      await b.edit(itemId, { body: 'from b' })
+      await b.settle()
+      resetLog()
+      const fetchManifest = vi.spyOn(server, 'fetchManifest')
+      const pollLog = vi.spyOn(server, 'pollLog')
+
+      await crossTheCut(b)
+      expect(await b.poll()).toBe('success')
+
+      const firstPush = pollLog.mock.calls.findIndex(([input]) => (input.push?.length ?? 0) > 0)
+      expect(firstPush).toBeGreaterThanOrEqual(0)
+      expect(fetchManifest.mock.invocationCallOrder[0]).toBeLessThan(pollLog.mock.invocationCallOrder[firstPush])
+      expect(server.rows).toHaveLength(1)
+      expect(await b.pending()).toEqual([])
+      expect(await b.read(itemId)).toMatchObject({ title: 'only in the snapshot', body: 'from b' })
+
+      await b.sync()
+      server.expireLog()
+      const c = await startDevice('device-c')
+      await c.poll()
+      expect(await c.read(itemId)).toMatchObject({ title: 'only in the snapshot', body: 'from b' })
+    })
+
+    it('uploads a snapshot for an item the server has none of, once its push has landed', async () => {
       const a = await startDevice('device-a')
       const itemId = await a.create('item-1', { title: 'first' })
       await a.sync()
@@ -683,20 +718,14 @@ describe('sync log', () => {
       server.items.clear()
 
       await crossTheCut(a)
-      await a.poll()
-      expect(a.services.firstStart.stateOf(itemId)).toBe('awaitingSnapshot')
-      expect(server.rows).toEqual([])
-
-      await a.uploadSnapshots()
-      await a.poll()
+      await a.sync()
 
       expect(server.items.get(itemId)?.version).toBe(1)
-      expect(a.services.firstStart.has(itemId)).toBe(false)
+      expect(rowItems()).toEqual([itemId])
       expect(a.services.itemSyncState.getServerHeads(itemId)).toEqual(await a.services.docStore.readHeads(itemId))
-      expect(server.rows).toEqual([])
     })
 
-    it('does not upload over a snapshot without heads that the doc has not merged', async () => {
+    it('heals a snapshot uploaded over one whose fetch failed during catch-up', async () => {
       const a = await startDevice('device-a')
       const b = await startDevice('device-b')
       const itemId = await a.create('item-1', { title: 'first' })
@@ -711,37 +740,23 @@ describe('sync log', () => {
       })
 
       await crossTheCut(b)
-      await b.poll()
-
-      expect(fetchSnapshots).toHaveBeenCalled()
-      expect(b.services.firstStart.stateOf(itemId)).toBe('awaitingHeads')
-      const version = server.items.get(itemId)!.version
-      await b.uploadSnapshots()
-      expect(server.items.get(itemId)!.version).toBe(version)
-    })
-
-    it('fetches a snapshot manifest sync believes the doc has merged, so its mark clears', async () => {
-      const a = await startDevice('device-a')
-      const b = await startDevice('device-b')
-      const itemId = await a.create('item-1', { title: 'first' })
-      await a.sync()
+      await b.edit(itemId, { body: 'from b' })
       await b.sync()
-      await a.edit(itemId, { title: 'only in the snapshot' })
-      await a.sync()
-      resetLog()
-      // As if b had merged this snapshot, which it never received
-      await b.services.itemSyncState.importBaseVersions([[itemId, server.items.get(itemId)!.version!]])
+      expect(fetchSnapshots).toHaveBeenCalled()
 
-      await crossTheCut(b)
-      expect(await b.poll()).toBe('success')
-
-      expect(b.services.firstStart.has(itemId)).toBe(false)
-      expect((await b.read(itemId))?.title).toBe('only in the snapshot')
-      await b.poll()
-      expect(await b.pending()).toEqual([])
+      // Uploads are last-write-wins: the device holding what the replaced snapshot held uploads it again (S2)
+      await a.manifestSync()
+      await a.uploadSnapshots()
+      await b.manifestSync()
+      server.expireLog()
+      const c = await startDevice('device-c')
+      await c.poll()
+      for (const device of [a, b, c]) {
+        expect(await device.read(itemId)).toMatchObject({ title: 'only in the snapshot', body: 'from b' })
+      }
     })
 
-    it('needs no network for the local part, and runs the rest once online', async () => {
+    it('needs no network for the reset, and pushes once online', async () => {
       const a = await startDevice('device-a')
       const itemId = await a.create('item-1', { title: 'first' })
       await a.sync()
@@ -755,20 +770,23 @@ describe('sync log', () => {
 
       server.isDown = false
       expect(await a.poll()).toBe('success')
-      expect(server.rows.map(row => row.itemId)).toEqual([itemId])
+      expect(rowItems()).toEqual([itemId])
     })
 
     it('leaves a later start alone once the reset has run', async () => {
       const a = await startDevice('device-a')
       const itemId = await a.create('item-1', { title: 'first' })
       await a.sync()
+      await crossTheCut(a)
+      await a.sync()
       const heads = a.services.itemSyncState.getServerHeads(itemId)
+      expect(heads).toBeDefined()
       await a.services.itemSyncState.save()
 
       await a.restart()
 
       expect(a.services.itemSyncState.getServerHeads(itemId)).toEqual(heads)
-      expect(a.services.firstStart.has(itemId)).toBe(false)
+      expect(await a.pending()).toEqual([])
     })
 
     it('carries both sides across when two devices hold changes the other lacks, without snapshot heads', async () => {
@@ -844,7 +862,7 @@ describe('sync log', () => {
       expect(await a.services.recoveryManager.listRecoveryItems()).toEqual([])
     })
 
-    it('waits for the network part of first start', async () => {
+    it('waits for catch-up after the sync reset', async () => {
       const a = await startDevice('device-a')
       const itemId = await a.create('item-1', { title: 'first' })
       await a.sync()
@@ -858,27 +876,11 @@ describe('sync log', () => {
       })
       await a.settle()
       expect(finished).toBe(false)
+      expect(a.services.itemReencryptor.stage).toBe('waitingForSync')
 
       await a.poll()
 
       expect(await run).toEqual({ succeeded: [itemId], failed: [] })
-    })
-
-    it('reports an item still waiting for its heads as failed, without quarantining it', async () => {
-      const a = await startDevice('device-a')
-      const itemId = await a.create('item-1', { title: 'first' })
-      await a.sync()
-      await a.rewindToOldBuild()
-      await a.start()
-      const heads = server.items.get(itemId)!.heads!
-      server.items.get(itemId)!.heads = { ...heads, kver: '9' }
-      await a.poll()
-      expect(a.services.firstStart.stateOf(itemId)).toBe('awaitingHeads')
-
-      const result = await a.services.itemReencryptor.run()
-
-      expect(result.failed.map(failure => failure.itemId)).toEqual([itemId])
-      expect(await a.services.recoveryManager.listRecoveryItems()).toEqual([])
     })
 
     it('heals a rewrite that replaced another device\'s snapshot', async () => {

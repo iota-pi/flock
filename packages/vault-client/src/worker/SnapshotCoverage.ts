@@ -1,17 +1,15 @@
 import * as Automerge from '@automerge/automerge/slim'
 import type { ItemId } from '@vault/shared'
 import type { ItemSyncState } from './ItemSyncState'
-import type { FirstStartState } from './FirstStart'
 import { areHeadsEqual } from './utils/automerge'
 
 /** Whether an item's snapshot may be built now, and if not, why */
 export type CoverageCheck =
   | { covered: true }
-  | { covered: false; reason: 'unpushed' | 'awaitingHeads' }
+  | { covered: false; reason: 'unpushed' }
 
 export interface SnapshotCoverageDeps {
   itemSyncState: Pick<ItemSyncState, 'getServerHeads' | 'isSnapshotOnly'>
-  firstStartState: (itemId: ItemId) => FirstStartState | undefined
 }
 
 /**
@@ -28,14 +26,11 @@ export class SnapshotCoverage {
   constructor(private readonly deps: SnapshotCoverageDeps) {}
 
   /**
-   * S1. Synchronous, so that a caller can run it in the same section as `Automerge.save`. The two
-   * exceptions have no log to wait for: a change too large for a row, and an item at first start
-   * whose server heads can't be known.
+   * S1. Synchronous, so that a caller can run it in the same section as `Automerge.save`. The one
+   * exception has no log to wait for: a change too large for a row.
    */
   check(itemId: ItemId, doc: Automerge.Doc<unknown>): CoverageCheck {
-    const firstStart = this.deps.firstStartState(itemId)
-    if (firstStart === 'awaitingHeads') return { covered: false, reason: 'awaitingHeads' }
-    if (firstStart === 'awaitingSnapshot' || this.deps.itemSyncState.isSnapshotOnly(itemId)) return { covered: true }
+    if (this.deps.itemSyncState.isSnapshotOnly(itemId)) return { covered: true }
 
     const serverHeads = this.deps.itemSyncState.getServerHeads(itemId)
     if (areHeadsEqual(Automerge.getHeads(doc), serverHeads)) return { covered: true }

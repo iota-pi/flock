@@ -144,7 +144,9 @@ describe('SnapshotManager', () => {
     apiClient: SyncApiClient
     keys: KeyProvider
     onDueChanged: () => void
+    isCaughtUp: () => boolean
   }
+  let caughtUp: boolean
   let records: ReturnType<typeof createMemoryItemRecords>
 
   beforeEach(async () => {
@@ -166,6 +168,7 @@ describe('SnapshotManager', () => {
       emit: vi.fn(),
     }
     onDueChanged = vi.fn()
+    caughtUp = true
 
     context = {
       accountId: 'test-account',
@@ -177,6 +180,7 @@ describe('SnapshotManager', () => {
       apiClient: new SyncApiClient(),
       keys,
       onDueChanged: () => onDueChanged(),
+      isCaughtUp: () => caughtUp,
     }
 
     records = createMemoryItemRecords()
@@ -206,6 +210,20 @@ describe('SnapshotManager', () => {
     expect(mockPutSnapshots).not.toHaveBeenCalled()
 
     elapse()
+    await poll(manager)
+    expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
+  })
+
+  it('uploads nothing until the device has caught up, keeping what is due for the poll that has', async () => {
+    mockPutSnapshots.mockResolvedValue({ success: true, persisted: 1 })
+    manager.schedule.markItemDirty('item-1' as ItemId)
+    manager.schedule.requestNow()
+    caughtUp = false
+
+    await expect(poll(manager)).resolves.toBeUndefined()
+    expect(mockPutSnapshots).not.toHaveBeenCalled()
+
+    caughtUp = true
     await poll(manager)
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
   })

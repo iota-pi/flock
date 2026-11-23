@@ -6,7 +6,7 @@ import { flockSyncDomain } from '../app/vault/syncDomain'
 import { decodeLegacyCipherItem } from './legacy/legacyItems'
 import { flockLegacySettings } from './legacy/legacySettings'
 import { migrateLegacyLocalData } from './legacy/localData'
-import { FIRST_START_DATA_VERSION, SEALED_DATA_VERSION } from '../shared/flockDataVersion'
+import { SEALED_DATA_VERSION, SYNC_RESET_DATA_VERSION } from '../shared/flockDataVersion'
 
 // The main app's engine plus every legacy hook. No `minDataVersion`: this is where data below it goes.
 exposeSyncWorker({
@@ -24,6 +24,6 @@ exposeSyncWorker({
   // As the main app does, so the two never disagree about where this device's data is
   upgradeLocalEncryption: true,
   sealedDataVersion: SEALED_DATA_VERSION,
-  // With no `minDataVersion`, first start runs here, and the device level waits for it to finish
-  firstStartDataVersion: FIRST_START_DATA_VERSION,
+  // With no `minDataVersion`, the sync reset runs here, and the device level waits for it to finish
+  syncResetDataVersion: SYNC_RESET_DATA_VERSION,
 })

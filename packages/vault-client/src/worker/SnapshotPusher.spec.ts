@@ -185,15 +185,6 @@ describe('SnapshotPusher', () => {
     expect(mockTracker.retryNextPoll).toHaveBeenCalledTimes(1)
   })
 
-  it('skips an item waiting for its server heads, without retrying', async () => {
-    mockBuilder.build.mockResolvedValue({ type: 'deferred', reason: 'awaitingHeads' })
-
-    await push()
-
-    expect(mockApiClient.putSnapshots).not.toHaveBeenCalled()
-    expect(mockTracker.retryNextPoll).not.toHaveBeenCalled()
-  })
-
   it('pushes snapshots successfully and reports each stored snapshot', async () => {
     const result = await push()
 

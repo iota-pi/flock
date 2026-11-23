@@ -7,7 +7,7 @@ import type { SyncApiClient } from './SyncApiClient'
 import { uploadSnapshotBatch, type StoredSnapshotRecorder, type UploadableSnapshot } from './snapshotUpload'
 import { classifySyncError } from '../utils/errorClassifier'
 import { isClientOutdatedError } from '@vault/shared'
-import type { FirstStart } from './FirstStart'
+import type { SyncLogPuller } from './SyncLogPuller'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { RetryTimer } from '../utils/RetryTimer'
 import { AbortError, checkAlive, isAbortError, untilAborted, withTimeout } from '../utils/abort'
@@ -36,7 +36,7 @@ type FailedItem = ReencryptResult['failed'][number]
 
 /** An item that can't have a snapshot yet. It isn't broken, so a later run can retry it. */
 class DeferredBuildError extends Error {
-  constructor(itemId: ItemId, readonly canRetry: boolean) {
+  constructor(itemId: ItemId) {
     super(`The snapshot of item ${itemId} has to wait for the log`)
     this.name = 'DeferredBuildError'
   }
@@ -67,7 +67,11 @@ export interface ItemReencryptorOptions {
   session: SyncSessionState
   /** Makes this tab the leader, which pushes */
   claimLeader: () => void
-  firstStart: Pick<FirstStart, 'canPush' | 'whenReadyToPush'>
+  /**
+   * Whether catch-up's manifest sync has merged the server's snapshots. A rewrite before then could
+   * replace a snapshot with one that lacks what only that snapshot holds.
+   */
+  catchUp: Pick<SyncLogPuller, 'isCaughtUp' | 'whenCaughtUp'>
   /** Called whenever the run's stage changes, and with null once it stops */
   onStage?: (stage: ReencryptStage | null) => void
   /** Pushes items' changes to the log, which comes before their snapshots */
@@ -245,10 +249,10 @@ export class ItemReencryptor {
   }
 
   /**
-   * A rewrite pushes first, so it runs on the leader, once first start allows pushes. It doesn't wait
-   * for first start's own push to finish, or for every first-start record to clear: one item the
-   * server keeps refusing, or one missing key, would stall it for good. Each chunk pushes its own
-   * items, and S1 defers any it couldn't. Offline there's nothing to wait for: the first chunk stops
+   * A rewrite pushes first, so it runs on the leader, once the device has caught up: a device that
+   * hasn't read the log for longer than its TTL (or has reset its sync state) merges the server's
+   * snapshots first. It doesn't wait for the poll's own push to finish: one item the server keeps
+   * refusing would stall it for good. Each chunk pushes its own items, and S1 defers any it couldn't. Offline there's nothing to wait for: the first chunk stops
    * the run. With `timeoutMs`, each wait gives up with a `ReencryptionWaitError`.
    */
   private async waitUntilPushesCanRun(signal?: AbortSignal, timeoutMs?: number): Promise<void> {
@@ -258,9 +262,9 @@ export class ItemReencryptor {
       this.deps.claimLeader()
       await this.waitFor('waitingForLeader', waitSignal => this.deps.session.whenLeader(waitSignal), signal, timeoutMs)
     }
-    if (!this.deps.firstStart.canPush) {
+    if (!this.deps.catchUp.isCaughtUp) {
       this.setStage('waitingForSync')
-      await this.waitFor('waitingForSync', waitSignal => this.deps.firstStart.whenReadyToPush(waitSignal), signal, timeoutMs)
+      await this.waitFor('waitingForSync', waitSignal => this.deps.catchUp.whenCaughtUp(waitSignal), signal, timeoutMs)
     }
   }
 
@@ -385,10 +389,8 @@ export class ItemReencryptor {
           throw new Error(`Item ${itemId} document or vault was not ready`)
         }
         if (result.type === 'deferred') {
-          if (result.reason === 'unpushed') {
-            await this.deps.pushToLog([itemId], signal)
-          }
-          throw new DeferredBuildError(itemId, result.reason === 'unpushed')
+          await this.deps.pushToLog([itemId], signal)
+          throw new DeferredBuildError(itemId)
         }
         return result
       },
@@ -397,7 +399,7 @@ export class ItemReencryptor {
         delays: this.batchRetryDelays,
         signal,
         shouldRetry: err => {
-          if (err instanceof DeferredBuildError) return err.canRetry
+          if (err instanceof DeferredBuildError) return true
           return !isRunStoppingError(err)
         },
         onRetry: (err, attempt) => {

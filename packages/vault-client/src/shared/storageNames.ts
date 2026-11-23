@@ -35,7 +35,7 @@ export interface VaultStorageNames {
     /** WAL entries older builds sealed with the device storage key. It's only cleared now. */
     sealedWalDatabase: string
     manualRecoveryDatabase: string
-    /** What the sync log needs per item: pending marks, parked entries and first-start records */
+    /** What the sync log needs per item: pending marks, parked entries and sync records */
     syncLogDatabase: string
     /** Fallback for other account stores, as `${prefix}${storeName}_${accountId}` */
     accountStoreDatabase: string
