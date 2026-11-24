@@ -33,7 +33,7 @@ describe('SyncLogPuller', () => {
   let keys: { hasKey: AnyMock; decryptBytes: AnyMock; waitForKey: AnyMock }
   let incoming: { apply: AnyMock }
   let healer: { park: AnyMock; onLogEntry: AnyMock }
-  let itemSyncState: { recordPulledChanges: AnyMock }
+  let itemSyncState: { recordPulledChanges: AnyMock; save: AnyMock }
   let bus: { publishSyncPing: AnyMock }
   let onRemoteChangesApplied: AnyMock
   let puller: SyncLogPuller
@@ -55,7 +55,10 @@ describe('SyncLogPuller', () => {
     }
     incoming = { apply: vi.fn().mockResolvedValue(true) }
     healer = { park: vi.fn().mockResolvedValue(undefined), onLogEntry: vi.fn() }
-    itemSyncState = { recordPulledChanges: vi.fn().mockResolvedValue(undefined) }
+    itemSyncState = {
+      recordPulledChanges: vi.fn().mockResolvedValue(undefined),
+      save: vi.fn().mockResolvedValue(undefined),
+    }
     bus = { publishSyncPing: vi.fn() }
     onRemoteChangesApplied = vi.fn()
     puller = new SyncLogPuller({
@@ -329,6 +332,59 @@ describe('SyncLogPuller', () => {
 
       expect(docs.flushToStorage).toHaveBeenLastCalledWith([ITEM])
       expect(stored.cursor).toBe(2)
+    })
+
+    it('stores the S2 records for pulled changes before saving the cursor', async () => {
+      const order: string[] = []
+      incoming.apply.mockImplementationOnce(async () => {
+        puller.onChangesAdded(ITEM)
+        return true
+      })
+      itemSyncState.recordPulledChanges.mockImplementation(async (itemIds: ItemId[]) => {
+        order.push(`record:${itemIds.join(',')}`)
+      })
+      itemSyncState.save.mockImplementation(async () => {
+        order.push('records')
+      })
+      cursorStore.save.mockImplementation(async (position: typeof stored) => {
+        order.push(`save:${position.cursor}`)
+        stored = { ...position }
+      })
+
+      await puller.process(page([entry(1)]))
+      await puller.shutdown()
+
+      expect(order).toEqual([`record:${ITEM}`, 'records', 'save:1'])
+    })
+
+    it("doesn't save the cursor if the S2 records fail to store, and stores it again next time", async () => {
+      itemSyncState.save.mockRejectedValueOnce(new Error('QuotaExceededError'))
+      await puller.process(page([entry(1)]))
+      await puller.shutdown()
+
+      expect(cursorStore.save).not.toHaveBeenCalled()
+      expect(stored.cursor).toBe(0)
+
+      await puller.process(page([entry(2)]))
+      await puller.shutdown()
+
+      expect(stored.cursor).toBe(2)
+    })
+
+    it('records pulled changes from a page that fails part way, before the cursor can be saved', async () => {
+      incoming.apply.mockImplementationOnce(async () => {
+        puller.onChangesAdded(ITEM)
+        return true
+      }).mockResolvedValueOnce(false)
+      healer.park.mockRejectedValueOnce(new Error('quota'))
+
+      await expect(puller.process(page([entry(1), entry(2)]))).rejects.toThrow('quota')
+      await puller.shutdown()
+
+      expect(itemSyncState.recordPulledChanges).toHaveBeenCalledWith([ITEM])
+      expect(itemSyncState.recordPulledChanges.mock.invocationCallOrder[0])
+        .toBeLessThan(itemSyncState.save.mock.invocationCallOrder[0])
+      expect(stored.cursor).toBe(1)
     })
 
     it("doesn't store a doc again once a saved cursor covers it", async () => {

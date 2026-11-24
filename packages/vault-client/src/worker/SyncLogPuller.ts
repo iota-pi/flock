@@ -48,8 +48,8 @@ export interface SyncLogPullerDeps {
   session: SyncSessionState
   incoming: Pick<IncomingChanges, 'apply'>
   healer: Pick<GapHealer, 'park' | 'onLogEntry'>
-  /** Records pulled changes for snapshot coverage's S2 */
-  itemSyncState: Pick<ItemSyncState, 'recordPulledChanges'>
+  /** Records pulled changes for snapshot coverage's S2, which has to be stored before the cursor moves past their rows */
+  itemSyncState: Pick<ItemSyncState, 'recordPulledChanges' | 'save'>
   /** Tells the account's other tabs which items were pulled */
   bus?: Pick<RealtimeBus, 'publishSyncPing'>
   onKeyVersionMissing?: (kver: string) => void
@@ -112,8 +112,9 @@ export class SyncLogPuller {
   }
 
   /**
-   * Saves the cursor once the docs its rows were applied to are in storage (sync rule 1). If a doc
-   * fails to save, the stored cursor stays behind, and those rows are pulled and applied again.
+   * Saves the cursor once the docs its rows were applied to are in storage (sync rule 1), and the
+   * `pulledAt` S2 records for them. If either fails to save, the stored cursor stays behind, and those
+   * rows are pulled and applied again.
    */
   private async save(): Promise<void> {
     await this.saveMutex.runExclusive(async () => {
@@ -128,6 +129,12 @@ export class SyncLogPuller {
       }
       for (const itemId of items) {
         this.unflushedItems.delete(itemId)
+      }
+      try {
+        await this.deps.itemSyncState.save()
+      } catch (error) {
+        log.error('Failed to store pulled changes for snapshot coverage; not saving the log cursor', error)
+        return
       }
       try {
         await this.deps.cursorStore.save(position)
@@ -234,6 +241,7 @@ export class SyncLogPuller {
     const timedOutKeys = new Set<string>()
     const start = { ...this.position }
     let stoppedAtGap = false
+    let recording: Promise<void>
 
     try {
       for (const entry of entries) {
@@ -256,6 +264,11 @@ export class SyncLogPuller {
         this.notifyChanged()
       }
     } finally {
+      // Sets `pulledAt` before the cursor can be saved past these rows, and `save` stores it first. If
+      // the page failed, that error is the one thrown, and the next save stores the records.
+      recording = this.deps.itemSyncState.recordPulledChanges(Array.from(this.addedChanges))
+      recording.catch(() => {})
+      this.addedChanges.clear()
       if (this.position.cursor !== start.cursor || this.position.lastPullAt !== start.lastPullAt) {
         this.saveDebounced()
       }
@@ -264,8 +277,7 @@ export class SyncLogPuller {
       }
     }
 
-    await this.deps.itemSyncState.recordPulledChanges(Array.from(this.addedChanges))
-    this.addedChanges.clear()
+    await recording
   }
 
   /** Records that changes the doc lacked were applied, for snapshot coverage */
