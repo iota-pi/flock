@@ -245,6 +245,8 @@ export class SyncWorkerContext {
       bus: realtimeBus,
       onKeyVersionMissing: this.emitKeyVersionMissing,
       onDocumentReceived: docId => this.notifyDocumentReceived(toVaultItemIdFromAutomergeId(docId)),
+      // The leader's backstop for follower changes that arrive after their marks were cleared
+      onDocChanged: itemId => this._services?.changeOutbox.onDocChanged(itemId),
     })
     const { repo } = repoManager
 
@@ -252,6 +254,7 @@ export class SyncWorkerContext {
     const docStore = new AutomergeDocStore({
       repo,
       onHandleReplaced: this.config.onDocHandleReplaced,
+      watchHandle: handle => repoManager.watchHandle(handle),
       storageAdapter: repoManager.storage,
       codec: this.domain.codec,
       isLocallyUnreadable: documentId => this.unreadableDocuments.has(documentId),

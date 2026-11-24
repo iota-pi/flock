@@ -1,4 +1,11 @@
-import { Repo, type StorageAdapterInterface, type Chunk, type DocumentId } from '@automerge/automerge-repo/slim'
+import {
+  Repo,
+  type StorageAdapterInterface,
+  type Chunk,
+  type DocHandle,
+  type DocumentId,
+} from '@automerge/automerge-repo/slim'
+import type { ItemId } from '@vault/shared'
 
 import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'
 import { runStorageOperation } from '../utils/storageManager'
@@ -7,6 +14,7 @@ import { getVaultStorageNames } from '../shared/storageNames'
 import type { KeyProvider } from '../keys/Keyring'
 import type { RealtimeBus } from './RealtimeBus'
 import { createLogger } from '../utils/logger'
+import { DocChangeListeners } from './DocChangeListeners'
 
 const log = createLogger('AutomergeRepoManager')
 
@@ -59,6 +67,11 @@ class QuotaHandlingStorageAdapter implements AutomergeStorageAdapter {
 export interface AutomergeRepoManagerOptions {
   onKeyVersionMissing?: (kver: string) => void
   onDocumentReceived?: (documentId: DocumentId) => void
+  /**
+   * Called when the doc of any item the Repo holds changes, whatever changed it: an edit in this tab,
+   * a change another tab sent, or one pulled from the server. Never called for the index document.
+   */
+  onDocChanged?: (itemId: ItemId) => void
   /** Tells the account's other tabs which items this tab sent them */
   bus?: RealtimeBus
 }
@@ -70,6 +83,7 @@ export class AutomergeRepoManager {
   readonly storage: AutomergeStorageAdapter
   private readonly quotaStorage: QuotaHandlingStorageAdapter
   private readonly broadcastAdapter: EncryptedBroadcastChannelNetworkAdapter
+  private readonly changeListeners: DocChangeListeners
   private isClosed = false
 
   constructor(
@@ -86,18 +100,28 @@ export class AutomergeRepoManager {
       bus: options?.bus,
       keys,
       onKeyVersionMissing: options?.onKeyVersionMissing,
-      onDocumentReceived: options?.onDocumentReceived,
+      onDocumentReceived: documentId => {
+        this.changeListeners.watchReceivedDocument(documentId)
+        options?.onDocumentReceived?.(documentId)
+      },
     })
 
     this.repo = new Repo({
       storage: this.storage,
       network: [this.broadcastAdapter],
     })
+    this.changeListeners = new DocChangeListeners(this.repo, itemId => options?.onDocChanged?.(itemId))
+  }
+
+  /** Listens for changes to the handle, whatever doc store path found or created it */
+  watchHandle(handle: DocHandle<unknown>): void {
+    this.changeListeners.watchHandle(handle)
   }
 
   async close(): Promise<void> {
     if (this.isClosed) return
     this.isClosed = true
+    this.changeListeners.clear()
 
     try {
       this.broadcastAdapter.disconnect()

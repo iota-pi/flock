@@ -312,6 +312,45 @@ describe('sync log', () => {
       expect(server.items.get(itemId)?.version).toBe(2)
     })
 
+    it('re-marks a follower\'s edit that reaches the leader after its push cleared the mark', async () => {
+      const { leader, follower, b, itemId } = await startTabs()
+      // Holds what the follower sends the leader's Repo, so the leader pushes before the edit arrives
+      const network = leader.services.repo.networkSubsystem as unknown as {
+        emit: (event: string, ...args: unknown[]) => boolean
+      }
+      const emit = network.emit.bind(network)
+      const held: unknown[] = []
+      let isHolding = true
+      vi.spyOn(network, 'emit').mockImplementation((event, ...args) => {
+        if (isHolding && event === 'message') {
+          held.push(args[0])
+          return true
+        }
+        return emit(event, ...args)
+      })
+
+      await follower.edit(itemId, { title: 'from the follower' })
+      await vi.waitFor(async () => expect(await leader.pending()).toEqual([itemId]))
+      await vi.waitFor(() => expect(held.length).toBeGreaterThan(0))
+      // The leader's doc has nothing new, so its push clears the follower's mark and sends nothing
+      await leader.poll()
+      expect(await leader.pending()).toEqual([])
+      expect(server.rows).toHaveLength(1)
+
+      isHolding = false
+      for (const message of held.splice(0)) emit('message', message)
+      await vi.waitFor(async () => expect((await leader.read(itemId))?.title).toBe('from the follower'))
+      // The engine's listener on the leader's handle marks the item again, though nothing subscribed to it
+      await vi.waitFor(async () => expect(await leader.pending()).toEqual([itemId]))
+
+      await leader.poll()
+      await b.poll()
+
+      expect(server.rows).toHaveLength(2)
+      expect((await b.read(itemId))?.title).toBe('from the follower')
+      expect(await leader.pending()).toEqual([])
+    })
+
     it('hands a change the leader pulls to the follower, which never polls', async () => {
       const { leader, follower, b, itemId } = await startTabs()
 

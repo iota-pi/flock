@@ -87,7 +87,6 @@ beforeEach(() => {
           }),
         },
         repo: { find: mockRepoFind, handles: {} },
-        changeOutbox: { onDocChanged: vi.fn() },
         indexManager: {
           listItemIds: mockIndexManagerListItemIds,
           addItemIds: mockIndexManagerAddItemIds,
