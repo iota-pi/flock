@@ -63,6 +63,12 @@ export class FakeVaultServer implements VaultServerBackend {
   head = 0
   /** Set to make every request fail, as it does while the server can't be reached */
   isDown = false
+  /**
+   * Set to lose the response to the next request that pushes rows: the server appends them, then the
+   * device sees a network error, as when the connection drops before the answer arrives. It clears
+   * itself once used.
+   */
+  loseNextResponse = false
   /** Set to reject the device's session, as the server does once it has ended */
   rejectsSessions = false
   /** Set to turn away pushes, as for an account that has appended its day's quota to the log */
@@ -93,6 +99,10 @@ export class FakeVaultServer implements VaultServerBackend {
       this.rows.push({ seq: this.head, itemId, encryptedMessage, createdAt: this.clock() })
       return { itemId, seq: this.head }
     })
+    if (pushResults.length > 0 && this.loseNextResponse) {
+      this.loseNextResponse = false
+      throw TRPCClientError.from(new TypeError('Failed to fetch'))
+    }
     const visible = this.rows.filter(row => row.seq > input.after && !this.hiddenSeqs.has(row.seq))
     return {
       pushResults,
