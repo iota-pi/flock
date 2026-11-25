@@ -13,6 +13,8 @@ import type { KeyProvider } from '../keys/Keyring'
 type AnyMock = Mock<(...args: any[]) => any>
 
 const ITEM = 'item-1' as ItemId
+/** The poll's signal, which every push needs */
+const signal = new AbortController().signal
 
 function bytes(length: number): Uint8Array {
   return new Uint8Array(length).fill(1)
@@ -23,7 +25,7 @@ describe('ChangeOutbox', () => {
   let session: SyncSessionState
   let itemSyncState: ItemSyncState
   let docStore: { [K in keyof ChangeOutboxDeps['docStore']]: AnyMock }
-  let exchange: Mock<LogExchange['exchange']>
+  let exchange: Mock<LogExchange>
   let encryptBytes: AnyMock
   let requestSnapshot: AnyMock
   let onMarked: AnyMock
@@ -32,7 +34,7 @@ describe('ChangeOutbox', () => {
   let outbox: ChangeOutbox
 
   /** The server acknowledges every row */
-  const acknowledge: LogExchange['exchange'] = async (push, onResults) => {
+  const acknowledge: LogExchange = async (push, onResults) => {
     await onResults(push.map((message, index) => ({ itemId: message.itemId, seq: index + 1 })))
   }
 
@@ -105,8 +107,8 @@ describe('ChangeOutbox', () => {
       await outbox.mark(ITEM)
       const update = vi.spyOn(db, 'update')
 
-      await outbox.pushPending()
-      await outbox.pushPending()
+      await outbox.pushPending(signal)
+      await outbox.pushPending(signal)
 
       expect((await markOf(ITEM))?.blocked).toBe('snapshotOnly')
       const blockedWrites = update.mock.calls.filter(([, keys]) => keys.includes(ITEM))
@@ -117,16 +119,26 @@ describe('ChangeOutbox', () => {
       docStore.readChangesSince.mockResolvedValue(null)
       await outbox.mark(ITEM)
 
-      await outbox.pushPending()
+      await outbox.pushPending(signal)
 
       expect((await markOf(ITEM))?.blocked).toBe('unloadable')
     })
   })
 
+  it('reports no read when there is nothing to push', async () => {
+    expect(await outbox.pushPending(signal)).toBe(false)
+
+    docStore.readChangesSince.mockResolvedValueOnce({ changes: [], heads: ['head-1'] })
+    await outbox.mark(ITEM)
+    expect(await outbox.pushPending(signal)).toBe(false)
+
+    expect(exchange).not.toHaveBeenCalled()
+  })
+
   it('pushes changes encrypted with the item ID, then records the heads and clears the mark', async () => {
     await outbox.mark(ITEM)
 
-    await outbox.pushPending()
+    expect(await outbox.pushPending(signal)).toBe(true)
 
     expect(encryptBytes).toHaveBeenCalledWith(expect.any(Uint8Array), ITEM)
     expect(exchange).toHaveBeenCalledTimes(1)
@@ -138,7 +150,7 @@ describe('ChangeOutbox', () => {
     await outbox.mark(ITEM)
     const update = vi.spyOn(db, 'update')
 
-    await outbox.pushPending()
+    await outbox.pushPending(signal)
 
     expect(onAcknowledged).toHaveBeenCalledWith(ITEM)
     const recordWrites = update.mock.calls.filter(([store]) => store === SYNC_LOG_STORES.items)
@@ -149,11 +161,11 @@ describe('ChangeOutbox', () => {
   it('marks nothing dirty for a false mark or a failed push', async () => {
     docStore.readChangesSince.mockResolvedValueOnce({ changes: [], heads: ['head-1'] })
     await outbox.mark(ITEM)
-    await outbox.pushPending()
+    await outbox.pushPending(signal)
 
     await outbox.mark(ITEM)
     exchange.mockRejectedValueOnce(new Error('offline'))
-    await expect(outbox.pushPending()).rejects.toThrow('offline')
+    await expect(outbox.pushPending(signal)).rejects.toThrow('offline')
 
     expect(onAcknowledged).not.toHaveBeenCalled()
   })
@@ -174,7 +186,7 @@ describe('ChangeOutbox', () => {
       const requestSave = vi.spyOn(itemSyncState, 'requestSave')
       await outbox.mark(ITEM)
 
-      await outbox.pushPending()
+      await outbox.pushPending(signal)
 
       expect(await outbox.listPending()).toEqual([ITEM])
       expect(onAcknowledged).toHaveBeenCalledWith(ITEM)
@@ -185,17 +197,17 @@ describe('ChangeOutbox', () => {
 
     it('keeps the mark while the heads are unsaved, and clears it at the next push once they are saved', async () => {
       await outbox.mark(ITEM)
-      await outbox.pushPending()
+      await outbox.pushPending(signal)
       // The doc has nothing after the heads the acknowledgement recorded
       docStore.readChangesSince.mockResolvedValue({ changes: [], heads: ['head-2'] })
 
-      await outbox.pushPending()
+      await outbox.pushPending(signal)
       expect(await outbox.listPending()).toEqual([ITEM])
       expect(exchange).toHaveBeenCalledTimes(1)
 
       failRecordSaves = false
       await itemSyncState.save()
-      await outbox.pushPending()
+      await outbox.pushPending(signal)
 
       expect(await outbox.listPending()).toEqual([])
       expect(await db.get(SYNC_LOG_STORES.items, ITEM)).toEqual({ itemId: ITEM, serverHeads: ['head-2'], dirty: true })
@@ -206,7 +218,7 @@ describe('ChangeOutbox', () => {
     itemSyncState.setServerHeads(ITEM, ['head-1'])
     await outbox.mark(ITEM)
 
-    await outbox.pushPending()
+    await outbox.pushPending(signal)
 
     expect(docStore.readChangesSince).toHaveBeenCalledWith(ITEM, ['head-1'])
   })
@@ -215,7 +227,7 @@ describe('ChangeOutbox', () => {
     docStore.readChangesSince.mockResolvedValue({ changes: [], heads: ['head-1'] })
     await outbox.mark(ITEM)
 
-    await outbox.pushPending()
+    await outbox.pushPending(signal)
 
     expect(exchange).not.toHaveBeenCalled()
     expect(await outbox.listPending()).toEqual([])
@@ -225,10 +237,10 @@ describe('ChangeOutbox', () => {
     await outbox.mark(ITEM)
     exchange.mockImplementationOnce(async (push, onResults) => {
       await outbox.mark(ITEM)
-      await acknowledge(push, onResults)
+      await acknowledge(push, onResults, signal)
     })
 
-    await outbox.pushPending()
+    await outbox.pushPending(signal)
 
     expect(await outbox.listPending()).toEqual([ITEM])
   })
@@ -237,7 +249,7 @@ describe('ChangeOutbox', () => {
     await outbox.mark(ITEM)
     exchange.mockRejectedValueOnce(new Error('offline'))
 
-    await expect(outbox.pushPending()).rejects.toThrow('offline')
+    await expect(outbox.pushPending(signal)).rejects.toThrow('offline')
 
     expect(itemSyncState.hasServerHeads(ITEM)).toBe(false)
     expect(await outbox.listPending()).toEqual([ITEM])
@@ -251,7 +263,7 @@ describe('ChangeOutbox', () => {
     })
     await outbox.mark(ITEM)
 
-    await outbox.pushPending()
+    await outbox.pushPending(signal)
 
     expect(exchange.mock.calls[0][0]).toHaveLength(2)
     expect(encryptBytes.mock.calls.map(([row]) => row.byteLength)).toEqual([half * 2, half])
@@ -264,12 +276,12 @@ describe('ChangeOutbox', () => {
     await outbox.mark(ITEM)
     exchange.mockImplementationOnce(acknowledge).mockRejectedValueOnce(new Error('offline'))
 
-    await expect(outbox.pushPending()).rejects.toThrow('offline')
+    await expect(outbox.pushPending(signal)).rejects.toThrow('offline')
 
     expect(itemSyncState.hasServerHeads(ITEM)).toBe(false)
     expect(await outbox.listPending()).toEqual([ITEM])
 
-    await outbox.pushPending()
+    await outbox.pushPending(signal)
 
     expect(itemSyncState.getServerHeads(ITEM)).toEqual(['head-2'])
     expect(await outbox.listPending()).toEqual([])
@@ -281,7 +293,7 @@ describe('ChangeOutbox', () => {
     await outbox.mark(ITEM)
     exchange.mockImplementationOnce(async (_push, onResults) => onResults([]))
 
-    await expect(outbox.pushPending()).rejects.toThrow("didn't acknowledge")
+    await expect(outbox.pushPending(signal)).rejects.toThrow("didn't acknowledge")
 
     expect(await outbox.listPending()).toEqual([ITEM])
   })
@@ -290,7 +302,7 @@ describe('ChangeOutbox', () => {
     docStore.readChangesSince.mockResolvedValue({ changes: [bytes(MAX_INCREMENTAL_MESSAGE_BYTES + 1)], heads: ['head-2'] })
     await outbox.mark(ITEM)
 
-    await outbox.pushPending()
+    await outbox.pushPending(signal)
 
     expect(exchange).not.toHaveBeenCalled()
     expect(requestSnapshot).toHaveBeenCalledWith(ITEM)
@@ -306,7 +318,7 @@ describe('ChangeOutbox', () => {
   it('still sends a snapshot-only item by snapshot after a reload', async () => {
     docStore.readChangesSince.mockResolvedValue({ changes: [bytes(MAX_INCREMENTAL_MESSAGE_BYTES + 1)], heads: ['head-2'] })
     await outbox.mark(ITEM)
-    await outbox.pushPending()
+    await outbox.pushPending(signal)
     await itemSyncState.shutdown()
 
     itemSyncState = new ItemSyncState({ db, session })
@@ -323,7 +335,7 @@ describe('ChangeOutbox', () => {
       onAcknowledged,
     })
     docStore.readChangesSince.mockClear()
-    await reloaded.pushPending()
+    await reloaded.pushPending(signal)
 
     expect(itemSyncState.isSnapshotOnly(ITEM)).toBe(true)
     expect(docStore.readChangesSince).not.toHaveBeenCalled()
@@ -338,7 +350,7 @@ describe('ChangeOutbox', () => {
       const itemIds = items(40)
       await outbox.markAll(itemIds)
 
-      await outbox.pushPending()
+      await outbox.pushPending(signal)
 
       expect(exchange).toHaveBeenCalledTimes(1)
       expect(exchange.mock.calls[0][0]).toHaveLength(40)
@@ -352,7 +364,7 @@ describe('ChangeOutbox', () => {
       })
       const itemIds = items(60)
 
-      await outbox.pushItems(itemIds)
+      await outbox.pushItems(itemIds, signal)
 
       const sizes = exchange.mock.calls.map(([push]) => push.length)
       expect(sizes.every(size => size <= SYNC_BATCH_SIZES.logPushRows && size % 2 === 0)).toBe(true)
@@ -368,7 +380,7 @@ describe('ChangeOutbox', () => {
       })
       const itemIds = items(Math.ceil(SYNC_BATCH_SIZES.logPushChars / (MAX_INCREMENTAL_MESSAGE_BYTES * rowsPerItem)) + 1)
 
-      await outbox.pushItems(itemIds)
+      await outbox.pushItems(itemIds, signal)
 
       expect(exchange.mock.calls.length).toBeGreaterThan(1)
       for (const [push] of exchange.mock.calls) {
@@ -384,7 +396,7 @@ describe('ChangeOutbox', () => {
       })
       const controller = new AbortController()
       exchange.mockImplementation(async (push, onResults) => {
-        await acknowledge(push, onResults)
+        await acknowledge(push, onResults, signal)
         controller.abort()
       })
 
@@ -400,9 +412,9 @@ describe('ChangeOutbox', () => {
     const refused = Object.assign(new Error('Invalid input'), { data: { code: 'BAD_REQUEST', httpStatus: 400 } })
 
     /** The server refuses any request carrying ITEM's rows, and acknowledges the rest */
-    const refuseItem: LogExchange['exchange'] = async (push, onResults) => {
+    const refuseItem: LogExchange = async (push, onResults) => {
       if (push.some(message => message.itemId === ITEM)) throw refused
-      await acknowledge(push, onResults)
+      await acknowledge(push, onResults, signal)
     }
 
     it('delivers the item it refuses on its own by snapshot, and pushes the others', async () => {
@@ -410,7 +422,8 @@ describe('ChangeOutbox', () => {
       await outbox.mark(ITEM)
       await outbox.mark(OTHER)
 
-      await outbox.pushPending()
+      // OTHER's request read the log
+      expect(await outbox.pushPending(signal)).toBe(true)
 
       expect(itemSyncState.isSnapshotOnly(ITEM)).toBe(true)
       expect(requestSnapshot).toHaveBeenCalledWith(ITEM)
@@ -419,8 +432,17 @@ describe('ChangeOutbox', () => {
       expect(await outbox.listPending()).toEqual([ITEM])
 
       exchange.mockClear()
-      await outbox.pushPending()
+      await outbox.pushPending(signal)
       expect(exchange).not.toHaveBeenCalled()
+    })
+
+    // The poll reads the log itself
+    it('reports no read when the server refused every request', async () => {
+      exchange.mockImplementation(refuseItem)
+      await outbox.mark(ITEM)
+
+      expect(await outbox.pushPending(signal)).toBe(false)
+      expect(exchange).toHaveBeenCalledTimes(1)
     })
 
     it('finds the refused item among a full request by halving it', async () => {
@@ -428,7 +450,7 @@ describe('ChangeOutbox', () => {
       const others = Array.from({ length: 31 }, (_, index) => `other-${index}` as ItemId)
       await outbox.markAll([...others, ITEM])
 
-      await outbox.pushPending()
+      await outbox.pushPending(signal)
 
       expect(itemSyncState.isSnapshotOnly(ITEM)).toBe(true)
       expect(others.every(itemId => itemSyncState.getServerHeads(itemId)?.[0] === 'head-2')).toBe(true)
@@ -441,7 +463,7 @@ describe('ChangeOutbox', () => {
       exchange.mockRejectedValue(Object.assign(new Error('Service unavailable'), { data: { httpStatus: 503 } }))
       await outbox.mark(ITEM)
 
-      await expect(outbox.pushPending()).rejects.toThrow('Service unavailable')
+      await expect(outbox.pushPending(signal)).rejects.toThrow('Service unavailable')
 
       expect(itemSyncState.isSnapshotOnly(ITEM)).toBe(false)
       expect(requestSnapshot).not.toHaveBeenCalled()
@@ -454,7 +476,7 @@ describe('ChangeOutbox', () => {
       }))
       await outbox.mark(ITEM)
 
-      await expect(outbox.pushPending()).rejects.toThrow('QUOTA_EXCEEDED')
+      await expect(outbox.pushPending(signal)).rejects.toThrow('QUOTA_EXCEEDED')
 
       expect(itemSyncState.isSnapshotOnly(ITEM)).toBe(false)
       expect(requestSnapshot).not.toHaveBeenCalled()
@@ -465,7 +487,7 @@ describe('ChangeOutbox', () => {
       exchange.mockRejectedValue(Object.assign(new Error('UNAUTHORIZED'), { data: { code: 'UNAUTHORIZED', httpStatus: 401 } }))
       await outbox.mark(ITEM)
 
-      await expect(outbox.pushPending()).rejects.toThrow('UNAUTHORIZED')
+      await expect(outbox.pushPending(signal)).rejects.toThrow('UNAUTHORIZED')
       expect(itemSyncState.isSnapshotOnly(ITEM)).toBe(false)
     })
   })
@@ -474,16 +496,16 @@ describe('ChangeOutbox', () => {
     docStore.readChangesSince.mockResolvedValue(null)
     await outbox.mark(ITEM)
 
-    await outbox.pushPending()
+    await outbox.pushPending(signal)
     expect(await outbox.listPending()).toEqual([ITEM])
 
     docStore.hasDataInStorage.mockResolvedValue(false)
-    await outbox.pushPending()
+    await outbox.pushPending(signal)
     expect(await outbox.listPending()).toEqual([])
   })
 
   it('pushes the given items whether or not they are marked', async () => {
-    await outbox.pushItems([ITEM])
+    await outbox.pushItems([ITEM], signal)
 
     expect(exchange).toHaveBeenCalledTimes(1)
     expect(itemSyncState.getServerHeads(ITEM)).toEqual(['head-2'])

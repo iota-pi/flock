@@ -44,7 +44,7 @@ export interface SnapshotPusherOptions {
   >
   builder: Pick<SnapshotBuilder, 'build'>
   /** Pushes items' changes to the log, which comes before their snapshots */
-  pushToLog: (itemIds: ItemId[], signal?: AbortSignal) => Promise<void>
+  pushToLog: (itemIds: ItemId[], signal: AbortSignal) => Promise<unknown>
   /** Called with each snapshot the server stored */
   onSnapshotStored: (details: StoredSnapshotDetails) => void
   recoveryManager: RecoveryManager
