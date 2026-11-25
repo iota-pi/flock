@@ -324,6 +324,10 @@ export class SyncWorkerContext {
       session,
       incoming,
       healer: gapHealer,
+      manifest: {
+        demand: demand => this.services.manifestSyncManager.demand(demand),
+        isDemanded: demand => this.services.manifestSyncManager.isDemanded(demand),
+      },
       itemSyncState,
       bus: realtimeBus,
       onKeyVersionMissing: this.emitKeyVersionMissing,
@@ -348,7 +352,7 @@ export class SyncWorkerContext {
       getOutbox: () => changeOutbox,
       healer: gapHealer,
       apiClient: this.apiClient,
-      runManifestPhase: (signal, minMode) => this.services.manifestSyncManager.runPhase(signal, minMode),
+      runManifestPhase: (stage, signal) => this.services.manifestSyncManager.runPhase(stage, signal),
       getSnapshots: () => this.services.snapshotPusher,
     })
 

@@ -2,13 +2,11 @@ import {
   INITIAL_LOG_PULL_STATE,
   gapRepollDelay,
   hasImmediatePendingPulls,
-  needsCatchUpManifest,
-  pendingManifestSync,
+  isBehindLog,
   transitionLogPull,
   type LogPullEffect,
   type LogPullEvent,
   type LogPullState,
-  type ManifestPhase,
   type ReadPhase,
 } from './logPullState'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
@@ -19,8 +17,8 @@ const idle: ReadPhase = { kind: 'idle' }
 const morePages: ReadPhase = { kind: 'morePages' }
 const gap = (seq: number, firstSeenAt = NOW, repolls = 0): ReadPhase => ({ kind: 'gap', wait: { seq, firstSeenAt, repolls } })
 
-function state(read: ReadPhase, manifest: ManifestPhase = 'none'): LogPullState {
-  return { read, manifest }
+function state(read: ReadPhase, catchingUp = false): LogPullState {
+  return { read, catchingUp }
 }
 
 /** A gap at seq 1 whose next row was written `ageMs` before `serverNow` */
@@ -57,35 +55,28 @@ const rows: Row[] = [
     name: 'passes a gap whose next row is old, and asks for a recovery sync',
     from: state(idle),
     event: gapFound(STALE),
-    to: state(idle, 'recoveryDue'),
-    effects: ['passGap', 'reportLostRows'],
+    to: state(idle),
+    effects: ['passGap', 'recoverLostRows'],
   },
   {
     name: 'passes a fresh gap that has lasted the whole wait',
     from: state(gap(1)),
     event: gapFound(0, NOW + STALE),
-    to: state(idle, 'recoveryDue'),
-    effects: ['passGap', 'reportLostRows'],
-  },
-  {
-    name: 'keeps a recovery request that is already due',
-    from: state(idle, 'recoveryDue'),
-    event: gapFound(STALE),
-    to: state(idle, 'recoveryDue'),
-    effects: ['passGap', 'reportLostRows'],
+    to: state(idle),
+    effects: ['passGap', 'recoverLostRows'],
   },
   {
     name: 'expects stale gaps while catching up',
-    from: state(idle, 'catchingUp'),
+    from: state(idle, true),
     event: gapFound(STALE),
-    to: state(idle, 'catchingUp'),
+    to: state(idle, true),
     effects: ['passGap'],
   },
   {
     name: 'still waits at a fresh gap while catching up',
-    from: state(idle, 'catchingUp'),
+    from: state(idle, true),
     event: gapFound(0),
-    to: state(gap(1), 'catchingUp'),
+    to: state(gap(1), true),
   },
   { name: 'clears the gap once its row is read', from: state(gap(1)), event: { type: 'rowRead' }, to: state(idle) },
 
@@ -104,58 +95,28 @@ const rows: Row[] = [
   },
   {
     name: 'stays catching up until the end of the log',
-    from: state(idle, 'catchingUp'),
+    from: state(idle, true),
     event: { type: 'pageRead', stoppedAtGap: false, hasMore: true },
-    to: state(morePages, 'catchingUp'),
+    to: state(morePages, true),
   },
   {
     name: 'finishes catching up at the end of the log',
-    from: state(morePages, 'catchingUp'),
+    from: state(morePages, true),
     event: { type: 'pageRead', stoppedAtGap: false, hasMore: false },
     to: state(idle),
-  },
-  {
-    name: 'keeps a recovery request at the end of the log',
-    from: state(morePages, 'recoveryDue'),
-    event: { type: 'pageRead', stoppedAtGap: false, hasMore: false },
-    to: state(idle, 'recoveryDue'),
   },
 
-  // Manifest syncs
-  { name: 'drops a page the device is behind for', from: state(idle), event: { type: 'behindSeen' }, to: state(idle, 'catchUpDue') },
-  {
-    name: 'lets catch-up replace a recovery request',
-    from: state(idle, 'recoveryDue'),
-    event: { type: 'behindSeen' },
-    to: state(idle, 'catchUpDue'),
-  },
+  // Catching up: the manifest syncs themselves are demands on ManifestSyncManager
+  { name: 'reads a dropped page again at once', from: state(idle), event: { type: 'pageDropped' }, to: state(morePages) },
   {
     name: 'reads the log once catch-up\'s manifest sync has run',
-    from: state(idle, 'catchUpDue'),
+    from: state(morePages),
     event: { type: 'catchUpSynced' },
-    to: state(idle, 'catchingUp'),
-  },
-  {
-    name: 'lets catch-up\'s manifest sync meet a recovery request',
-    from: state(idle, 'recoveryDue'),
-    event: { type: 'catchUpSynced' },
-    to: state(idle, 'catchingUp'),
-  },
-  {
-    name: 'meets a recovery request once its sync fetched the manifest',
-    from: state(idle, 'recoveryDue'),
-    event: { type: 'recoverySynced' },
-    to: state(idle),
-  },
-  {
-    name: 'leaves catching up alone after a recovery sync',
-    from: state(idle, 'catchingUp'),
-    event: { type: 'recoverySynced' },
-    to: state(idle, 'catchingUp'),
+    to: state(morePages, true),
   },
 
   // Stopping
-  { name: 'forgets where reading stopped on stop', from: state(gap(1), 'recoveryDue'), event: { type: 'stop' }, to: state(idle, 'recoveryDue') },
+  { name: 'forgets where reading stopped on stop', from: state(gap(1), true), event: { type: 'stop' }, to: state(idle, true) },
 ]
 
 describe('transitionLogPull', () => {
@@ -167,7 +128,7 @@ describe('transitionLogPull', () => {
   })
 
   it('returns the same state when nothing changes', () => {
-    const from = state(idle, 'catchingUp')
+    const from = state(idle, true)
 
     expect(transitionLogPull(from, { type: 'catchUpSynced' }).state).toBe(from)
   })
@@ -187,30 +148,17 @@ describe('log pull queries', () => {
     expect(gapRepollDelay(state(gap(1, NOW, 20)))).toBe(16_000)
   })
 
-  it.each([
-    ['none', undefined],
-    ['catchUpDue', 'catchUp'],
-    ['catchingUp', undefined],
-    ['recoveryDue', 'recovery'],
-  ] as const)('asks the poller for a manifest sync when %s', (manifest, expected) => {
-    expect(pendingManifestSync(state(idle, manifest))).toBe(expected)
-  })
-
-  describe('needsCatchUpManifest', () => {
+  describe('isBehindLog', () => {
     const recent = NOW - 1000
 
-    it('needs one with no finished pull, or one older than the catch-up age', () => {
-      expect(needsCatchUpManifest(INITIAL_LOG_PULL_STATE, null, NOW)).toBe(true)
-      expect(needsCatchUpManifest(INITIAL_LOG_PULL_STATE, recent, NOW)).toBe(false)
-      expect(needsCatchUpManifest(INITIAL_LOG_PULL_STATE, recent, recent + SYNC_TIMEOUTS.logCatchUpAge + 1)).toBe(true)
+    it('is behind with no finished pull, or one older than the catch-up age', () => {
+      expect(isBehindLog(INITIAL_LOG_PULL_STATE, null, NOW)).toBe(true)
+      expect(isBehindLog(INITIAL_LOG_PULL_STATE, recent, NOW)).toBe(false)
+      expect(isBehindLog(INITIAL_LOG_PULL_STATE, recent, recent + SYNC_TIMEOUTS.logCatchUpAge + 1)).toBe(true)
     })
 
-    it('needs one when a dropped page showed the device is behind, whatever the local clock', () => {
-      expect(needsCatchUpManifest(state(idle, 'catchUpDue'), recent, NOW)).toBe(true)
-    })
-
-    it('needs no second one while catching up', () => {
-      expect(needsCatchUpManifest(state(idle, 'catchingUp'), null, NOW)).toBe(false)
+    it('is not behind while catching up', () => {
+      expect(isBehindLog(state(idle, true), null, NOW)).toBe(false)
     })
   })
 })

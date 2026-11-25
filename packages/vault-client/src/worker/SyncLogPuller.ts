@@ -9,6 +9,7 @@ import type { ItemSyncState } from './ItemSyncState'
 import type { SyncSessionState } from './SyncSessionState'
 import type { LogCursorStore } from './stores/LogCursorStore'
 import type { LogPushResult } from './ChangeOutbox'
+import type { ManifestDemand, ManifestSyncManager } from './ManifestSyncManager'
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
 import { AsyncMutex } from '../utils/AsyncMutex'
 import { untilAborted } from '../utils/abort'
@@ -21,8 +22,7 @@ import {
   INITIAL_LOG_PULL_STATE,
   gapRepollDelay,
   hasImmediatePendingPulls,
-  needsCatchUpManifest,
-  pendingManifestSync,
+  isBehindLog,
   transitionLogPull,
   type LogPullEffect,
   type LogPullEvent,
@@ -48,6 +48,8 @@ export interface SyncLogPullerDeps {
   session: SyncSessionState
   incoming: Pick<IncomingChanges, 'apply' | 'readPending'>
   healer: Pick<GapHealer, 'park' | 'onLogEntry'>
+  /** Runs the manifest syncs catching up and recovering lost rows need, which this places as demands */
+  manifest: Pick<ManifestSyncManager, 'demand' | 'isDemanded'>
   /** Records pulled changes for snapshot coverage's S2, which has to be stored before the cursor moves past their rows */
   itemSyncState: Pick<ItemSyncState, 'recordPulledChanges' | 'save'>
   /** Tells the account's other tabs which items were pulled */
@@ -71,7 +73,7 @@ interface PageContext {
  */
 export class SyncLogPuller {
   private position = { cursor: 0, lastPullAt: null as number | null }
-  /** Where reading stopped, and which manifest sync it waits for (`logPullState.ts`) */
+  /** Where reading stopped, and whether it's catching up (`logPullState.ts`) */
   private state: LogPullState = INITIAL_LOG_PULL_STATE
   private readonly ownSeqs = new BoundedSet<number>(OWN_PUSH_CACHE_MAX)
   private readonly addedChanges = new Set<ItemId>()
@@ -87,6 +89,19 @@ export class SyncLogPuller {
     if (this.deps.session.isShutdown) return
     fireAndForget(this.save(), 'SyncLogPuller:save')
   }, 1000)
+
+  /**
+   * Catch-up's manifest sync, which runs before the log is read again. It merges the server's
+   * snapshots, which hold what rows TTL removed.
+   */
+  readonly catchUpDemand: ManifestDemand = {
+    purpose: 'Catching up',
+    beforeRead: true,
+    onFetched: () => this.dispatch({ type: 'catchUpSynced' }),
+  }
+
+  /** The manifest sync that recovers what lost rows held, which runs after the log is read */
+  readonly recoveryDemand: ManifestDemand = { purpose: 'Recovering lost log rows', beforeRead: false }
 
   constructor(private readonly deps: SyncLogPullerDeps) {}
 
@@ -201,32 +216,28 @@ export class SyncLogPuller {
   }
 
   /**
-   * Whether a manifest sync has to run before this device reads the log. TTL may have removed rows it
-   * never read, and the first visible row may still look contiguous. `now` is the server's clock
-   * when it's known.
+   * Whether a manifest sync has to run before this device reads the log: catch-up's is demanded, or
+   * the device may be behind the log's TTL (`isBehindLog`). `now` is the server's clock when it's known.
    */
   needsCatchUpManifest(now: number): boolean {
-    return needsCatchUpManifest(this.state, this.position.lastPullAt, now)
+    return this.deps.manifest.isDemanded(this.catchUpDemand) || isBehindLog(this.state, this.position.lastPullAt, now)
   }
 
-  /** Records that the server's clock showed the device is behind, so the page it got was dropped */
-  onBehindSeen(): void {
-    this.dispatch({ type: 'behindSeen' })
+  /** Demands catch-up's manifest sync if this device needs one before reading the log, and returns whether it does */
+  demandCatchUpIfBehind(now: number): boolean {
+    if (!this.needsCatchUpManifest(now)) return false
+    this.deps.manifest.demand(this.catchUpDemand)
+    return true
   }
 
-  /** Records that catch-up's manifest sync fetched the manifest, so the log can be read */
-  onCatchUpManifestSynced(): void {
-    this.dispatch({ type: 'catchUpSynced' })
-  }
-
-  /** Records that the manifest sync a lost row asked for fetched the manifest */
-  onRecoveryManifestSynced(): void {
-    this.dispatch({ type: 'recoverySynced' })
-  }
-
-  /** The manifest sync the poller has to run, which stays due until one fetches the manifest */
-  get pendingManifestSync(): 'catchUp' | 'recovery' | undefined {
-    return pendingManifestSync(this.state)
+  /**
+   * Drops a page this device can't read yet, since the server's clock shows it may be behind, and
+   * returns whether it did. Catch-up's manifest sync runs, and then the log is read again at once.
+   */
+  dropPageIfBehind(page: LogPage): boolean {
+    if (!this.demandCatchUpIfBehind(page.serverNow)) return false
+    this.dispatch({ type: 'pageDropped' })
+    return true
   }
 
   /** Only more pages count: waiting on a gap never polls at once (sync rule 4) */
@@ -300,9 +311,10 @@ export class SyncLogPuller {
     const effects = this.dispatch({ type: 'gapFound', missingSeq, nextCreatedAt: entry.createdAt, serverNow })
     if (!effects.includes('passGap')) return false
 
-    if (effects.includes('reportLostRows')) {
+    if (effects.includes('recoverLostRows')) {
       // Can't happen by design, so the manifest sync that recovers from it says something went wrong
       log.error(`Log rows ${missingSeq}-${entry.seq - 1} are missing; moving past them`)
+      this.deps.manifest.demand(this.recoveryDemand)
     }
     this.position.cursor = entry.seq - 1
     return true
