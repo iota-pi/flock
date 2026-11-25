@@ -46,17 +46,23 @@ export interface SyncLogPullerDeps {
   docs: Pick<AutomergeDocStore, 'flushToStorage'>
   keys: KeyProvider
   session: SyncSessionState
-  incoming: Pick<IncomingChanges, 'apply'>
+  incoming: Pick<IncomingChanges, 'apply' | 'readPending'>
   healer: Pick<GapHealer, 'park' | 'onLogEntry'>
   /** Records pulled changes for snapshot coverage's S2, which has to be stored before the cursor moves past their rows */
   itemSyncState: Pick<ItemSyncState, 'recordPulledChanges' | 'save'>
   /** Tells the account's other tabs which items were pulled */
   bus?: Pick<RealtimeBus, 'publishSyncPing'>
   onKeyVersionMissing?: (kver: string) => void
-  /** Called with an item once changes other devices pushed for it have been applied */
-  onRemoteChangesApplied?: (itemId: ItemId) => void
+  /** Called once a page with the items it applied changes other devices pushed to */
+  onRemoteChangesApplied?: (itemIds: ItemId[]) => void
   /** Reloads the rest of the state a new leader takes over */
   onLoad?: () => Promise<void>
+}
+
+/** What the rows of one page share */
+interface PageContext {
+  timedOutKeys: Set<string>
+  pending?: ReadonlySet<ItemId>
 }
 
 /**
@@ -238,7 +244,8 @@ export class SyncLogPuller {
     if (this.deps.session.isShutdown) return
     const entries = [...page.entries].sort((a, b) => a.seq - b.seq)
     const appliedItems = new Set<ItemId>()
-    const timedOutKeys = new Set<string>()
+    // One page shares a read of the pending marks, taken when its first row is applied
+    const context: PageContext = { timedOutKeys: new Set<string>() }
     const start = { ...this.position }
     let stoppedAtGap = false
     let recording: Promise<void>
@@ -251,7 +258,7 @@ export class SyncLogPuller {
           break
         }
         this.dispatch({ type: 'rowRead' })
-        if (await this.handleEntry(entry, timedOutKeys)) {
+        if (await this.handleEntry(entry, context)) {
           appliedItems.add(entry.itemId)
           this.unflushedItems.add(entry.itemId)
         }
@@ -273,7 +280,9 @@ export class SyncLogPuller {
         this.saveDebounced()
       }
       if (appliedItems.size > 0) {
-        this.deps.bus?.publishSyncPing(Array.from(appliedItems))
+        const items = Array.from(appliedItems)
+        this.deps.bus?.publishSyncPing(items)
+        this.deps.onRemoteChangesApplied?.(items)
       }
     }
 
@@ -300,7 +309,7 @@ export class SyncLogPuller {
   }
 
   /** Returns whether the entry's changes reached its doc */
-  private async handleEntry(entry: SyncLogEntry, timedOutKeys: Set<string>): Promise<boolean> {
+  private async handleEntry(entry: SyncLogEntry, context: PageContext): Promise<boolean> {
     if (this.ownSeqs.has(entry.seq)) {
       this.ownSeqs.delete(entry.seq)
       return false
@@ -313,7 +322,7 @@ export class SyncLogPuller {
       bytes = await decryptWithKeyResolution(this.deps.keys, entry.encryptedMessage, {
         docId: itemId,
         timeoutMs: SYNC_TIMEOUTS.keyWait,
-        timedOutKeys,
+        timedOutKeys: context.timedOutKeys,
         onKeyVersionMissing: this.deps.onKeyVersionMissing,
       })
     } catch (error) {
@@ -323,9 +332,11 @@ export class SyncLogPuller {
       return false
     }
 
+    // Outside the try: failing to read the marks is a storage failure, which fails the page rather than parking rows
+    context.pending ??= await this.deps.incoming.readPending()
     let applied: boolean
     try {
-      applied = await this.deps.incoming.apply(itemId, bytes)
+      applied = await this.deps.incoming.apply(itemId, bytes, context.pending)
     } catch (error) {
       log.warn(`Couldn't apply log row ${entry.seq} to ${itemId}`, error)
       await this.park(entry, 'apply')
@@ -337,7 +348,6 @@ export class SyncLogPuller {
     }
 
     this.deps.healer.onLogEntry(itemId)
-    this.deps.onRemoteChangesApplied?.(itemId)
     return true
   }
 

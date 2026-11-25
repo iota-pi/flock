@@ -31,7 +31,7 @@ describe('SyncLogPuller', () => {
   let cursorStore: { load: AnyMock; save: AnyMock }
   let docs: { flushToStorage: AnyMock }
   let keys: { hasKey: AnyMock; decryptBytes: AnyMock; waitForKey: AnyMock }
-  let incoming: { apply: AnyMock }
+  let incoming: { apply: AnyMock; readPending: AnyMock }
   let healer: { park: AnyMock; onLogEntry: AnyMock }
   let itemSyncState: { recordPulledChanges: AnyMock; save: AnyMock }
   let bus: { publishSyncPing: AnyMock }
@@ -53,7 +53,7 @@ describe('SyncLogPuller', () => {
       decryptBytes: vi.fn(async () => new Uint8Array([1, 2, 3])),
       waitForKey: vi.fn().mockResolvedValue(false),
     }
-    incoming = { apply: vi.fn().mockResolvedValue(true) }
+    incoming = { apply: vi.fn().mockResolvedValue(true), readPending: vi.fn(async () => new Set<ItemId>()) }
     healer = { park: vi.fn().mockResolvedValue(undefined), onLogEntry: vi.fn() }
     itemSyncState = {
       recordPulledChanges: vi.fn().mockResolvedValue(undefined),
@@ -85,8 +85,54 @@ describe('SyncLogPuller', () => {
     expect(keys.decryptBytes.mock.calls.map(([payload]) => payload.cipher)).toEqual(['row-1', 'row-2'])
     expect(keys.decryptBytes).toHaveBeenCalledWith(expect.anything(), ITEM, undefined)
     expect(puller.cursor).toBe(2)
-    expect(onRemoteChangesApplied).toHaveBeenCalledWith(ITEM)
+    expect(onRemoteChangesApplied).toHaveBeenCalledExactlyOnceWith([ITEM])
     expect(bus.publishSyncPing).toHaveBeenCalledWith([ITEM])
+  })
+
+  it('reads the pending marks once a page and gives every row the same set', async () => {
+    const OTHER = 'item-2' as ItemId
+    const pending = new Set([OTHER])
+    incoming.readPending.mockResolvedValue(pending)
+
+    await puller.process(page([entry(1), entry(2, { itemId: OTHER }), entry(3)]))
+
+    expect(incoming.readPending).toHaveBeenCalledTimes(1)
+    expect(incoming.apply.mock.calls.map(([itemId, , marks]) => [itemId, marks])).toEqual([
+      [ITEM, pending],
+      [OTHER, pending],
+      [ITEM, pending],
+    ])
+    expect(onRemoteChangesApplied).toHaveBeenCalledExactlyOnceWith([ITEM, OTHER])
+
+    await puller.process(page([entry(4)]))
+    expect(incoming.readPending).toHaveBeenCalledTimes(2)
+  })
+
+  it("doesn't read the pending marks for a page of its own rows", async () => {
+    puller.recordOwnPushes([{ itemId: ITEM, seq: 1 }])
+
+    await puller.process(page([entry(1)]))
+
+    expect(incoming.readPending).not.toHaveBeenCalled()
+  })
+
+  it('fails the page, without parking, if the pending marks fail to read', async () => {
+    incoming.readPending.mockRejectedValueOnce(new Error('idb failed'))
+
+    await expect(puller.process(page([entry(1), entry(2)]))).rejects.toThrow('idb failed')
+
+    expect(healer.park).not.toHaveBeenCalled()
+    expect(incoming.apply).not.toHaveBeenCalled()
+    expect(puller.cursor).toBe(0)
+  })
+
+  it('reports only the items whose rows applied', async () => {
+    const OTHER = 'item-2' as ItemId
+    incoming.apply.mockImplementation(async (itemId: ItemId) => itemId === ITEM)
+
+    await puller.process(page([entry(1), entry(2, { itemId: OTHER })]))
+
+    expect(onRemoteChangesApplied).toHaveBeenCalledExactlyOnceWith([ITEM])
   })
 
   it('skips entries it has already processed', async () => {

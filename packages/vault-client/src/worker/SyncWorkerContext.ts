@@ -327,11 +327,11 @@ export class SyncWorkerContext {
       itemSyncState,
       bus: realtimeBus,
       onKeyVersionMissing: this.emitKeyVersionMissing,
-      onRemoteChangesApplied: itemId => {
+      onRemoteChangesApplied: itemIds => {
         // Someone is using another device, so poll at the active rate while a tab is visible
         foregroundTracker.noteActivity()
         fireAndForget(
-          recoveryManager.resolveQuarantines([itemId], INBOUND_MESSAGE_RESOLVABLE_KINDS),
+          recoveryManager.resolveQuarantines(itemIds, INBOUND_MESSAGE_RESOLVABLE_KINDS),
           'SyncWorkerContext:resolveQuarantines',
         )
       },

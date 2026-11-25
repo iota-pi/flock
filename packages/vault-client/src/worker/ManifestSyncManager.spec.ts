@@ -979,8 +979,8 @@ describe('ManifestSyncManager', () => {
     })
 
     it('fails when the upload before the manifest fails as a whole', async () => {
-      depsObj.snapshotManager.schedule.dirtyCount = 1
-      depsObj.snapshotManager.pushDue.mockRejectedValue(new TypeError('Failed to fetch'))
+      depsObj.snapshotSchedule.dirtyCount = 1
+      depsObj.snapshotPusher.pushDue.mockRejectedValue(new TypeError('Failed to fetch'))
       mockListItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
 

@@ -449,9 +449,9 @@ describe('SyncWorkerContext', () => {
       const { ctx, pullDeps } = await createContext()
       const resolveSpy = vi.spyOn(ctx.services.recoveryManager, 'resolveQuarantines').mockResolvedValue(undefined)
 
-      pullDeps.onRemoteChangesApplied!('item-1' as ItemId)
+      pullDeps.onRemoteChangesApplied!(['item-1' as ItemId, 'item-2' as ItemId])
 
-      expect(resolveSpy).toHaveBeenCalledWith(['item-1'], INBOUND_MESSAGE_RESOLVABLE_KINDS)
+      expect(resolveSpy).toHaveBeenCalledWith(['item-1', 'item-2'], INBOUND_MESSAGE_RESOLVABLE_KINDS)
     })
   })
 
