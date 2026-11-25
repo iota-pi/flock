@@ -328,6 +328,11 @@ export class SyncWorkerContext {
 
     const storeItems: ItemOperations['storeItems'] = (items, options) => itemOperations.storeItems(items, options)
 
+    // A merged or covered snapshot's heads are on the server, but this device's server heads may
+    // already be past them, such as after it pushed rows a stale snapshot lacks
+    const advanceServerHeads = (itemId: ItemId, heads: string[]) =>
+      itemSyncState.advanceServerHeads(itemId, heads, docStore.readLoadedDoc(itemId))
+
     const manifestHydrator = new ManifestHydrator({
       accountId,
       session,
@@ -355,7 +360,7 @@ export class SyncWorkerContext {
           'SyncWorkerContext:quarantineRepeatedHydrationError',
         )
       },
-      onItemSnapshotHydrated: (itemId, heads) => itemSyncState.setServerHeads(itemId, heads),
+      onItemSnapshotHydrated: advanceServerHeads,
       onLocalChangesFound: itemId => signals.raise.localChangesFound(itemId),
     })
 
@@ -492,10 +497,7 @@ export class SyncWorkerContext {
         snapshotFormatUpgrade?.onSyncedWithoutFailures()
         fireAndForget(dataVersionTracker.onSyncedWithoutFailures(), 'SyncWorkerContext:recordDeviceDataVersion')
       },
-      // Server heads may already be past a snapshot the doc holds
-      onSnapshotCovered: (itemId, heads) => {
-        if (!itemSyncState.hasServerHeads(itemId)) itemSyncState.setServerHeads(itemId, heads)
-      },
+      onSnapshotCovered: advanceServerHeads,
       onManifestProcessed: async () => {
         // A sync that began before this tab stopped leading can still finish here
         if (!session.isLeader) return

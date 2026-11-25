@@ -4,8 +4,10 @@ import {
   type DocumentId,
   stringifyAutomergeUrl,
 } from '@automerge/automerge-repo/slim'
+import * as Automerge from '@automerge/automerge/slim'
 import type { ItemId } from '@vault/shared'
 import {
+  frontierOf,
   readObjectSnapshot,
   toAutomergeUrlFromItemId,
   toVaultItemIdFromAutomergeId,
@@ -96,6 +98,55 @@ describe('automerge utils', () => {
       const result = toVaultItemIdFromAutomergeId(docId)
       expect(result).toBe(docId)
       expect(result).not.toContain('\uFFFD')
+    })
+  })
+
+  describe('frontierOf', () => {
+    /** A root change, then two branches from it on different actors, merged into one doc */
+    function divergentHistories() {
+      const root = Automerge.change(Automerge.init<Record<string, number>>({ actor: 'aa' }), doc => { doc.root = 1 })
+      let left = Automerge.change(Automerge.clone(root), doc => { doc.left = 1 })
+      const leftMid = Automerge.getHeads(left)
+      left = Automerge.change(left, doc => { doc.left = 2 })
+      const right = Automerge.change(Automerge.clone(root, { actor: 'bb' }), doc => { doc.right = 1 })
+      const merged = Automerge.merge(Automerge.clone(left), right)
+      return {
+        merged,
+        root: Automerge.getHeads(root),
+        leftMid,
+        left: Automerge.getHeads(left),
+        right: Automerge.getHeads(right),
+      }
+    }
+
+    it('keeps the heads of both branches', () => {
+      const { merged, left, right } = divergentHistories()
+
+      expect(frontierOf(merged, [...left, ...right]).sort()).toEqual([...left, ...right].sort())
+      expect(frontierOf(merged, [...left, ...right]).sort()).toEqual(Automerge.getHeads(merged).sort())
+    })
+
+    it('drops heads that are ancestors of another, in either order', () => {
+      const { merged, root, leftMid, left, right } = divergentHistories()
+
+      expect(frontierOf(merged, [...root, ...left])).toEqual(left)
+      expect(frontierOf(merged, [...left, ...leftMid, ...root])).toEqual(left)
+      expect(frontierOf(merged, [...leftMid, ...right, ...left, ...root]).sort()).toEqual([...left, ...right].sort())
+    })
+
+    it('never claims more than it was given', () => {
+      const { merged, leftMid, right } = divergentHistories()
+
+      // The branch tip after leftMid is in the doc, but not in the set
+      expect(frontierOf(merged, [...leftMid, ...right]).sort()).toEqual([...leftMid, ...right].sort())
+    })
+
+    it('drops duplicates and heads the doc lacks', () => {
+      const { merged, left } = divergentHistories()
+      const unknown = Automerge.getHeads(Automerge.change(Automerge.init<Record<string, number>>(), doc => { doc.x = 1 }))
+
+      expect(frontierOf(merged, [...left, ...left, ...unknown])).toEqual(left)
+      expect(frontierOf(merged, [])).toEqual([])
     })
   })
 })

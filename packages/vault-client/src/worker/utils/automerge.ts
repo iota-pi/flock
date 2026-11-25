@@ -7,6 +7,7 @@ import {
   type BinaryDocumentId,
   type DocHandle,
 } from '@automerge/automerge-repo/slim'
+import * as Automerge from '@automerge/automerge/slim'
 import type { $brand } from 'zod'
 import type { ItemId } from '@vault/shared'
 import { isPlainObject } from './objectUtils'
@@ -71,4 +72,25 @@ export function areHeadsEqual(a?: string[], b?: string[]): boolean {
     if (sortedA[i] !== sortedB[i]) return false
   }
   return true
+}
+
+/**
+ * The frontier of `heads` in `doc`: those it has, less any that's an ancestor of another, so the
+ * result names exactly the changes `heads` does. `Automerge.view` keeps a set as it's given, so it
+ * can't reduce one. Each head costs a walk of what the doc has after it, so this is for a few recent
+ * heads, such as server heads and a snapshot's.
+ */
+export function frontierOf(doc: Automerge.Doc<unknown>, heads: string[]): string[] {
+  const known = Array.from(new Set(heads)).filter(head => Automerge.hasHeads(doc, [head]))
+  if (known.length <= 1) return known
+  const ancestors = new Set<string>()
+  for (const head of known) {
+    if (ancestors.has(head)) continue
+    // What the doc has after `head` excludes `head` and its ancestors
+    const after = new Set(Automerge.getChangesMetaSince(doc, [head]).map(change => change.hash))
+    for (const other of known) {
+      if (other !== head && !after.has(other)) ancestors.add(other)
+    }
+  }
+  return known.filter(head => !ancestors.has(head))
 }

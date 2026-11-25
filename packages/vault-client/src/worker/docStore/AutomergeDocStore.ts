@@ -508,8 +508,13 @@ export class AutomergeDocStore implements ItemLockCoordinator {
 
   /** Whether a loaded doc has anything after `serverHeads`. A doc that isn't loaded can't have changed. */
   hasChangesSince(itemId: ItemId, serverHeads: string[]): boolean {
-    const doc = this.getReadyHandle(this.resolveDocumentId(itemId).documentId)?.doc()
+    const doc = this.readLoadedDoc(itemId)
     return doc ? !areHeadsEqual(Automerge.getHeads(doc), serverHeads) : false
+  }
+
+  /** The item's doc if it's loaded, without loading it or waiting for its lock */
+  readLoadedDoc(itemId: ItemId): RepoDoc | undefined {
+    return this.getReadyHandle(this.resolveDocumentId(itemId).documentId)?.doc()
   }
 
   /** The dependencies the doc's queued changes are waiting for. Empty when it can't be loaded. */
