@@ -548,7 +548,6 @@ export class SyncWorkerContext {
       outbox: changeOutbox,
       docStore,
       itemSyncState,
-      snapshotSchedule,
       snapshotPusher,
       metadataStore: indexStore,
       orchestrator,
@@ -1006,7 +1005,7 @@ export class SyncWorkerContext {
     }
     // Keeps this tab's unsaved values, so the leader's own queue counts too
     await itemSyncState.load()
-    return this.countChanges(itemSyncState.listFlagged().map(({ itemId }) => itemId))
+    return this.countChanges(itemSyncState.listFlagged())
   }
 
   /**

@@ -50,20 +50,21 @@ interface TestDeps extends Omit<SnapshotRewriterOptions, 'runPollNow' | 'uploade
   builder: Pick<SnapshotBuilder, 'build'>
   pushToLog: (itemIds: ItemId[], signal?: AbortSignal) => Promise<void>
   recoveryManager: RecoveryManager
-  schedule: ReturnType<typeof createSchedule>
+  state: ReturnType<typeof createState>
   onSnapshotStored: Mock<(details: StoredSnapshotDetails) => void>
   maxPayloadBytes?: number
   runPollNow?: () => Promise<void>
 }
 
-/** The parts of the schedule a rewrite reaches, with no item dirty */
-function createSchedule() {
+/** The parts of the item sync state a rewrite reaches, with no item dirty */
+function createState() {
   return {
     getDirtyTick: vi.fn<(itemId: ItemId) => number | undefined>(() => undefined),
-    recordSnapshotSuccess: vi.fn(),
-    recordOversized: vi.fn(() => true),
-    clearOversized: vi.fn(),
-    removeDirtyItemIfTickMatches: vi.fn(),
+    clearDirty: vi.fn(() => false),
+    raiseBaseVersion: vi.fn(),
+    flushPendingSave: vi.fn(),
+    dirtyCount: 0,
+    listDirty: vi.fn((): ItemId[] => []),
   }
 }
 
@@ -72,8 +73,8 @@ function createUploader(deps: TestDeps): SnapshotPusher {
   return new SnapshotPusher({
     accountId: 'test-account',
     session: deps.session,
-    schedule: deps.schedule as unknown as SnapshotSchedule,
-    state: { flushPendingSave: vi.fn() },
+    schedule: {} as SnapshotSchedule,
+    state: deps.state,
     builder: deps.builder,
     pushToLog: deps.pushToLog,
     onSnapshotStored: deps.onSnapshotStored,
@@ -130,7 +131,7 @@ function createDeps(overrides: Partial<TestDeps> = {}): TestDeps {
     claimLeader: vi.fn(),
     catchUp: { isCaughtUp: true, whenCaughtUp: vi.fn().mockResolvedValue(undefined) },
     pushToLog: vi.fn().mockResolvedValue(undefined),
-    schedule: createSchedule(),
+    state: createState(),
     onSnapshotStored: vi.fn(),
     ...overrides,
   }
@@ -248,21 +249,25 @@ describe('SnapshotRewriter.request', () => {
 
     await rewriter.request()
 
-    expect(deps.schedule.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', undefined, 4)
-    expect(deps.schedule.recordSnapshotSuccess).toHaveBeenCalledWith('item-2', undefined, 9)
+    expect(deps.state.raiseBaseVersion).toHaveBeenCalledWith('item-1', 4)
+    expect(deps.state.raiseBaseVersion).toHaveBeenCalledWith('item-2', 9)
+    // Built while clean, so neither had a tick to take out of the queue
+    expect(deps.state.clearDirty).not.toHaveBeenCalled()
     expect(deps.onSnapshotStored).toHaveBeenCalledWith({ itemId: 'item-1', heads: ['mock-head'] })
     expect(deps.onSnapshotStored).toHaveBeenCalledWith({ itemId: 'item-2', heads: ['mock-head'] })
   })
 
   it('uploads a dirty item with its tick, so the stored snapshot takes it out of the queue', async () => {
-    deps.schedule.getDirtyTick.mockImplementation(itemId => (itemId === 'item-1' ? 7 : undefined))
+    deps.state.getDirtyTick.mockImplementation(itemId => (itemId === 'item-1' ? 7 : undefined))
     mockListItemIds.mockResolvedValue(['item-1', 'item-2'])
     mockPutSnapshots.mockResolvedValue({ success: true })
 
     await rewriter.request()
 
-    expect(deps.schedule.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 7, 1)
-    expect(deps.schedule.recordSnapshotSuccess).toHaveBeenCalledWith('item-2', undefined, 1)
+    expect(deps.state.clearDirty).toHaveBeenCalledTimes(1)
+    expect(deps.state.clearDirty).toHaveBeenCalledWith('item-1', 7)
+    expect(deps.state.raiseBaseVersion).toHaveBeenCalledWith('item-1', 1)
+    expect(deps.state.raiseBaseVersion).toHaveBeenCalledWith('item-2', 1)
   })
 
   it('retries only the items the server didn\'t store', async () => {
@@ -629,7 +634,7 @@ describe('SnapshotRewriter.request', () => {
 
     expect(result.failed).toEqual([{ itemId: 'item-1', error: expect.stringContaining('exceeds the') }])
     expect(mockPutSnapshots).not.toHaveBeenCalled()
-    expect(deps.schedule.recordOversized).toHaveBeenCalledTimes(1)
+    expect(deps.state.clearDirty).toHaveBeenCalledWith('item-1')
     await vi.waitFor(() => expect(upsertManualRecoveryEntry).toHaveBeenCalledWith('test-account', {
       itemId: 'item-1',
       kind: 'oversized',

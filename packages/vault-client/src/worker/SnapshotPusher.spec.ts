@@ -33,6 +33,12 @@ describe('SnapshotPusher', () => {
   let mockRecoveryManager: any
   let mockEventHub: any
 
+  /** Expects the stored snapshot to have cleared the item at its tick and raised its base version */
+  const expectStored = (itemId: string, tick: number, version: number) => {
+    expect(mockTracker.clearDirty).toHaveBeenCalledWith(itemId, tick)
+    expect(mockTracker.raiseBaseVersion).toHaveBeenCalledWith(itemId, version)
+  }
+
   /** Runs the poll's snapshot phase */
   const push = (signal: AbortSignal = new AbortController().signal) => pusher.pushDue(signal)
 
@@ -46,13 +52,11 @@ describe('SnapshotPusher', () => {
       clearDue: vi.fn(),
       retryNextPoll: vi.fn(),
       deferUntil: vi.fn(),
-      getDirtyItemIds: vi.fn().mockReturnValue(['item-1' as ItemId]),
+      listDirty: vi.fn().mockReturnValue(['item-1' as ItemId]),
       getDirtyTick: vi.fn().mockReturnValue(1),
-      recordSnapshotSuccess: vi.fn(),
-      recordOversized: vi.fn().mockReturnValue(true),
-      clearOversized: vi.fn(),
-      removeDirtyItemIfTickMatches: vi.fn(),
-      getBaseVersion: vi.fn().mockReturnValue(1),
+      clearDirty: vi.fn().mockReturnValue(true),
+      raiseBaseVersion: vi.fn(),
+      flushPendingSave: vi.fn(),
     }
 
     mockBuilder = {
@@ -80,6 +84,7 @@ describe('SnapshotPusher', () => {
     mockRecoveryManager = {
       quarantine: vi.fn().mockResolvedValue(undefined),
       unquarantine: vi.fn().mockResolvedValue(undefined),
+      listRecoveryItems: vi.fn().mockResolvedValue([]),
     }
 
     mockEventHub = {
@@ -90,7 +95,7 @@ describe('SnapshotPusher', () => {
       accountId: 'test-acc',
       session: new SyncSessionState({ isLeader: true }),
       schedule: mockTracker as unknown as SnapshotSchedule,
-      state: { flushPendingSave: vi.fn() },
+      state: mockTracker,
       runPollNow: vi.fn().mockResolvedValue(undefined),
       isCaughtUp: () => true,
       hasPendingMarks: vi.fn().mockResolvedValue(false),
@@ -133,7 +138,7 @@ describe('SnapshotPusher', () => {
       accountId: 'test-acc',
       session: new SyncSessionState({ isLeader: false }),
       schedule: mockTracker as unknown as SnapshotSchedule,
-      state: { flushPendingSave: vi.fn() },
+      state: mockTracker,
       runPollNow: vi.fn().mockResolvedValue(undefined),
       isCaughtUp: () => true,
       hasPendingMarks: vi.fn().mockResolvedValue(false),
@@ -201,7 +206,7 @@ describe('SnapshotPusher', () => {
 
     expect(result).toEqual({ persisted: 1, total: 1, success: true })
     expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
-    expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1, 2)
+    expectStored('item-1', 1, 2)
     expect(mockOnSnapshotStored).toHaveBeenCalledWith({ itemId: 'item-1', heads: ['head-1'] })
     expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith('item-1')
   })
@@ -212,7 +217,8 @@ describe('SnapshotPusher', () => {
     const result = await push()
 
     expect(result).toEqual({ persisted: 0, total: 0, success: true })
-    expect(mockTracker.recordOversized).toHaveBeenCalledWith('item-1')
+    // Unconditionally, so it isn't retried while quarantined
+    expect(mockTracker.clearDirty).toHaveBeenCalledWith('item-1')
     expect(mockEventHub.emit).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'snapshotFailed', itemId: 'item-1' }),
     )
@@ -224,15 +230,37 @@ describe('SnapshotPusher', () => {
     )
   })
 
-  it('does not warn again about an item the tracker already knows is oversized', async () => {
+  it('warns about an oversized item once, and again after it is cleared', async () => {
     mockBuilder.build.mockResolvedValue(oversizedSnapshot())
-    mockTracker.recordOversized.mockReturnValue(false)
+
+    await push()
+    await push()
+    expect(mockRecoveryManager.quarantine).toHaveBeenCalledTimes(1)
+    expect(mockEventHub.emit).toHaveBeenCalledTimes(1)
+
+    pusher.clearOversized('item-1' as ItemId)
+    await push()
+    expect(mockRecoveryManager.quarantine).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not warn again about an item an earlier session quarantined as oversized', async () => {
+    mockBuilder.build.mockResolvedValue(oversizedSnapshot())
+    mockRecoveryManager.listRecoveryItems.mockResolvedValue([{ itemId: 'item-1', kind: 'oversized' }])
 
     await push()
 
-    expect(mockTracker.recordOversized).toHaveBeenCalledWith('item-1')
+    expect(mockTracker.clearDirty).toHaveBeenCalledWith('item-1')
     expect(mockEventHub.emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'snapshotFailed' }))
     expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
+  })
+
+  it('warns about an oversized item another kind of quarantine holds', async () => {
+    mockBuilder.build.mockResolvedValue(oversizedSnapshot())
+    mockRecoveryManager.listRecoveryItems.mockResolvedValue([{ itemId: 'item-1', kind: 'snapshotFailure' }])
+
+    await push()
+
+    expect(mockRecoveryManager.quarantine).toHaveBeenCalledWith('item-1', 'oversized', expect.anything())
   })
 
   describe('deleted oversized items', () => {
@@ -261,17 +289,17 @@ describe('SnapshotPusher', () => {
         deleted: true,
       })
       expect('snapshot' in payload.snapshots[0]).toBe(false)
-      expect(mockTracker.recordOversized).not.toHaveBeenCalled()
+      expect(mockTracker.clearDirty).not.toHaveBeenCalledWith('item-1')
       expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
       expect(mockEventHub.emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'quotaExceeded' }))
-      expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1, 2)
+      expectStored('item-1', 1, 2)
       expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith('item-1')
       expect(mockOnSnapshotStored).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'item-1', heads: undefined }))
-      expect(mockTracker.clearOversized).toHaveBeenCalledWith('item-1')
+      expect(pusher['oversizedItems'].has('item-1' as ItemId)).toBe(false)
     })
 
     it('batches a tombstone alongside normal snapshots and confirms each, with heads only for the normal one', async () => {
-      mockTracker.getDirtyItemIds.mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId])
+      mockTracker.listDirty.mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId])
       mockBuilder.build.mockImplementation(async (itemId: string) => {
         if (itemId === 'item-1') return deletedSnapshot('item-1')
         return {
@@ -294,8 +322,8 @@ describe('SnapshotPusher', () => {
       expect(result).toEqual({ persisted: 2, total: 2, success: true })
       expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
       expect(mockApiClient.putSnapshots.mock.calls[0][0].snapshots).toHaveLength(2)
-      expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1, 3)
-      expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-2', 1, 4)
+      expectStored('item-1', 1, 3)
+      expectStored('item-2', 1, 4)
       expect(mockOnSnapshotStored).toHaveBeenCalledTimes(2)
       expect(mockOnSnapshotStored).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'item-1', heads: undefined }))
       expect(mockOnSnapshotStored).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'item-2', heads: ['head-2'] }))
@@ -319,7 +347,7 @@ describe('SnapshotPusher', () => {
     await push()
 
     expect(pusher['consecutiveFailures']['count']('item-1' as ItemId)).toBe(0)
-    expect(mockTracker.removeDirtyItemIfTickMatches).toHaveBeenCalledWith('item-1', 1)
+    expect(mockTracker.clearDirty).toHaveBeenCalledWith('item-1', 1)
     expect(mockEventHub.emit).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'snapshotFailed', itemId: 'item-1' }),
     )
@@ -374,7 +402,8 @@ describe('SnapshotPusher', () => {
       })
 
       expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
-      expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', undefined, 2)
+      expect(mockTracker.raiseBaseVersion).toHaveBeenCalledWith('item-1', 2)
+      expect(mockTracker.clearDirty).not.toHaveBeenCalled()
       expect(onItemResult).toHaveBeenCalledWith('item-1', { type: 'stored' })
     })
 
@@ -390,7 +419,8 @@ describe('SnapshotPusher', () => {
 
     it('reports an oversized item without uploading or quarantining it again', async () => {
       mockTracker.getDirtyTick.mockReturnValue(undefined)
-      mockTracker.recordOversized.mockReturnValue(false)
+      // An earlier session quarantined it as oversized
+      mockRecoveryManager.listRecoveryItems.mockResolvedValue([{ itemId: 'item-1', kind: 'oversized' }])
       mockBuilder.build.mockResolvedValue(oversizedSnapshot())
       const onItemResult = vi.fn()
 
@@ -426,7 +456,7 @@ describe('SnapshotPusher', () => {
         reason: 'Failed to encrypt',
         quarantined: true,
       })
-      expect(mockTracker.removeDirtyItemIfTickMatches).not.toHaveBeenCalled()
+      expect(mockTracker.clearDirty).not.toHaveBeenCalled()
       expect(mockRecoveryManager.quarantine).toHaveBeenCalledTimes(1)
     })
   })
@@ -463,11 +493,11 @@ describe('SnapshotPusher', () => {
     expect(mockTracker.retryNextPoll).not.toHaveBeenCalled()
     expect(pusher['consecutiveFailures']['count']('item-1' as ItemId)).toBe(0)
     expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
-    expect(mockTracker.removeDirtyItemIfTickMatches).not.toHaveBeenCalled()
+    expect(mockTracker.clearDirty).not.toHaveBeenCalled()
   })
 
   it('keeps what an earlier batch stored when the server refuses a later one for the quota', async () => {
-    mockTracker.getDirtyItemIds.mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId])
+    mockTracker.listDirty.mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId])
     mockBuilder.build.mockImplementation(async (itemId: string) => ({
       type: 'success',
       snapshot: { itemId, snapshot: { cipher: 'c'.repeat(600), iv: '1', kver: '1' } },
@@ -480,7 +510,7 @@ describe('SnapshotPusher', () => {
     await expect(push()).resolves.toEqual({ persisted: 0, total: 0, success: false })
 
     expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(2)
-    expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1, 2)
+    expectStored('item-1', 1, 2)
     expect(mockTracker.deferUntil).toHaveBeenCalledTimes(1)
   })
 
@@ -517,7 +547,7 @@ describe('SnapshotPusher', () => {
         ...createMockVault(),
         encryptBytes: vi.fn().mockResolvedValue({ cipher: 'abc', iv: '123', kver: '1' }),
       })
-      mockTracker.getDirtyItemIds.mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId])
+      mockTracker.listDirty.mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId])
       mockApiClient.putSnapshots.mockResolvedValue({
         success: true,
         persisted: 1,
@@ -528,7 +558,7 @@ describe('SnapshotPusher', () => {
         accountId: 'test-acc',
         session: new SyncSessionState({ isLeader: true }),
         schedule: mockTracker as unknown as SnapshotSchedule,
-        state: { flushPendingSave: vi.fn() },
+        state: mockTracker,
         runPollNow: vi.fn().mockResolvedValue(undefined),
         isCaughtUp: () => true,
         hasPendingMarks: vi.fn().mockResolvedValue(false),
@@ -569,7 +599,7 @@ describe('SnapshotPusher', () => {
         await run
       }
 
-      expect(mockTracker.removeDirtyItemIfTickMatches).toHaveBeenCalledWith('item-1', 1)
+      expect(mockTracker.clearDirty).toHaveBeenCalledWith('item-1', 1)
       expect(mockRecoveryManager.quarantine).toHaveBeenCalledWith(
         'item-1',
         'snapshotFailure',
@@ -754,7 +784,7 @@ describe('SnapshotPusher', () => {
         await uploadNow()
 
         expect(mockPutSnapshots).not.toHaveBeenCalled()
-        expect(tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
+        expect(state.listDirty()).toContain('item-1' as ItemId)
         expect(tracker.isDue()).toBe(true)
         // A retry waits for the next poll; it doesn't bring one forward
         expect(tracker.nextDueAt).toBeUndefined()
@@ -769,7 +799,7 @@ describe('SnapshotPusher', () => {
         await push()
 
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-        expect(tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
+        expect(state.listDirty()).not.toContain('item-1' as ItemId)
         expect(tracker.isDue()).toBe(false)
       })
 
@@ -798,8 +828,8 @@ describe('SnapshotPusher', () => {
         await uploadNow()
 
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-        expect(tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
-        expect(tracker.getDirtyItemIds()).toContain('item-2' as ItemId)
+        expect(state.listDirty()).not.toContain('item-1' as ItemId)
+        expect(state.listDirty()).toContain('item-2' as ItemId)
         expect(tracker.isDue()).toBe(true)
       })
 
@@ -810,7 +840,7 @@ describe('SnapshotPusher', () => {
         await expect(uploadNow()).rejects.toThrow('Failed to fetch')
 
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-        expect(tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
+        expect(state.listDirty()).toContain('item-1' as ItemId)
         expect(tracker.isDue()).toBe(true)
       })
 
@@ -825,7 +855,7 @@ describe('SnapshotPusher', () => {
         await uploadNow()
 
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-        expect(tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
+        expect(state.listDirty()).toContain('item-1' as ItemId)
         expect(tracker.isDue()).toBe(true)
       })
 
@@ -841,8 +871,8 @@ describe('SnapshotPusher', () => {
         await uploadNow()
 
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-        expect(tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
-        expect(tracker.getDirtyItemIds()).toContain('item-2' as ItemId)
+        expect(state.listDirty()).toContain('item-1' as ItemId)
+        expect(state.listDirty()).toContain('item-2' as ItemId)
         expect(tracker.isDue()).toBe(true)
       })
 
@@ -858,9 +888,9 @@ describe('SnapshotPusher', () => {
         tracker.markItemDirty('item-2' as ItemId)
         await uploadNow()
 
-        expect(tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
+        expect(state.listDirty()).not.toContain('item-1' as ItemId)
         expect(state.getBaseVersion('item-1' as ItemId)).toBe(7)
-        expect(tracker.getDirtyItemIds()).toContain('item-2' as ItemId)
+        expect(state.listDirty()).toContain('item-2' as ItemId)
         expect(pusher['consecutiveFailures']['count']('item-2' as ItemId)).toBe(1)
         expect(tracker.isDue()).toBe(true)
       })
@@ -878,7 +908,7 @@ describe('SnapshotPusher', () => {
           await uploadNow()
         }
 
-        expect(tracker.getDirtyItemIds()).not.toContain('item-2' as ItemId)
+        expect(state.listDirty()).not.toContain('item-2' as ItemId)
         expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith(
           'test-account',
           expect.objectContaining({ itemId: 'item-2', kind: 'snapshotFailure' }),
@@ -903,7 +933,7 @@ describe('SnapshotPusher', () => {
         await push()
 
         expect(mockPutSnapshots).toHaveBeenCalledTimes(2)
-        expect(tracker.getDirtyItemIds()).toHaveLength(0)
+        expect(state.listDirty()).toHaveLength(0)
       })
 
       it('uploads at once when asked to, even while waiting out the quota delay', async () => {
@@ -915,7 +945,7 @@ describe('SnapshotPusher', () => {
         await uploadNow()
 
         expect(mockPutSnapshots).toHaveBeenCalledTimes(2)
-        expect(tracker.getDirtyItemIds()).toHaveLength(0)
+        expect(state.listDirty()).toHaveLength(0)
       })
     })
 
@@ -971,7 +1001,7 @@ describe('SnapshotPusher', () => {
 
         // Should not be pushed, and should be removed from dirtyItems to avoid retry loops
         expect(mockPutSnapshots).not.toHaveBeenCalled()
-        expect(tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
+        expect(state.listDirty()).not.toContain('item-1' as ItemId)
       })
     })
 
@@ -999,7 +1029,7 @@ describe('SnapshotPusher', () => {
         await run
 
         // item-1 should still be dirty because it was modified after batch preparation
-        expect(tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
+        expect(state.listDirty()).toContain('item-1' as ItemId)
         // ...and due again after the debounce of that edit
         expect(tracker.nextDueAt).toBeDefined()
       })
@@ -1014,7 +1044,7 @@ describe('SnapshotPusher', () => {
         await uploadNow()
 
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-        expect(tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
+        expect(state.listDirty()).not.toContain('item-1' as ItemId)
       })
 
       it('clears dirty status when item is re-dirtied after push begins but before its snapshot is built', async () => {
@@ -1039,8 +1069,8 @@ describe('SnapshotPusher', () => {
 
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
         // Both item-1 and item-2 should be cleanly cleared because item-2 was built with the new tick
-        expect(tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
-        expect(tracker.getDirtyItemIds()).not.toContain('item-2' as ItemId)
+        expect(state.listDirty()).not.toContain('item-1' as ItemId)
+        expect(state.listDirty()).not.toContain('item-2' as ItemId)
       })
     })
 
@@ -1056,7 +1086,7 @@ describe('SnapshotPusher', () => {
         }
 
         // Should still be dirty and failures map should not have counted failures
-        expect(tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
+        expect(state.listDirty()).toContain('item-1' as ItemId)
         expect(pusher['consecutiveFailures']['count']('item-1' as ItemId)).toBe(0)
       })
 
@@ -1074,7 +1104,7 @@ describe('SnapshotPusher', () => {
         }
 
         // Item should now be dropped from active dirty queue
-        expect(tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
+        expect(state.listDirty()).not.toContain('item-1' as ItemId)
         expect(pusher['consecutiveFailures']['count']('item-1' as ItemId)).toBe(0)
 
         // User notification emitted via eventHub
@@ -1116,7 +1146,7 @@ describe('SnapshotPusher', () => {
         }
 
         // Item must remain dirty and NOT be dropped
-        expect(tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
+        expect(state.listDirty()).toContain('item-1' as ItemId)
         expect(pusher['consecutiveFailures']['count']('item-1' as ItemId)).toBe(0)
         expect(mockEventHub.emit).not.toHaveBeenCalledWith(
           expect.objectContaining({ type: 'snapshotFailed' }),
@@ -1136,8 +1166,8 @@ describe('SnapshotPusher', () => {
         }
 
         // Items must remain dirty for subsequent retry and NOT be dropped
-        expect(tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
-        expect(tracker.getDirtyItemIds()).toContain('item-2' as ItemId)
+        expect(state.listDirty()).toContain('item-1' as ItemId)
+        expect(state.listDirty()).toContain('item-2' as ItemId)
         expect(pusher['consecutiveFailures']['count']('item-1' as ItemId)).toBe(0)
         expect(pusher['consecutiveFailures']['count']('item-2' as ItemId)).toBe(0)
         expect(mockEventHub.emit).not.toHaveBeenCalledWith(
@@ -1237,7 +1267,7 @@ describe('SnapshotPusher', () => {
         // Only item-2 pushed
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
         expect(mockPutSnapshots.mock.calls[0][0].snapshots[0].itemId).toBe('item-2')
-        expect(tracker.getDirtyItemIds()).toHaveLength(0)
+        expect(state.listDirty()).toHaveLength(0)
         expect(result.success).toBe(true)
         expect(tracker.isDue()).toBe(false)
       })
@@ -1262,7 +1292,7 @@ describe('SnapshotPusher', () => {
         await uploadNow()
 
         expect(mockPutSnapshots).not.toHaveBeenCalled()
-        expect(tracker['oversizedItems'].has('item-1' as ItemId)).toBe(true)
+        expect(pusher['oversizedItems'].has('item-1' as ItemId)).toBe(true)
 
         // Step 2: Compaction occurs -> encrypted payload is now small (< 200 bytes)
         vi.mocked(encryptBytes).mockResolvedValueOnce({
@@ -1278,8 +1308,8 @@ describe('SnapshotPusher', () => {
         // Now successfully pushed and cleared from oversizedItems
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
         expect(mockPutSnapshots.mock.calls[0][0].snapshots[0].itemId).toBe('item-1')
-        expect(tracker['oversizedItems'].has('item-1' as ItemId)).toBe(false)
-        expect(tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
+        expect(pusher['oversizedItems'].has('item-1' as ItemId)).toBe(false)
+        expect(state.listDirty()).not.toContain('item-1' as ItemId)
       })
     })
 
@@ -1291,7 +1321,7 @@ describe('SnapshotPusher', () => {
         await expect(uploadNow()).rejects.toBeInstanceOf(AuthError)
 
         expect(mockPutSnapshots).not.toHaveBeenCalled()
-        expect(tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
+        expect(state.listDirty()).toContain('item-1' as ItemId)
         expect(pusher['consecutiveFailures']['count']('item-1' as ItemId)).toBe(0)
       })
 
@@ -1312,7 +1342,7 @@ describe('SnapshotPusher', () => {
 
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
         expect(tokensSent).toEqual(['restored-auth-token'])
-        expect(tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
+        expect(state.listDirty()).not.toContain('item-1' as ItemId)
       })
 
       it('does nothing without a token when no item is dirty', async () => {
@@ -1332,7 +1362,7 @@ describe('SnapshotPusher', () => {
           await expect(uploadNow()).rejects.toBeInstanceOf(AuthError)
         }
 
-        expect(tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
+        expect(state.listDirty()).toContain('item-1' as ItemId)
         expect(pusher['consecutiveFailures']['count']('item-1' as ItemId)).toBe(0)
         expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
       })
@@ -1387,7 +1417,7 @@ describe('SnapshotPusher', () => {
         await run
         await vi.advanceTimersByTimeAsync(1000)
 
-        expect(tracker.getDirtyItemIds()).toContain('item-1')
+        expect(state.listDirty()).toContain('item-1')
         expect(records.get('item-1')).toEqual({ itemId: 'item-1', baseVersion: 1, dirty: true })
       })
 
@@ -1413,15 +1443,15 @@ describe('SnapshotPusher', () => {
         await push()
 
         // The edit made during encryption keeps the item dirty
-        expect(tracker.getDirtyItemIds()).toContain('item-1')
+        expect(state.listDirty()).toContain('item-1')
 
         // Save the records and simulate restart / promotion audit
         await state.save()
         await restart()
-        expect(tracker.getDirtyItemIds()).not.toContain('item-1')
+        expect(state.listDirty()).not.toContain('item-1')
 
         await tracker.load()
-        expect(tracker.getDirtyItemIds()).toContain('item-1')
+        expect(state.listDirty()).toContain('item-1')
       })
     })
   })

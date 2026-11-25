@@ -117,9 +117,6 @@ describe('ManifestSyncManager', () => {
       deleteDirtyItem: vi.fn().mockReturnValue(true),
       markItemDirty: vi.fn(),
       requestNow: vi.fn(),
-      isDirty: vi.fn().mockReturnValue(false),
-      getDirtyItemIds: vi.fn().mockReturnValue([]),
-      dirtyCount: 0,
     } as any
     const mockSnapshotPusher = {
       pushDue: vi.fn().mockResolvedValue({ persisted: 0, total: 0, success: true }),
@@ -150,6 +147,9 @@ describe('ManifestSyncManager', () => {
         importBaseVersions: vi.fn().mockResolvedValue(undefined),
         listUnconfirmedPulls: vi.fn().mockReturnValue(new Map()),
         confirmPulledChanges: vi.fn().mockResolvedValue(undefined),
+        isDirty: vi.fn().mockReturnValue(false),
+        listDirty: vi.fn().mockReturnValue([]),
+        dirtyCount: 0,
       },
     } as any
 
@@ -1034,7 +1034,7 @@ describe('ManifestSyncManager', () => {
 
   describe('manifest diffing', () => {
     it('uploads pending snapshots before evaluating manifest diffs', async () => {
-      depsObj.snapshotSchedule.dirtyCount = 1
+      depsObj.itemSyncState.dirtyCount = 1
       mockListItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
       depsObj.itemSyncState.trackedItems.mockReturnValue([['item-1', 100]])
@@ -1063,7 +1063,7 @@ describe('ManifestSyncManager', () => {
 
     it('continues gracefully if uploading pending snapshots throws', async () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      depsObj.snapshotSchedule.dirtyCount = 1
+      depsObj.itemSyncState.dirtyCount = 1
       depsObj.snapshotPusher.pushDue.mockRejectedValue(new Error('Flush failed'))
 
       mockListItemIds.mockResolvedValue(['item-1'])
@@ -1083,7 +1083,7 @@ describe('ManifestSyncManager', () => {
     })
 
     it('fails when the upload before the manifest fails as a whole', async () => {
-      depsObj.snapshotSchedule.dirtyCount = 1
+      depsObj.itemSyncState.dirtyCount = 1
       depsObj.snapshotPusher.pushDue.mockRejectedValue(new TypeError('Failed to fetch'))
       mockListItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
@@ -1144,7 +1144,7 @@ describe('ManifestSyncManager', () => {
       mockGetLastManifestSyncTime.mockResolvedValue(0)
       depsObj.itemSyncState.trackedItems.mockReturnValue([['item-1', 1_980_000]])
       depsObj.itemSyncState.listBaseVersions.mockReturnValue(new Map([['item-1', 1]]))
-      depsObj.snapshotSchedule.isDirty.mockReturnValue(true)
+      depsObj.itemSyncState.isDirty.mockReturnValue(true)
       mockFetchManifest.mockResolvedValue({
         manifest: [{ itemId: 'item-1', version: 1, modifiedAt: 900_000 }],
         serverTime: 1_000_000,
@@ -1231,7 +1231,7 @@ describe('ManifestSyncManager', () => {
 
     it('still pushes a dirty item whose snapshot it already has', async () => {
       depsObj.itemSyncState.listBaseVersions.mockReturnValue(new Map([['item-1', 1]]))
-      depsObj.snapshotSchedule.isDirty.mockReturnValue(true)
+      depsObj.itemSyncState.isDirty.mockReturnValue(true)
       mockFetchManifest.mockResolvedValue({
         manifest: [{ itemId: 'item-1', version: 3, modifiedAt: 100, heads: headsPayload(Automerge.getHeads(localDoc)) }],
         serverTime: Date.now(),
@@ -1325,7 +1325,7 @@ describe('ManifestSyncManager', () => {
       mockGetLastManifestSyncTime.mockResolvedValue(0)
       depsObj.itemSyncState.trackedItems.mockReturnValue([['item-newer', localTime]])
       depsObj.itemSyncState.listBaseVersions.mockReturnValue(new Map([['item-newer', 1]]))
-      depsObj.snapshotSchedule.isDirty.mockReturnValue(true)
+      depsObj.itemSyncState.isDirty.mockReturnValue(true)
       mockFetchManifest.mockResolvedValue({
         manifest: [{ itemId: 'item-newer', modifiedAt: itemServerTime }],
         serverTime: now,

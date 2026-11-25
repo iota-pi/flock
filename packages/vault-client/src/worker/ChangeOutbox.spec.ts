@@ -51,7 +51,7 @@ describe('ChangeOutbox', () => {
     requestSnapshot = vi.fn()
     onMarked = vi.fn()
     // As the context's does, through the snapshot schedule
-    onAcknowledged = vi.fn((itemId: ItemId) => itemSyncState.setDirty(itemId, true))
+    onAcknowledged = vi.fn((itemId: ItemId) => itemSyncState.markDirty(itemId))
     now = 1_000
     outbox = new ChangeOutbox({
       db,

@@ -32,8 +32,8 @@ export interface ManifestSyncManagerDeps {
   session: Pick<SyncSessionState, 'isLeader' | 'isShutdown'>
   docStore: AutomergeDocStore
   indexManager: AutomergeIndexManager
-  /** The items owing the server a snapshot, which a sync reads and queues */
-  snapshotSchedule: Pick<SnapshotSchedule, 'dirtyCount' | 'requestNow' | 'isDirty' | 'getDirtyItemIds' | 'markItemDirty' | 'deleteDirtyItem'>
+  /** Queues items owing the server a snapshot, and makes the queued ones due */
+  snapshotSchedule: Pick<SnapshotSchedule, 'requestNow' | 'markItemDirty' | 'deleteDirtyItem'>
   /** Uploads the dirty items' snapshots before the manifest is fetched */
   snapshotPusher: Pick<SnapshotPusher, 'pushDue'>
   keys: KeyProvider
@@ -48,10 +48,16 @@ export interface ManifestSyncManagerDeps {
   onSnapshotCovered?: (itemId: ItemId, heads: string[]) => void
   /** Called once a sync has merged what it could, with the manifest it fetched */
   onManifestProcessed?: (manifest: ManifestEntry[]) => Promise<void>
-  /** The items' base versions, and their unconfirmed pulls for snapshot coverage's S2 */
+  /** The items' base versions, which are dirty, and their unconfirmed pulls for snapshot coverage's S2 */
   itemSyncState: Pick<
     ItemSyncState,
-    'listBaseVersions' | 'importBaseVersions' | 'listUnconfirmedPulls' | 'confirmPulledChanges'
+    | 'listBaseVersions'
+    | 'importBaseVersions'
+    | 'listUnconfirmedPulls'
+    | 'confirmPulledChanges'
+    | 'dirtyCount'
+    | 'isDirty'
+    | 'listDirty'
   >
   /** Fetches the manifest on every sync, rather than at most every `manifestSyncMinGap` on a device that has items */
   fetchManifestEverySync?: boolean
@@ -247,12 +253,12 @@ export class ManifestSyncManager {
 
   /** Each item's base version, and whether it's queued for a snapshot */
   private listLocalVersions(): Map<ItemId, { baseVersion: number; isDirty: boolean }> {
-    const { itemSyncState, snapshotSchedule } = this.deps
+    const { itemSyncState } = this.deps
     const result = new Map<ItemId, { baseVersion: number; isDirty: boolean }>()
     for (const [itemId, baseVersion] of itemSyncState.listBaseVersions()) {
-      result.set(itemId, { baseVersion, isDirty: snapshotSchedule.isDirty(itemId) })
+      result.set(itemId, { baseVersion, isDirty: itemSyncState.isDirty(itemId) })
     }
-    for (const itemId of snapshotSchedule.getDirtyItemIds()) {
+    for (const itemId of itemSyncState.listDirty()) {
       if (!result.has(itemId)) result.set(itemId, { baseVersion: 0, isDirty: true })
     }
     return result
@@ -282,8 +288,8 @@ export class ManifestSyncManager {
    * the sync (rule 4); anything else is left to the snapshot phase, which uploads them again.
    */
   private async flushPendingSnapshotsSafely(signal: AbortSignal): Promise<void> {
-    const { snapshotSchedule, snapshotPusher } = this.deps
-    if (snapshotSchedule.dirtyCount === 0) return
+    const { itemSyncState, snapshotSchedule, snapshotPusher } = this.deps
+    if (itemSyncState.dirtyCount === 0) return
     try {
       snapshotSchedule.requestNow()
       await snapshotPusher.pushDue(signal)
