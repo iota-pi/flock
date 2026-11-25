@@ -444,17 +444,13 @@ export class SyncWorkerContext {
     })
 
     const snapshotRewriter = new SnapshotRewriter({
-      accountId,
-      builder: snapshotBuilder,
+      uploader: snapshotPusher,
       indexManager,
       apiClient: this.apiClient,
-      recoveryManager,
       session,
-      recorder: snapshotPusher,
       claimLeader: () => signals.raise.claimLeader(),
       catchUp: puller,
       runPollNow: () => signals.raise.pollNow(),
-      pushToLog,
       onStage: stage => this.clientEventHub.emit({ type: 'reencryptStage', stage }),
     })
 

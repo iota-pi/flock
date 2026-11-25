@@ -366,7 +366,7 @@ describe('SnapshotPusher', () => {
 
   // Sync rule 4: a request that fails fails the poll, which backs off
   it('throws when the upload request fails, leaving the items to the next poll', async () => {
-    const error = new Error('Network disconnected')
+    const error = new TypeError('Failed to fetch')
     mockApiClient.putSnapshots.mockRejectedValue(error)
 
     await expect(push()).rejects.toBe(error)
@@ -374,6 +374,88 @@ describe('SnapshotPusher', () => {
     expect(mockTracker.retryNextPoll).toHaveBeenCalledTimes(1)
     expect(pusher['consecutiveFailures']['count']('item-1' as ItemId)).toBe(0)
     expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
+  })
+
+  // Only a request failure says nothing about the items; a batch the server rejects is theirs
+  it('counts a batch the server rejects against its items, without failing the poll', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mockApiClient.putSnapshots.mockRejectedValue({ data: { httpStatus: 400 }, message: 'Bad Request: Invalid snapshot schema' })
+
+    await expect(push()).resolves.toEqual({ persisted: 0, total: 1, success: false })
+
+    expect(mockTracker.retryNextPoll).toHaveBeenCalledTimes(1)
+    expect(pusher['consecutiveFailures']['count']('item-1' as ItemId)).toBe(1)
+  })
+
+  describe('uploadItems', () => {
+    it('builds items that are not dirty when asked to, and reports each result', async () => {
+      mockTracker.getDirtyTick.mockReturnValue(undefined)
+      const onItemResult = vi.fn()
+
+      await pusher.uploadItems(['item-1' as ItemId], {
+        signal: new AbortController().signal,
+        includeClean: true,
+        onItemResult,
+      })
+
+      expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
+      expect(mockTracker.raiseBaseVersion).toHaveBeenCalledWith('item-1', 2)
+      expect(mockTracker.clearDirty).not.toHaveBeenCalled()
+      expect(onItemResult).toHaveBeenCalledWith('item-1', { type: 'stored' })
+    })
+
+    it('skips items that are not dirty otherwise', async () => {
+      mockTracker.getDirtyTick.mockReturnValue(undefined)
+      const onItemResult = vi.fn()
+
+      await pusher.uploadItems(['item-1' as ItemId], { signal: new AbortController().signal, onItemResult })
+
+      expect(mockBuilder.build).not.toHaveBeenCalled()
+      expect(onItemResult).not.toHaveBeenCalled()
+    })
+
+    it('reports an oversized item without uploading or quarantining it again', async () => {
+      mockTracker.getDirtyTick.mockReturnValue(undefined)
+      // An earlier session quarantined it as oversized
+      mockRecoveryManager.listRecoveryItems.mockResolvedValue([{ itemId: 'item-1', kind: 'oversized' }])
+      mockBuilder.build.mockResolvedValue(oversizedSnapshot())
+      const onItemResult = vi.fn()
+
+      await pusher.uploadItems(['item-1' as ItemId], {
+        signal: new AbortController().signal,
+        includeClean: true,
+        onItemResult,
+      })
+
+      expect(mockApiClient.putSnapshots).not.toHaveBeenCalled()
+      expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
+      expect(onItemResult).toHaveBeenCalledWith('item-1', { type: 'oversized', sizeBytes: expect.any(Number) })
+    })
+
+    it('reports a failure that quarantines an item, leaving the queue alone for a clean one', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      mockTracker.getDirtyTick.mockReturnValue(undefined)
+      mockBuilder.build.mockResolvedValue({ type: 'error', reason: 'Failed to encrypt' })
+      const onItemResult = vi.fn()
+
+      for (let i = 0; i < 5; i += 1) {
+        await pusher.uploadItems(['item-1' as ItemId], {
+          signal: new AbortController().signal,
+          includeClean: true,
+          onItemResult,
+        })
+      }
+
+      expect(onItemResult).toHaveBeenNthCalledWith(4, 'item-1', expect.objectContaining({ type: 'failed', quarantined: false }))
+      expect(onItemResult).toHaveBeenNthCalledWith(5, 'item-1', {
+        type: 'failed',
+        stage: 'build',
+        reason: 'Failed to encrypt',
+        quarantined: true,
+      })
+      expect(mockTracker.clearDirty).not.toHaveBeenCalled()
+      expect(mockRecoveryManager.quarantine).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('throws when pushing to the log fails, before building anything', async () => {
@@ -747,10 +829,10 @@ describe('SnapshotPusher', () => {
       })
 
       it('throws if putSnapshots throws, leaving the items to the next poll', async () => {
-        mockPutSnapshots.mockRejectedValue(new Error('Network disconnected'))
+        mockPutSnapshots.mockRejectedValue(new TypeError('Failed to fetch'))
 
         tracker.markItemDirty('item-1' as ItemId)
-        await expect(uploadNow()).rejects.toThrow('Network disconnected')
+        await expect(uploadNow()).rejects.toThrow('Failed to fetch')
 
         expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
         expect(state.listDirty()).toContain('item-1' as ItemId)
@@ -1068,14 +1150,14 @@ describe('SnapshotPusher', () => {
       })
 
       it('does not drop items or count failures when batch network send fails', async () => {
-        mockPutSnapshots.mockRejectedValue(new Error('Network disconnected'))
+        mockPutSnapshots.mockRejectedValue(new TypeError('Failed to fetch'))
 
         tracker.markItemDirty('item-1' as ItemId)
         tracker.markItemDirty('item-2' as ItemId)
 
         // Run 6 push attempts where network fails
         for (let i = 0; i < 6; i += 1) {
-          await expect(uploadNow()).rejects.toThrow('Network disconnected')
+          await expect(uploadNow()).rejects.toThrow('Failed to fetch')
         }
 
         // Items must remain dirty for subsequent retry and NOT be dropped

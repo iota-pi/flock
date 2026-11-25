@@ -190,6 +190,60 @@ describe('GapHealer', () => {
     expect(incoming.apply).toHaveBeenCalledTimes(3)
   })
 
+  it('re-applies rows without fetching the snapshot again after later rows and a manifest sync', async () => {
+    incoming.apply.mockResolvedValue(false)
+    await healer.park(entry(1), 'missingDeps')
+    await healer.runDue()
+    expect(fetchSnapshots).toHaveBeenCalledTimes(1)
+
+    await healer.park(entry(2), 'missingDeps')
+    healer.onLogEntry(ITEM)
+    await healer.runDue()
+    healer.onManifestSynced()
+    await healer.runDue()
+
+    expect(fetchSnapshots).toHaveBeenCalledTimes(1)
+    expect(incoming.apply).toHaveBeenCalledTimes(5)
+  })
+
+  it('fetches the snapshot again on its own backoff while later rows keep arriving', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      incoming.apply.mockResolvedValue(false)
+      await healer.park(entry(1), 'missingDeps')
+      await healer.runDue()
+
+      // Rows every 15 s would each push the re-apply backoff on, but not the snapshot's
+      for (let elapsed = 0; elapsed < GAP_HEAL_DELAYS[0]; elapsed += 15_000) {
+        vi.advanceTimersByTime(15_000)
+        healer.onLogEntry(ITEM)
+        await healer.runDue()
+      }
+      expect(fetchSnapshots).toHaveBeenCalledTimes(2)
+
+      vi.advanceTimersByTime(GAP_HEAL_DELAYS[1] - 1)
+      healer.onLogEntry(ITEM)
+      await healer.runDue()
+      expect(fetchSnapshots).toHaveBeenCalledTimes(2)
+      vi.advanceTimersByTime(1)
+      await healer.runDue()
+      expect(fetchSnapshots).toHaveBeenCalledTimes(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('fetches the snapshot again after a keyring update', async () => {
+    incoming.apply.mockResolvedValue(false)
+    await healer.park(entry(1), 'missingDeps')
+    await healer.runDue()
+
+    healer.onKeyringUpdated()
+    await healer.runDue()
+
+    expect(fetchSnapshots).toHaveBeenCalledTimes(2)
+  })
+
   it('keeps a row the doc applied while the doc still reports missing dependencies', async () => {
     docStore.getMissingDeps.mockResolvedValue(['missing-hash'])
     await healer.park(entry(1), 'missingDeps')

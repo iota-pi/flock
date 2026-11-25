@@ -1,11 +1,11 @@
 import type { SnapshotPushResult } from './syncProtocol'
 import type { SyncApiClient } from './SyncApiClient'
-import { classifySyncError } from '../utils/errorClassifier'
+import { classifySyncError, isRequestFailure } from '../utils/errorClassifier'
 import { type ItemId, MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import type { ClientEventHub } from './SyncEventHub'
 import type { RecoveryManager } from './RecoveryManager'
 import { ConsecutiveFailureCounter } from '../utils/ConsecutiveFailureCounter'
-import { checkAlive } from '../utils/abort'
+import { checkAlive, isAbortError } from '../utils/abort'
 import { SizeAwareBatchAccumulator } from '../utils/SizeAwareBatchAccumulator'
 import type { SnapshotSchedule } from './SnapshotSchedule'
 import type { ItemSyncState } from './ItemSyncState'
@@ -14,7 +14,6 @@ import {
   estimateSnapshotSize,
   type SnapshotBuilder,
   toTombstoneSnapshot,
-  type PreparedSnapshotItem,
 } from './SnapshotBuilder'
 import { fireAndForget } from '../utils/fireAndForget'
 import {
@@ -43,7 +42,7 @@ export interface SnapshotPusherOptions {
     ItemSyncState,
     'flushPendingSave' | 'dirtyCount' | 'listDirty' | 'getDirtyTick' | 'clearDirty' | 'raiseBaseVersion'
   >
-  builder: SnapshotBuilder
+  builder: Pick<SnapshotBuilder, 'build'>
   /** Pushes items' changes to the log, which comes before their snapshots */
   pushToLog: (itemIds: ItemId[], signal?: AbortSignal) => Promise<void>
   /** Called with each snapshot the server stored */
@@ -71,16 +70,41 @@ export interface SnapshotPushOutcome extends SnapshotPushResult {
   success: boolean
 }
 
+/** What became of one item in `uploadItems` */
+export type ItemUploadResult =
+  | { type: 'stored' }
+  /** Over the size limit, and quarantined as oversized (once). Retrying won't help. */
+  | { type: 'oversized'; sizeBytes: number }
+  /**
+   * Its build or upload failed, which counts towards quarantining it. `quarantined` says this failure
+   * reached the limit, so the item is now quarantined.
+   */
+  | { type: 'failed'; stage: 'build' | 'upload'; reason?: string; quarantined: boolean }
+  /** Not built: its doc or the vault isn't ready, or it still waits for the log. Counts no failure. */
+  | { type: 'waiting'; reason: 'not-ready' | 'deferred' }
+
+export interface UploadItemsOptions {
+  signal: AbortSignal
+  /**
+   * Builds and uploads items that aren't dirty too, as a rewrite does. Otherwise they're skipped: an
+   * item that is no longer dirty has been uploaded already.
+   */
+  includeClean?: boolean
+  /** Called once for each item the run settles. A skipped item, or one a failed request left, gets none. */
+  onItemResult?: (itemId: ItemId, result: ItemUploadResult) => void
+}
+
 /**
  * Whether an item goes in the push. `skip` leaves it out (it's no longer dirty, or it's oversized and
  * quarantined); `fail` also marks the push failed, so it's retried.
  */
 type ItemPreparationResult =
-  | { type: 'ready'; item: PreparedSnapshotItem; size: number }
+  | { type: 'ready'; item: UploadableSnapshot; size: number }
   | { type: 'skip' }
   | { type: 'fail' }
 
-const MAX_CONSECUTIVE_SNAPSHOT_FAILURES = 5
+/** How many failed builds or uploads in a row quarantine an item */
+export const MAX_CONSECUTIVE_SNAPSHOT_FAILURES = 5
 
 /** The server turned a snapshot upload away (429), most likely for the account's storage quota */
 class SnapshotsRefusedError extends Error {
@@ -93,7 +117,8 @@ class SnapshotsRefusedError extends Error {
 /**
  * Uploads the dirty items' snapshots (`ItemSyncState`) when `SnapshotSchedule` says they're due. Uploads run as the last phase of each
  * poll (`pushDue`), so they share the poll's leadership, online state, abort, auth handling and
- * backoff.
+ * backoff. `uploadItems` is the one per-item pipeline (build after push, size limit, batching,
+ * failure counting and quarantine), which `SnapshotRewriter` runs too.
  */
 export class SnapshotPusher implements StoredSnapshotRecorder {
   private readonly maxPayloadBytes: number
@@ -153,6 +178,59 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
     return this.pushes > pushesBefore ? this.lastPush : { persisted: 0, total: 0 }
   }
 
+  /**
+   * Builds and uploads the items' snapshots: the one pipeline that both the snapshot phase and the
+   * rewrite phase run. The items are pushed to the log first, and each is built only through
+   * `buildAfterPush` (S1). Throws if a request fails (sync rule 4), and `SnapshotsRefusedError` if
+   * the server turns an upload away for the quota; the items not yet settled then get no result.
+   */
+  async uploadItems(itemIds: ItemId[], options: UploadItemsOptions): Promise<SnapshotPushOutcome> {
+    const { signal } = options
+    let persisted = 0
+    let total = 0
+    let success = true
+
+    // The poll has pushed pending marks already. This catches the items marked only for a snapshot.
+    await this.deps.pushToLog(itemIds, signal)
+
+    const accumulator = new SizeAwareBatchAccumulator<UploadableSnapshot>({ maxBatchBytes: this.maxPayloadBytes })
+
+    const flushAccumulated = async (): Promise<void> => {
+      const batch = accumulator.drain()
+      total += batch.length
+      checkAlive(signal, () => this.deps.session.isOperational)
+      const result = await this.flushBatch(batch, options)
+      persisted += result.persisted
+      if (!result.success) {
+        success = false
+      }
+    }
+
+    for (const itemId of itemIds) {
+      checkAlive(signal, () => this.deps.session.isOperational)
+      const prepared = await this.prepareItemForPush(itemId, options)
+      if (prepared.type === 'fail') {
+        success = false
+      }
+      if (prepared.type !== 'ready') {
+        continue
+      }
+
+      // A batch the server answered can fail for its own items only; later batches still go
+      if (accumulator.wouldExceed(prepared.size) && !accumulator.isEmpty) {
+        await flushAccumulated()
+      }
+
+      accumulator.push(prepared.item, prepared.size)
+    }
+
+    if (!accumulator.isEmpty) {
+      await flushAccumulated()
+    }
+
+    return { persisted, total, success }
+  }
+
   private async pushDueSnapshots(signal: AbortSignal): Promise<SnapshotPushOutcome> {
     const { schedule, session, state } = this.deps
     if (!session.isOperational || !schedule.isDue()) {
@@ -163,7 +241,7 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
 
     let result: SnapshotPushOutcome
     try {
-      result = await this.processSnapshotPush(dirtyItemIds, signal)
+      result = await this.uploadItems(dirtyItemIds, { signal })
     } catch (error) {
       if (error instanceof SnapshotsRefusedError) {
         log.warn('The server turned snapshots away; uploading them later', error.cause)
@@ -179,37 +257,40 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
     return result
   }
 
+  /** Counts a failure, quarantining the item once they reach the limit. Returns whether it did. */
   private async handleSnapshotFailure(
     itemId: ItemId,
-    tick: number,
+    tick: number | undefined,
     failureType: 'build' | 'upload',
     reason?: string,
-  ): Promise<void> {
-    if (this.consecutiveFailures.recordFailure(itemId)) {
-      const detailedReason =
-        reason ||
-        `Snapshot ${failureType} failed after ${MAX_CONSECUTIVE_SNAPSHOT_FAILURES} consecutive attempts`
-      log.error(
-        `Item ${itemId} reached max consecutive snapshot ${failureType} failures (${MAX_CONSECUTIVE_SNAPSHOT_FAILURES}). Reason: ${detailedReason}. Moving to manual recovery.`,
-      )
-      this.deps.state.clearDirty(itemId, tick)
+  ): Promise<boolean> {
+    if (!this.consecutiveFailures.recordFailure(itemId)) return false
 
-      this.deps.eventHub.emit({
-        type: 'snapshotFailed',
+    const detailedReason =
+      reason ||
+      `Snapshot ${failureType} failed after ${MAX_CONSECUTIVE_SNAPSHOT_FAILURES} consecutive attempts`
+    log.error(
+      `Item ${itemId} reached max consecutive snapshot ${failureType} failures (${MAX_CONSECUTIVE_SNAPSHOT_FAILURES}). Reason: ${detailedReason}. Moving to manual recovery.`,
+    )
+    // An item built while clean (by a rewrite) has no tick, and nothing to take out of the queue
+    if (tick !== undefined) this.deps.state.clearDirty(itemId, tick)
+
+    this.deps.eventHub.emit({
+      type: 'snapshotFailed',
+      itemId,
+      message: `Snapshot sync failed for item ${itemId}: ${detailedReason}. Changes are stored locally only.`,
+    })
+
+    try {
+      await this.deps.recoveryManager.quarantine(
         itemId,
-        message: `Snapshot sync failed for item ${itemId}: ${detailedReason}. Changes are stored locally only.`,
-      })
-
-      try {
-        await this.deps.recoveryManager.quarantine(
-          itemId,
-          'snapshotFailure',
-          { code: 'snapshotFailed', stage: failureType },
-        )
-      } catch (recoveryError) {
-        log.error('Failed to record manual recovery entry', recoveryError)
-      }
+        'snapshotFailure',
+        { code: 'snapshotFailed', stage: failureType },
+      )
+    } catch (recoveryError) {
+      log.error('Failed to record manual recovery entry', recoveryError)
     }
+    return true
   }
 
   private async handleOversizedItem(itemId: ItemId, snapshotSize: number): Promise<void> {
@@ -253,25 +334,25 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
     this.oversizedItems.delete(itemId)
   }
 
-  private async prepareItemForPush(itemId: ItemId, signal?: AbortSignal): Promise<ItemPreparationResult> {
+  private async prepareItemForPush(itemId: ItemId, options: UploadItemsOptions): Promise<ItemPreparationResult> {
+    const { signal, onItemResult } = options
+    // A dirty item's tick goes with its snapshot even in a rewrite, since the build holds its pending edits
     const tick = this.deps.state.getDirtyTick(itemId)
-    if (tick === undefined) {
+    if (tick === undefined && !options.includeClean) {
       return { type: 'skip' }
     }
 
     // The build bounds its document lookup, so an unreadable document fails here rather than wedging the push
     const buildResult = await buildAfterPush(this.deps.builder, this.deps.pushToLog, itemId, signal)
 
-    if (buildResult.type === 'not-ready') {
-      return { type: 'fail' }
-    }
-
-    if (buildResult.type === 'deferred') {
+    if (buildResult.type === 'not-ready' || buildResult.type === 'deferred') {
+      onItemResult?.(itemId, { type: 'waiting', reason: buildResult.type })
       return { type: 'fail' }
     }
 
     if (buildResult.type === 'error') {
-      await this.handleSnapshotFailure(itemId, tick, 'build', buildResult.reason)
+      const quarantined = await this.handleSnapshotFailure(itemId, tick, 'build', buildResult.reason)
+      onItemResult?.(itemId, { type: 'failed', stage: 'build', reason: buildResult.reason, quarantined })
       return { type: 'fail' }
     }
 
@@ -294,6 +375,7 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
 
     if (snapshotSize > this.maxPayloadBytes) {
       await this.handleOversizedItem(itemId, snapshotSize)
+      onItemResult?.(itemId, { type: 'oversized', sizeBytes: snapshotSize })
       return { type: 'skip' }
     }
 
@@ -329,12 +411,16 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
     if (version !== undefined) this.deps.state.raiseBaseVersion(itemId, version)
   }
 
-  /** Sends a batch. Throws if the request fails, and `SnapshotsRefusedError` if the server turns it away. */
+  /**
+   * Sends a batch. Throws if the request fails (sync rule 4), and `SnapshotsRefusedError` if the
+   * server turns it away (429). Any other error is the batch's own, so it counts against its items.
+   */
   private async flushBatch(
-    batch: PreparedSnapshotItem[],
-    signal?: AbortSignal,
+    batch: UploadableSnapshot[],
+    options: UploadItemsOptions,
   ): Promise<{ success: boolean; persisted: number }> {
-    let result: SnapshotBatchResult<PreparedSnapshotItem>
+    const { signal, onItemResult } = options
+    let result: SnapshotBatchResult<UploadableSnapshot>
     try {
       result = await uploadSnapshotBatch(batch, {
         accountId: this.deps.accountId,
@@ -343,62 +429,24 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
         signal,
       })
     } catch (error) {
-      if (!signal?.aborted && classifySyncError(error).status === 429) {
+      if (signal.aborted || isAbortError(error)) throw error
+      if (classifySyncError(error).status === 429) {
         throw new SnapshotsRefusedError(error)
       }
-      throw error
+      // `SyncApiClient` has already turned auth errors it couldn't recover from into `AuthExpiredError`
+      if (isRequestFailure(error)) throw error
+      log.warn('The server rejected a snapshot batch', error)
+      result = { success: false, persisted: 0, stored: [], rejected: batch }
     }
 
+    for (const item of result.stored) {
+      onItemResult?.(item.snapshot.itemId, { type: 'stored' })
+    }
     for (const item of result.rejected) {
-      await this.handleSnapshotFailure(item.snapshot.itemId, item.tick, 'upload')
+      const quarantined = await this.handleSnapshotFailure(item.snapshot.itemId, item.tick, 'upload')
+      onItemResult?.(item.snapshot.itemId, { type: 'failed', stage: 'upload', quarantined })
     }
     return { success: result.success, persisted: result.persisted }
-  }
-
-  private async processSnapshotPush(dirtyItemIds: ItemId[], signal: AbortSignal): Promise<SnapshotPushOutcome> {
-    let persisted = 0
-    let total = 0
-    let success = true
-
-    // The poll has pushed pending marks already. This catches the items marked only for a snapshot.
-    await this.deps.pushToLog(dirtyItemIds, signal)
-
-    const accumulator = new SizeAwareBatchAccumulator<PreparedSnapshotItem>({ maxBatchBytes: this.maxPayloadBytes })
-
-    const flushAccumulated = async (): Promise<void> => {
-      const batch = accumulator.drain()
-      total += batch.length
-      checkAlive(signal, () => this.deps.session.isOperational)
-      const result = await this.flushBatch(batch, signal)
-      persisted += result.persisted
-      if (!result.success) {
-        success = false
-      }
-    }
-
-    for (const itemId of dirtyItemIds) {
-      checkAlive(signal, () => this.deps.session.isOperational)
-      const prepared = await this.prepareItemForPush(itemId, signal)
-      if (prepared.type === 'fail') {
-        success = false
-      }
-      if (prepared.type !== 'ready') {
-        continue
-      }
-
-      // A batch the server answered can fail for its own items only; later batches still go
-      if (accumulator.wouldExceed(prepared.size) && !accumulator.isEmpty) {
-        await flushAccumulated()
-      }
-
-      accumulator.push(prepared.item, prepared.size)
-    }
-
-    if (!accumulator.isEmpty) {
-      await flushAccumulated()
-    }
-
-    return { persisted, total, success }
   }
 
   /** Called once polling has stopped, so no upload is in flight */
