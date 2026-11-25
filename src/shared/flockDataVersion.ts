@@ -18,7 +18,7 @@ export const FLOCK_DATA_VERSION = 4
 /** The level at which a device's local data is sealed (see `SyncWorkerConfig.sealedDataVersion`) */
 export const SEALED_DATA_VERSION = 3
 
-/** The level at which a device has reset its sync state for the log (see `SyncWorkerConfig.syncResetDataVersion`) */
+/** The level at which a device has reset its sync state for the log (see `LegacyHooks.syncResetDataVersion`) */
 export const SYNC_RESET_DATA_VERSION = 4
 
 /**

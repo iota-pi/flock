@@ -74,7 +74,7 @@ export class Device {
       clientEventHub: new ClientEventHub(),
       apiClient: createSyncApiClient(this.server),
       keys: this.keys,
-      ...(this.isMigrating ? { syncResetDataVersion: SYNC_RESET_TEST_LEVEL } : {}),
+      ...(this.isMigrating ? { legacy: { syncResetDataVersion: SYNC_RESET_TEST_LEVEL } } : {}),
       ...this.options.config,
     })
     await this.context.initialize()

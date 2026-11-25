@@ -803,7 +803,7 @@ describe('SyncWorkerContext', () => {
         apiClient: new SyncApiClient(),
         minDataVersion,
         sealedDataVersion: 3,
-        syncResetDataVersion: 4,
+        legacy: { syncResetDataVersion: 4 },
       })
       vi.spyOn(ctx.lifecycle, 'start').mockResolvedValue(undefined)
       await ctx.initialize()
@@ -962,7 +962,7 @@ describe('SyncWorkerContext', () => {
         keys: createMockKeyProvider(),
         clientEventHub,
         apiClient: new SyncApiClient(),
-        migrateLocalData,
+        legacy: { migrateLocalData },
       })
     }
 
@@ -1095,7 +1095,7 @@ describe('SyncWorkerContext', () => {
         clientEventHub,
         apiClient: new SyncApiClient(),
         minDataVersion: 1,
-        migrateLocalData: migrate,
+        legacy: { migrateLocalData: migrate },
       })
       mockHasIndex.mockResolvedValue(true)
       const startSpy = vi.spyOn(ctx.lifecycle, 'start')
@@ -1158,7 +1158,7 @@ describe('SyncWorkerContext', () => {
         keys: createMockKeyProvider(),
         clientEventHub,
         apiClient: new SyncApiClient(),
-        upgradeSnapshotFormat: true,
+        legacy: { upgradeSnapshotFormat: true },
       })
       await ctx.initialize()
       expect(ctx.services.snapshotFormatUpgrade).toBeInstanceOf(SnapshotFormatUpgrade)

@@ -42,7 +42,7 @@ import { RealtimeBus } from './RealtimeBus'
 import { ForegroundTracker } from './ForegroundTracker'
 import { SyncSessionState } from './SyncSessionState'
 import { SyncSignals } from './SyncSignals'
-import { DEFAULT_SYNC_DOMAIN, type SyncDomain } from './domain'
+import { DEFAULT_SYNC_DOMAIN, type LegacyHooks, type SyncDomain } from './domain'
 import { AccountSettings, withSettingsDocPassthrough } from './AccountSettings'
 import { getVaultStorageNames } from '../shared/storageNames'
 import { AbortError, untilAborted, withTimeout } from '../utils/abort'
@@ -61,11 +61,6 @@ export interface SyncSessionConfig {
   /** The app's document codec and hooks. Defaults to passing documents through untouched. */
   domain?: SyncDomain
   /**
-   * Brings the account's local data from older layouts into the current one. Runs once per
-   * session before any store is read, one tab at a time. Stores only read the current layout.
-   */
-  migrateLocalData?: (accountId: string) => Promise<void>
-  /**
    * The lowest level of local data this app reads (see `SyncDomain.dataVersion`). Below it, if the
    * device holds any data for the account, sync doesn't start: the worker emits `migrationRequired`
    * and `initRepo` rejects with `MigrationRequiredError`, so the app can send the user to its
@@ -78,16 +73,6 @@ export interface SyncSessionConfig {
    */
   hasLegacyLocalData?: (accountId: string) => Promise<boolean>
   /**
-   * Rewrites every snapshot once per device, so snapshots from before ciphertexts were bound to
-   * their document are replaced (see SnapshotFormatUpgrade). For an app's migration app.
-   */
-  upgradeSnapshotFormat?: boolean
-  /**
-   * Fetches the manifest on every sync, rather than at most every `manifestSyncMinGap` on a device that has items, so
-   * every row on the server is seen. For an app's migration app.
-   */
-  fetchManifestEverySync?: boolean
-  /**
    * Seals this device's local data with a device storage key, copying any plaintext data into the
    * sealed stores and then deleting the plaintext ones (see docs/local-encryption.md, Part 2)
    */
@@ -97,14 +82,8 @@ export interface SyncSessionConfig {
    * recorded level stays below it until its storage is sealed and the plaintext stores are retired.
    */
   sealedDataVersion?: number
-  /**
-   * The app's data version (`SyncDomain.dataVersion`) at which a device that synced before the log
-   * has reset its sync state for it (see `resetSyncState`). Below `minDataVersion` the session runs
-   * the reset at start, and the device's recorded level stays below this one until it has run and
-   * the old write-ahead log is gone. Once `minDataVersion` is at or above it, every device that
-   * starts has reset (or had nothing to reset), so the session doesn't.
-   */
-  syncResetDataVersion?: number
+  /** Code for data in older formats and layouts (see LegacyHooks). Only an app's migration app passes it. */
+  legacy?: LegacyHooks
 }
 
 /**
@@ -322,7 +301,7 @@ export class SyncWorkerContext {
       markDocumentDirty,
       bus: realtimeBus,
       syncedKeys: this.domain.syncedMetadataKeys,
-      legacySettings: this.domain.legacySettings,
+      legacySettings: this.legacy.legacySettings,
       withAuth: request => this.apiClient.executeWithAuth(request),
     })
 
@@ -344,7 +323,7 @@ export class SyncWorkerContext {
       keys,
       storeItems,
       onKeyVersionMissing: this.emitKeyVersionMissing,
-      decodeLegacyItem: this.domain.decodeLegacyItem,
+      decodeLegacyItem: this.legacy.decodeLegacyItem,
       onMigrationRequired: () => clientEventHub.emit({ type: 'migrationRequired', reason: 'account' }),
       onDecryptionFailure: (itemId, error, serverVersion) => {
         fireAndForget(
@@ -466,7 +445,7 @@ export class SyncWorkerContext {
       maxDeviceVersion: this.maxDeviceVersion(),
     })
 
-    const snapshotFormatUpgrade = this.config.upgradeSnapshotFormat
+    const snapshotFormatUpgrade = this.legacy.upgradeSnapshotFormat
       ? new SnapshotFormatUpgrade({
         accountId,
         session,
@@ -491,8 +470,10 @@ export class SyncWorkerContext {
       demands: manifestDemands,
       hydrator: manifestHydrator,
       storeItems,
-      migrateLegacySettings: () => accountSettings.migrateLegacySettings(),
-      fetchManifestEverySync: this.config.fetchManifestEverySync,
+      // Without a legacy source there is nothing to move: the main app's device gate keeps out the
+      // local layouts that held synced keys, and `AccountSettings.mutate` never writes them locally
+      migrateLegacySettings: this.legacy.legacySettings ? () => accountSettings.migrateLegacySettings() : undefined,
+      fetchManifestEverySync: this.legacy.fetchManifestEverySync,
       onSyncedWithoutFailures: () => {
         snapshotFormatUpgrade?.onSyncedWithoutFailures()
         fireAndForget(dataVersionTracker.onSyncedWithoutFailures(), 'SyncWorkerContext:recordDeviceDataVersion')
@@ -615,9 +596,15 @@ export class SyncWorkerContext {
     }
   }
 
+  /** The migration app's legacy hooks, or none */
+  private get legacy(): LegacyHooks {
+    return this.config.legacy ?? {}
+  }
+
   /** Whether a device this session can start on may not have reset its sync state (see `syncResetDataVersion`) */
   private get needsSyncReset(): boolean {
-    const { minDataVersion, syncResetDataVersion } = this.config
+    const { minDataVersion } = this.config
+    const { syncResetDataVersion } = this.legacy
     return syncResetDataVersion !== undefined && (minDataVersion ?? 0) < syncResetDataVersion
   }
 
@@ -627,8 +614,8 @@ export class SyncWorkerContext {
    * isn't recorded as migrated. Caps it below the sync reset level until the reset has finished.
    */
   private maxDeviceVersion(): (() => Promise<number>) | undefined {
-    const { sealedDataVersion, syncResetDataVersion } = this.config
-    const resetDataVersion = this.needsSyncReset ? syncResetDataVersion : undefined
+    const { sealedDataVersion } = this.config
+    const resetDataVersion = this.needsSyncReset ? this.legacy.syncResetDataVersion : undefined
     if (sealedDataVersion === undefined && resetDataVersion === undefined) return undefined
     return async () => {
       const state = this.localStorageState
@@ -762,7 +749,7 @@ export class SyncWorkerContext {
     // initialization: starting would create an empty index, and a later migration would then keep it
     // over the old one. Local storage is opened under the same lock, before the Repo reads from it.
     const local = await this.withLocalDataLock(async () => {
-      await this.config.migrateLocalData?.(this.accountId)
+      await this.legacy.migrateLocalData?.(this.accountId)
       const opened = await openLocalStorage({
         accountId: this.accountId,
         upgradeLocalEncryption: this.config.upgradeLocalEncryption,

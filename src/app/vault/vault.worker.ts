@@ -17,5 +17,5 @@ exposeSyncWorker({
   // plaintext stores gone and downloads everything into new ones.
   upgradeLocalEncryption: true,
   sealedDataVersion: SEALED_DATA_VERSION,
-  // No `syncResetDataVersion`: the device gate is at its level, so only the migration app resets
+  // No `legacy` hooks: the device gate is at the sync reset's level, so only the migration app runs them
 })

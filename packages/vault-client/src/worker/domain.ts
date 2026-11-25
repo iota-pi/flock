@@ -71,12 +71,6 @@ export interface LegacyItemContext {
 
 export interface SyncDomain {
   codec: DocCodec
-  /**
-   * Decodes an item stored in a format the library no longer reads. Called only for rows that have
-   * no snapshot. Returns the document's content, or null if the row isn't in a format the app knows.
-   * The engine stores the result as a new document and uploads it as a snapshot.
-   */
-  decodeLegacyItem?(item: LegacyItemEnvelope, context: LegacyItemContext): Promise<RawDoc | null>
   hooks: SyncDomainHooks
   /**
    * Metadata keys stored in the account's encrypted settings document, which syncs like any other
@@ -90,13 +84,57 @@ export interface SyncDomain {
    * is replaced whole and one concurrent edit wins, which is what names, enums and IDs need.
    */
   mergedTextFields?: readonly string[]
-  legacySettings?: LegacySettingsSource
   /**
    * The app's current data version: the level of migrations its stored data should have had. The
    * worker records it for the device and asks the server to raise the account to it (see
    * DataVersionTracker). Leave it unset (0) until the app has had a migration.
    */
   dataVersion?: number
+}
+
+/**
+ * Everything the engine runs only to bring data from older formats and layouts up to date. An app
+ * passes these only in its migration app (see "Backwards compatibility" in docs/vault-extraction.md),
+ * so its main app builds none of it. Each belongs to a migration level and goes when that level is
+ * retired. The migration app is rebuilt against the current library, so these signatures must stay
+ * stable while their level is live.
+ */
+export interface LegacyHooks {
+  /**
+   * Decodes an item stored in a format the library no longer reads. Called only for rows that have
+   * no snapshot. Returns the document's content, or null if the row isn't in a format the app knows.
+   * The engine stores the result as a new document and uploads it as a snapshot. Without it, such a
+   * row is reported as `migration_required`. Level 1.
+   */
+  decodeLegacyItem?(item: LegacyItemEnvelope, context: LegacyItemContext): Promise<RawDoc | null>
+  /**
+   * Where the app kept synced settings before the settings document existed. With it, each manifest
+   * sync moves them, and any synced keys left in local metadata, into the settings document. Level 1.
+   */
+  legacySettings?: LegacySettingsSource
+  /**
+   * Brings the account's local data from older layouts into the current one. Runs once per
+   * session before any store is read, one tab at a time. Stores only read the current layout.
+   */
+  migrateLocalData?: (accountId: string) => Promise<void>
+  /**
+   * Rewrites every snapshot once per device, so snapshots from before ciphertexts were bound to
+   * their document are replaced (see SnapshotFormatUpgrade). Level 1.
+   */
+  upgradeSnapshotFormat?: boolean
+  /**
+   * Fetches the manifest on every sync, rather than at most every `manifestSyncMinGap` on a device
+   * that has items, so every row on the server is seen and none in a legacy format is missed
+   */
+  fetchManifestEverySync?: boolean
+  /**
+   * The app's data version (`SyncDomain.dataVersion`) at which a device that synced before the log
+   * has reset its sync state for it (see `resetSyncState`). Below `minDataVersion` the session runs
+   * the reset at start, and the device's recorded level stays below this one until it has run and
+   * the old write-ahead log is gone. Once `minDataVersion` is at or above it, every device that
+   * starts has reset (or had nothing to reset), so the session doesn't. Level 4.
+   */
+  syncResetDataVersion?: number
 }
 
 export const passthroughCodec: DocCodec = {
