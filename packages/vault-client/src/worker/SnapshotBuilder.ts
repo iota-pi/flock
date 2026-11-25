@@ -21,12 +21,6 @@ export type BuildSnapshotResult =
   | { type: 'deferred'; reason: 'unpushed' }
   | { type: 'error'; reason?: string }
 
-export interface PreparedSnapshotItem {
-  snapshot: VaultSnapshotInput
-  tick: number
-  heads?: string[]
-}
-
 /**
  * Direct ciphertext length estimation.
  * Estimates the serialized JSON size by calculating ciphertext length plus base metadata/envelope overhead (~128 bytes),
@@ -55,7 +49,7 @@ export function toTombstoneSnapshot(snapshot: VaultSnapshotInput): VaultSnapshot
 
 /**
  * Builds an item's snapshot, and if it holds changes the log doesn't have yet (S1), pushes them and
- * builds once more. Changes made since the push before the build land here.
+ * builds once more. Changes made since the poll's push land here.
  */
 export async function buildAfterPush(
   builder: Pick<SnapshotBuilder, 'build'>,
