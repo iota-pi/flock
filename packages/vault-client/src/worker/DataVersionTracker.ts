@@ -29,8 +29,8 @@ export interface DataVersionTrackerDeps {
   raiseAccountDataVersion: () => Promise<{ dataVersion: number, blockers: string[], blockedItems?: Record<string, number> }>
   /**
    * The highest level this device's local data has reached, when some of it is still in an older
-   * layout (such as plaintext stores not yet retired) or the sync reset hasn't finished. The recorded
-   * level never exceeds it.
+   * layout (such as plaintext stores not yet retired, or synced settings still in local metadata) or
+   * the sync reset hasn't finished. The recorded level never exceeds it.
    */
   maxDeviceVersion?: () => number | Promise<number>
 }

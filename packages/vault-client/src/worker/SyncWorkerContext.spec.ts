@@ -21,6 +21,10 @@ import type { SyncLogPullerDeps } from './SyncLogPuller'
 import type { SyncOrchestratorDeps } from './SyncOrchestrator'
 import type { SyncPollerDeps } from './SyncPoller'
 import type { ItemRecoveryServiceDeps } from './ItemRecoveryService'
+import type { ManifestHydratorDeps } from './ManifestHydrator'
+import type { ManifestSyncManagerDeps } from './ManifestSyncManager'
+import type { AccountSettingsDeps } from './AccountSettings'
+import { DEFAULT_SYNC_DOMAIN, type LegacyHooks, type LegacySettingsSource } from './domain'
 import { Keyring } from '../keys/Keyring'
 import { generateVaultKey } from '../keys/crypto'
 import * as manualRecoveryStoreModule from '../shared/manualRecoveryStore'
@@ -195,6 +199,7 @@ beforeEach(() => {
   })
   spyOnExports(manifestSyncManagerModule, {
     ManifestSyncManager: class MockManifestSyncManager {
+      constructor(readonly deps: unknown) {}
       runPhase = vi.fn().mockResolvedValue(null)
     },
   })
@@ -1162,6 +1167,69 @@ describe('SyncWorkerContext', () => {
       })
       await ctx.initialize()
       expect(ctx.services.snapshotFormatUpgrade).toBeInstanceOf(SnapshotFormatUpgrade)
+    })
+  })
+
+  describe('legacy hooks', () => {
+    type ManifestSyncDeps = Pick<ManifestSyncManagerDeps, 'migrateLegacySettings' | 'fetchManifestEverySync'>
+
+    const legacySettings: LegacySettingsSource = {
+      load: vi.fn().mockResolvedValue(null),
+      clear: vi.fn().mockResolvedValue(undefined),
+    }
+
+    async function createContext(accountId: string, legacy?: LegacyHooks) {
+      const ctx = new SyncWorkerContext({
+        accountId,
+        keys: createMockKeyProvider(),
+        clientEventHub,
+        apiClient: new SyncApiClient(),
+        domain: { ...DEFAULT_SYNC_DOMAIN, syncedMetadataKeys: ['prayerGoal'], dataVersion: 4 },
+        legacy,
+      })
+      vi.spyOn(ctx.lifecycle, 'start').mockResolvedValue(undefined)
+      await ctx.initialize()
+      return ctx
+    }
+
+    it('passes none of them without legacy hooks', async () => {
+      const ctx = await createContext('test-account-no-legacy')
+      const manifestSync = depsOf<ManifestSyncDeps>(ctx.services.manifestSyncManager)
+
+      expect(depsOf<ManifestHydratorDeps>(ctx.services.manifestHydrator).decodeLegacyItem).toBeUndefined()
+      expect(depsOf<AccountSettingsDeps>(ctx.services.accountSettings).legacySettings).toBeUndefined()
+      expect(manifestSync.migrateLegacySettings).toBeUndefined()
+      expect(manifestSync.fetchManifestEverySync).toBeUndefined()
+      expect(readMaxDeviceVersion(ctx)).toBeUndefined()
+    })
+
+    it('wires each hook into the component that runs it', async () => {
+      const decodeLegacyItem = vi.fn().mockResolvedValue(null)
+      const ctx = await createContext('test-account-legacy', {
+        decodeLegacyItem,
+        legacySettings,
+        fetchManifestEverySync: true,
+      })
+      const manifestSync = depsOf<ManifestSyncDeps>(ctx.services.manifestSyncManager)
+      const migrate = vi.spyOn(ctx.services.accountSettings, 'migrateLegacySettings').mockResolvedValue(undefined)
+
+      expect(depsOf<ManifestHydratorDeps>(ctx.services.manifestHydrator).decodeLegacyItem).toBe(decodeLegacyItem)
+      expect(depsOf<AccountSettingsDeps>(ctx.services.accountSettings).legacySettings).toBe(legacySettings)
+      expect(manifestSync.fetchManifestEverySync).toBe(true)
+      await manifestSync.migrateLegacySettings?.()
+      expect(migrate).toHaveBeenCalledTimes(1)
+    })
+
+    it('records no device level while synced keys are left in local metadata', async () => {
+      const ctx = await createContext('test-account-legacy-settings', { legacySettings })
+      const getMetadata = vi.mocked(ctx.services.indexManager.getMetadata)
+      const maxDeviceVersion = readMaxDeviceVersion(ctx)
+
+      getMetadata.mockResolvedValue({ prayerGoal: 4, sortCriteria: [] })
+      await expect(maxDeviceVersion()).resolves.toBe(0)
+
+      getMetadata.mockResolvedValue({ sortCriteria: [] })
+      await expect(maxDeviceVersion()).resolves.toBe(Number.POSITIVE_INFINITY)
     })
   })
 
