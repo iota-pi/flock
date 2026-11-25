@@ -60,9 +60,9 @@ export interface SyncApi<TDoc extends VaultDoc = VaultDoc, TMeta extends VaultMe
   updateAuthToken: (token: string | null) => Promise<void>
   failAuthTokenRefresh: () => Promise<void>
   reencryptAllItems: (options?: ReencryptOptions) => Promise<ReencryptResult>
-  /** Waits until a re-encryption could push, without rewriting anything (see ItemReencryptor.prepare) */
+  /** Waits until a re-encryption could push, without rewriting anything (see SnapshotRewriter.prepare) */
   prepareReencryption: (options?: ReencryptOptions) => Promise<void>
-  /** Stops the re-encryption in flight and any scheduled retry */
+  /** Stops the re-encryption in flight and clears what it has queued */
   cancelReencryption: () => Promise<void>
   /** What the session is waiting on, for a migration app to report when it stalls */
   getSyncDiagnostics: () => Promise<SyncDiagnostics>

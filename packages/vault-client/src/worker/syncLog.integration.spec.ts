@@ -974,7 +974,7 @@ describe('sync log', () => {
       await a.settle()
       const rows = server.rows.length
 
-      const result = await a.services.itemReencryptor.run()
+      const result = await a.services.snapshotRewriter.request()
 
       expect(result).toEqual({ succeeded: [itemId], failed: [] })
       expect(server.rows.length).toBe(rows + 1)
@@ -994,7 +994,7 @@ describe('sync log', () => {
         return pushItems(itemIds, signal)
       })
 
-      expect(await a.services.itemReencryptor.run()).toEqual({ succeeded: [itemId], failed: [] })
+      expect(await a.services.snapshotRewriter.request()).toEqual({ succeeded: [itemId], failed: [] })
       expect(server.items.get(itemId)?.version).toBe(version + 1)
 
       await a.sync()
@@ -1013,13 +1013,13 @@ describe('sync log', () => {
       await a.start()
 
       let finished = false
-      const run = a.services.itemReencryptor.run().then(result => {
+      const run = a.services.snapshotRewriter.request().then(result => {
         finished = true
         return result
       })
       await a.settle()
       expect(finished).toBe(false)
-      expect(a.services.itemReencryptor.stage).toBe('waitingForSync')
+      expect(a.services.snapshotRewriter.stage).toBe('waitingForSync')
 
       await a.poll()
 
@@ -1036,7 +1036,7 @@ describe('sync log', () => {
       await a.uploadSnapshots()
       server.hiddenSeqs.add(server.head)
 
-      await b.services.itemReencryptor.run()
+      await b.services.snapshotRewriter.request()
       server.hiddenSeqs.clear()
       await a.poll()
       await a.manifestSync()

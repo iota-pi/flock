@@ -53,6 +53,22 @@ export function toTombstoneSnapshot(snapshot: VaultSnapshotInput): VaultSnapshot
   return { itemId: snapshot.itemId, deleted: true }
 }
 
+/**
+ * Builds an item's snapshot, and if it holds changes the log doesn't have yet (S1), pushes them and
+ * builds once more. Changes made since the push before the build land here.
+ */
+export async function buildAfterPush(
+  builder: Pick<SnapshotBuilder, 'build'>,
+  pushToLog: (itemIds: ItemId[], signal?: AbortSignal) => Promise<void>,
+  itemId: ItemId,
+  signal?: AbortSignal,
+): Promise<BuildSnapshotResult> {
+  const result = await builder.build(itemId, { signal })
+  if (result.type !== 'deferred' || result.reason !== 'unpushed') return result
+  await pushToLog([itemId], signal)
+  return builder.build(itemId, { signal })
+}
+
 /** Builds an item's encrypted snapshot from its local Automerge doc */
 export class SnapshotBuilder {
   constructor(

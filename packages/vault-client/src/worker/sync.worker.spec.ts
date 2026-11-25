@@ -123,8 +123,8 @@ beforeEach(() => {
           readAll: vi.fn().mockResolvedValue(new Map()),
           append: vi.fn().mockResolvedValue(undefined),
         },
-        itemReencryptor: {
-          run: vi.fn().mockResolvedValue({ succeeded: [], failed: [] }),
+        snapshotRewriter: {
+          request: vi.fn().mockResolvedValue({ succeeded: [], failed: [] }),
         },
         itemRecoveryService: {
           retryRecoveryItem: vi.fn().mockResolvedValue(undefined),
@@ -685,8 +685,8 @@ describe('SyncWorker readiness and queueing before initialization', () => {
       const eventSpy = vi.fn()
       ;(worker as any).clientEventHub.subscribe(eventSpy)
 
-      // Mock itemReencryptor.run to invoke the onProgress callback it receives
-      ;(worker as any)._context.services.itemReencryptor.run.mockImplementationOnce(
+      // Mock snapshotRewriter.request to invoke the onProgress callback it receives
+      ;(worker as any)._context.services.snapshotRewriter.request.mockImplementationOnce(
         async ({ onProgress }: { onProgress: (done: number, total: number) => void }) => {
           onProgress(3, 10)
           onProgress(10, 10)
@@ -705,7 +705,7 @@ describe('SyncWorker readiness and queueing before initialization', () => {
       await worker.initRepo('account-1', 'vault-key-1')
       const ctx = (worker as any)._context
       const order: string[] = []
-      ctx.services.itemReencryptor.run.mockImplementationOnce(async () => {
+      ctx.services.snapshotRewriter.request.mockImplementationOnce(async () => {
         order.push('items')
         return { succeeded: [], failed: [] }
       })

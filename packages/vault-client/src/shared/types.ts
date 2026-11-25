@@ -92,7 +92,7 @@ export interface ReencryptOptions {
 export interface ReencryptCallOptions extends ReencryptOptions {
   /** Called whenever the run's stage changes, and with null once it stops */
   onStage?: (stage: ReencryptStage | null) => void
-  /** Aborting it stops the run in the worker (and any retry it scheduled), and rejects the call */
+  /** Aborting it stops the rewrite in the worker, including what it has queued, and rejects the call */
   signal?: AbortSignal
 }
 

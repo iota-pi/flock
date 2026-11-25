@@ -9,7 +9,13 @@ import { checkAlive } from '../utils/abort'
 import { SizeAwareBatchAccumulator } from '../utils/SizeAwareBatchAccumulator'
 import type { SnapshotSchedule } from './SnapshotSchedule'
 import type { ItemSyncState } from './ItemSyncState'
-import { estimateSnapshotSize, type SnapshotBuilder, toTombstoneSnapshot, type PreparedSnapshotItem } from './SnapshotBuilder'
+import {
+  buildAfterPush,
+  estimateSnapshotSize,
+  type SnapshotBuilder,
+  toTombstoneSnapshot,
+  type PreparedSnapshotItem,
+} from './SnapshotBuilder'
 import { fireAndForget } from '../utils/fireAndForget'
 import {
   uploadSnapshotBatch,
@@ -226,12 +232,7 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
     }
 
     // The build bounds its document lookup, so an unreadable document fails here rather than wedging the push
-    let buildResult = await this.deps.builder.build(itemId, { signal })
-    if (buildResult.type === 'deferred' && buildResult.reason === 'unpushed') {
-      // Changes made since the push that started this upload
-      await this.deps.pushToLog([itemId], signal)
-      buildResult = await this.deps.builder.build(itemId, { signal })
-    }
+    const buildResult = await buildAfterPush(this.deps.builder, this.deps.pushToLog, itemId, signal)
 
     if (buildResult.type === 'not-ready') {
       return { type: 'fail' }
