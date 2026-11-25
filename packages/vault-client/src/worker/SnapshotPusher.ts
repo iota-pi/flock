@@ -323,9 +323,7 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
     let total = 0
     let success = true
 
-    // The poll has pushed pending marks already. This catches the items marked only for a snapshot.
-    await this.deps.pushToLog(dirtyItemIds, signal)
-
+    // The poll has pushed pending marks already, so an item holding changes the log lacks is rare: its build pushes it (S1)
     const accumulator = new SizeAwareBatchAccumulator<PreparedSnapshotItem>({ maxBatchBytes: this.maxPayloadBytes })
 
     const flushAccumulated = async (): Promise<void> => {
