@@ -45,6 +45,11 @@ export interface SnapshotPusherOptions {
   builder: Pick<SnapshotBuilder, 'build'>
   /** Pushes items' changes to the log, which comes before their snapshots */
   pushToLog: (itemIds: ItemId[], signal: AbortSignal) => Promise<unknown>
+  /**
+   * Writes the items' docs to storage, which has to happen before their snapshots count as stored.
+   * Otherwise a crash could leave the device without changes its base version says it has.
+   */
+  storeDocs: (itemIds: ItemId[]) => Promise<void>
   /** Called with each snapshot the server stored */
   onSnapshotStored: (details: StoredSnapshotDetails) => void
   recoveryManager: RecoveryManager
@@ -421,6 +426,14 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
     options: UploadItemsOptions,
   ): Promise<{ success: boolean; persisted: number }> {
     const { signal, onItemResult } = options
+    try {
+      await this.deps.storeDocs(batch.map(item => item.snapshot.itemId))
+    } catch (error) {
+      // A storage failure says nothing about the items, so it counts none against them, and they stay dirty
+      log.error('Failed to store docs; not uploading their snapshots', error)
+      return { success: false, persisted: 0 }
+    }
+
     let result: SnapshotBatchResult<UploadableSnapshot>
     try {
       result = await uploadSnapshotBatch(batch, {

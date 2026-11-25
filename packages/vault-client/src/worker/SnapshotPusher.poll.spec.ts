@@ -155,6 +155,7 @@ describe('SnapshotPusher in a poll', () => {
     accountId: string | null
     repo: any
     pushToLog: any
+    storeDocs: any
     onSnapshotStored: any
     eventHub: any
     recoveryManager: RecoveryManager
@@ -194,6 +195,7 @@ describe('SnapshotPusher in a poll', () => {
       accountId: 'test-account',
       repo: mockRepo,
       pushToLog: vi.fn().mockResolvedValue(undefined),
+      storeDocs: vi.fn().mockResolvedValue(undefined),
       onSnapshotStored: vi.fn(),
       eventHub: mockEventHub,
       recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: mockEventHub as any }),

@@ -13,6 +13,7 @@ import {
   destroyWorld,
   Edit,
   FailStateSave,
+  Idle,
   LoseResponse,
   OpenTab,
   Poll,
@@ -91,6 +92,18 @@ describe('sync model', () => {
       new Edit(1, 1, true),
       new Crash(1, 'none', 0),
       new Poll(1),
+    ])).resolves.toBeUndefined()
+  })
+
+  // A crash lost an acknowledged edit from its author's doc, whose log cursor had moved past the row
+  it('keeps an acknowledged edit through a crash before the Repo stores its doc', { timeout: 60_000 }, async () => {
+    await expect(runScenario(1, [
+      new Create(0),
+      new Poll(0),
+      new Edit(0, 0),
+      new Poll(0),
+      new Idle(),
+      new Crash(0, 'none', 0),
     ])).resolves.toBeUndefined()
   })
 

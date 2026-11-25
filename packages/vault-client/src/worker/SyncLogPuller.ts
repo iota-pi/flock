@@ -77,7 +77,10 @@ export class SyncLogPuller {
   /** Where reading stopped, and whether it's catching up (`logPullState.ts`) */
   private state: LogPullState = INITIAL_LOG_PULL_STATE
   private readonly ownSeqs = new BoundedSet<number>(OWN_PUSH_CACHE_MAX)
-  /** Items log rows were applied to that may not have reached storage under a saved cursor yet */
+  /**
+   * Items log rows were applied to, or this device's own rows echoed for, that may not have reached
+   * storage under a saved cursor yet
+   */
   private readonly unflushedItems = new Set<ItemId>()
   /** Saves run one at a time, so a slow flush can't let an older cursor overwrite a newer one */
   private readonly saveMutex = new AsyncMutex()
@@ -269,7 +272,11 @@ export class SyncLogPuller {
           break
         }
         this.dispatch({ type: 'rowRead' })
-        if (await this.handleEntry(entry, context)) {
+        if (this.ownSeqs.delete(entry.seq)) {
+          // The push read the changes from the doc in memory. If storing it failed, this row is what
+          // brings them back after a crash, so the cursor waits for the doc as for a pulled row.
+          this.unflushedItems.add(entry.itemId)
+        } else if (await this.handleEntry(entry, context)) {
           appliedItems.add(entry.itemId)
           this.unflushedItems.add(entry.itemId)
         }
@@ -316,11 +323,6 @@ export class SyncLogPuller {
 
   /** Returns whether the entry's changes reached its doc */
   private async handleEntry(entry: SyncLogEntry, context: PageContext): Promise<boolean> {
-    if (this.ownSeqs.has(entry.seq)) {
-      this.ownSeqs.delete(entry.seq)
-      return false
-    }
-
     const { itemId } = entry
     let bytes: Uint8Array
     try {

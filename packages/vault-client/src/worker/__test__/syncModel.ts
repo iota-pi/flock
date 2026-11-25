@@ -21,6 +21,13 @@ const DEVICE_NAMES = ['device-a', 'device-b', 'device-c', 'device-d'] as const
 const EDIT_KEY = /^e\d+$/
 /** Rounds a quiesce may take before the system counts as not converging */
 const MAX_QUIESCE_ROUNDS = 8
+/**
+ * Longer than any run, so that a doc reaches storage only when something stores it, and a crash loses
+ * every change the model counts as unstored
+ */
+const REPO_SAVE_DEBOUNCE_MS = 24 * HOUR
+/** Past the debounced saves that run in real time, such as the log cursor's */
+const IDLE_MS = 1500
 
 /** What must be true of the system, as far as the operations so far say */
 export interface Model {
@@ -96,9 +103,11 @@ function record(model: Model, device: number, change: Change): void {
   model.unstored.set(device, list)
 }
 
-/** The device's changes are in its storage now, so nothing may lose them */
-function markStored(model: Model, device: number): void {
-  for (const change of model.unstored.get(device) ?? []) {
+/** The device's changes (to `itemIds`, or all of them) are in its storage now, so nothing may lose them */
+function markStored(model: Model, device: number, itemIds?: ItemId[]): void {
+  const isStored = (change: Change) => !itemIds || itemIds.includes(change.itemId)
+  const changes = model.unstored.get(device) ?? []
+  for (const change of changes.filter(isStored)) {
     if (change.kind === 'create') model.durableCreates.add(change.itemId)
     if (change.kind === 'delete') model.durableDeletes.add(change.itemId)
     if (change.kind === 'edit') {
@@ -107,7 +116,26 @@ function markStored(model: Model, device: number): void {
       model.durableEdits.set(change.itemId, keys)
     }
   }
-  model.unstored.delete(device)
+  const rest = changes.filter(change => !isStored(change))
+  if (rest.length > 0) {
+    model.unstored.set(device, rest)
+  } else {
+    model.unstored.delete(device)
+  }
+}
+
+/**
+ * Runs an operation as the device's leader (see `as`), and counts the changes to each item whose mark
+ * it cleared as stored: a push clears a mark only once the item's doc is stored, since nothing would
+ * bring an acknowledged change back to the device after that
+ */
+async function asLeader<T>(model: Model, world: World, device: number, operation: (leader: Device) => Promise<T>): Promise<T> {
+  const leader = world.devices[device]
+  const before = await leader.pending()
+  const result = await as(world, leader, () => operation(leader))
+  const after = new Set(await leader.pending())
+  markStored(model, device, before.filter(itemId => !after.has(itemId)))
+  return result
 }
 
 /** The items the device has changed but may not have stored */
@@ -235,9 +263,8 @@ export class Delete extends DeviceCommand {
 }
 
 export class Poll extends DeviceCommand {
-  async run(_model: Model, world: World): Promise<void> {
-    const device = world.devices[this.device]
-    await as(world, device, () => device.poll())
+  async run(model: Model, world: World): Promise<void> {
+    await asLeader(model, world, this.device, device => device.poll())
   }
 
   toString(): string {
@@ -246,9 +273,8 @@ export class Poll extends DeviceCommand {
 }
 
 export class UploadSnapshots extends DeviceCommand {
-  async run(_model: Model, world: World): Promise<void> {
-    const device = world.devices[this.device]
-    await as(world, device, () => device.uploadSnapshots())
+  async run(model: Model, world: World): Promise<void> {
+    await asLeader(model, world, this.device, device => device.uploadSnapshots())
   }
 
   toString(): string {
@@ -257,10 +283,10 @@ export class UploadSnapshots extends DeviceCommand {
 }
 
 export class ManifestSync extends DeviceCommand {
-  async run(_model: Model, world: World): Promise<void> {
+  async run(model: Model, world: World): Promise<void> {
     const device = world.devices[this.device]
     try {
-      await as(world, device, () => device.manifestSync())
+      await asLeader(model, world, this.device, leader => leader.manifestSync())
     } catch (error) {
       // A device that knows no items yet has no local data to fall back on, so it throws offline
       if (device.isOnline) throw error
@@ -571,6 +597,21 @@ export class RaceSnapshots implements SyncCommand {
   }
 }
 
+/** Time passes with the app open, so the debounced saves that run in real time (the log cursor's) run */
+export class Idle implements SyncCommand {
+  check(): boolean {
+    return true
+  }
+
+  async run(): Promise<void> {
+    await new Promise(resolve => setTimeout(resolve, IDLE_MS))
+  }
+
+  toString(): string {
+    return 'idle()'
+  }
+}
+
 /** The jumps the clock makes, each past a timeout the engine waits on */
 const CLOCK_JUMPS = [
   SYNC_TIMEOUTS.gapWait,
@@ -616,6 +657,7 @@ export function commandArbitrary(deviceCount: number): fc.Arbitrary<SyncCommand>
     { weight: 1, arbitrary: device.map(d => new Steal(d)) },
     { weight: 1, arbitrary: fc.constant(new LoseResponse()) },
     { weight: 1, arbitrary: device.map(d => new FailStateSave(d)) },
+    { weight: 1, arbitrary: fc.constant(new Idle()) },
   )
 }
 
@@ -635,7 +677,9 @@ export async function createWorld(deviceCount: number): Promise<{ model: Model; 
   vi.spyOn(Date, 'now').mockImplementation(() => now(world))
   world.server.clock = () => now(world)
   for (let i = 0; i < deviceCount; i += 1) {
-    world.devices.push(await new Device(deviceName(i), world.server, world.keys).start())
+    world.devices.push(await new Device(deviceName(i), world.server, world.keys, {
+      config: { repoSaveDebounceMs: REPO_SAVE_DEBOUNCE_MS },
+    }).start())
   }
   for (const device of world.devices) {
     await device.poll()

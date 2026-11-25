@@ -81,6 +81,7 @@ function createUploader(deps: TestDeps): SnapshotPusher {
     state: deps.state,
     builder: deps.builder,
     pushToLog: deps.pushToLog,
+    storeDocs: vi.fn().mockResolvedValue(undefined),
     onSnapshotStored: deps.onSnapshotStored,
     recoveryManager: deps.recoveryManager,
     apiClient: deps.apiClient,

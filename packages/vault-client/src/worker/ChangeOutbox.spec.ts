@@ -47,6 +47,7 @@ describe('ChangeOutbox', () => {
       readChangesSince: vi.fn().mockResolvedValue({ changes: [bytes(10)], heads: ['head-2'] }),
       hasChangesSince: vi.fn().mockReturnValue(false),
       hasDataInStorage: vi.fn().mockResolvedValue(true),
+      flushToStorage: vi.fn().mockResolvedValue(undefined),
     }
     exchange = vi.fn(acknowledge)
     encryptBytes = vi.fn(async (data: Uint8Array) => ({ iv: 'iv', cipher: 'c'.repeat(data.byteLength), kver: '1', format: 2 }))
@@ -211,6 +212,53 @@ describe('ChangeOutbox', () => {
 
       expect(await outbox.listPending()).toEqual([])
       expect(await db.get(SYNC_LOG_STORES.items, ITEM)).toEqual({ itemId: ITEM, serverHeads: ['head-2'], dirty: true })
+    })
+  })
+
+  describe('an acknowledgement whose doc fails to store', () => {
+    beforeEach(() => {
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      docStore.flushToStorage.mockRejectedValue(new DOMException('The disk is full', 'QuotaExceededError'))
+    })
+
+    it('stores the doc before saving the acknowledgement', async () => {
+      docStore.flushToStorage.mockResolvedValue(undefined)
+      const save = vi.spyOn(itemSyncState, 'save')
+      await outbox.mark(ITEM)
+
+      await outbox.pushPending(signal)
+
+      expect(docStore.flushToStorage).toHaveBeenCalledWith([ITEM])
+      expect(docStore.flushToStorage.mock.invocationCallOrder[0]).toBeLessThan(save.mock.invocationCallOrder[0])
+      expect(await outbox.listPending()).toEqual([])
+    })
+
+    it('keeps the mark and the item queued, saving nothing first', async () => {
+      const save = vi.spyOn(itemSyncState, 'save')
+      await outbox.mark(ITEM)
+
+      await outbox.pushPending(signal)
+
+      expect(await outbox.listPending()).toEqual([ITEM])
+      expect(onAcknowledged).toHaveBeenCalledWith(ITEM)
+      expect(save).not.toHaveBeenCalled()
+      expect(itemSyncState.hasUnsaved(ITEM, 'serverHeads')).toBe(true)
+    })
+
+    it('keeps the mark once the heads are saved, until the doc is stored', async () => {
+      await outbox.mark(ITEM)
+      await outbox.pushPending(signal)
+      await itemSyncState.save()
+      // The doc has nothing after the heads the acknowledgement recorded
+      docStore.readChangesSince.mockResolvedValue({ changes: [], heads: ['head-2'] })
+
+      await outbox.pushPending(signal)
+      expect(await outbox.listPending()).toEqual([ITEM])
+      expect(exchange).toHaveBeenCalledTimes(1)
+
+      docStore.flushToStorage.mockResolvedValue(undefined)
+      await outbox.pushPending(signal)
+      expect(await outbox.listPending()).toEqual([])
     })
   })
 

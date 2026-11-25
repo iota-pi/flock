@@ -129,6 +129,17 @@ export class Device {
   }
 
   /**
+   * Makes every write of a doc to storage fail, as a full disk does, while the device's other storage
+   * carries on. The Repo's throttled saves fail with them, so the docs hold edits only in memory.
+   * Returns a function that lets the writes through again.
+   */
+  failDocWrites(): () => void {
+    const save = vi.spyOn(this.services.repoManager.storage, 'save')
+      .mockRejectedValue(new DOMException('The disk is full', 'QuotaExceededError'))
+    return () => save.mockRestore()
+  }
+
+  /**
    * Stops the device as a dying browser does: nothing it hasn't stored yet reaches its storage, including
    * whatever `inFlight` (an operation it was in the middle of) goes on to write. Its other open `tabs`
    * die with it. `start` brings it back on whatever it had stored.
