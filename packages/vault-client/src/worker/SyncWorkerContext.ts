@@ -12,6 +12,7 @@ import { SyncOrchestrator } from './SyncOrchestrator'
 import { SyncPoller } from './SyncPoller'
 import { LogExchange } from './LogExchange'
 import { ManifestHydrator } from './ManifestHydrator'
+import { ManifestDemands } from './ManifestDemands'
 import { ManifestSyncManager } from './ManifestSyncManager'
 import { ItemOperations } from './ItemOperations'
 import { INBOUND_MESSAGE_RESOLVABLE_KINDS, RecoveryManager } from './RecoveryManager'
@@ -157,6 +158,7 @@ export interface SyncWorkerServices {
   snapshotSchedule: SnapshotSchedule
   snapshotPusher: SnapshotPusher
   orchestrator: SyncOrchestrator
+  manifestDemands: ManifestDemands
   manifestHydrator: ManifestHydrator
   manifestSyncManager: ManifestSyncManager
   itemOperations: ItemOperations
@@ -377,6 +379,8 @@ export class SyncWorkerContext {
       onHealingChange: isHealing => this.statusManager.setDegradedPull(isHealing),
     })
 
+    const manifestDemands = new ManifestDemands()
+
     const puller = new SyncLogPuller({
       cursorStore: new LogCursorStore(accountId),
       docs: docStore,
@@ -384,6 +388,7 @@ export class SyncWorkerContext {
       session,
       incoming,
       healer: gapHealer,
+      manifest: manifestDemands,
       itemSyncState,
       bus: realtimeBus,
       onKeyVersionMissing: this.emitKeyVersionMissing,
@@ -481,6 +486,7 @@ export class SyncWorkerContext {
       keys,
       recoveryManager,
       apiClient: this.apiClient,
+      demands: manifestDemands,
       hydrator: manifestHydrator,
       storeItems,
       migrateLegacySettings: () => accountSettings.migrateLegacySettings(),
@@ -507,7 +513,7 @@ export class SyncWorkerContext {
       exchange: logExchange,
       outbox: changeOutbox,
       healer: gapHealer,
-      runManifestPhase: (signal, minMode) => manifestSyncManager.runPhase(signal, minMode),
+      runManifestPhase: (stage, signal) => manifestSyncManager.runPhase(stage, signal),
       snapshots: snapshotPusher,
     })
 
@@ -596,6 +602,7 @@ export class SyncWorkerContext {
       snapshotSchedule,
       snapshotPusher,
       orchestrator,
+      manifestDemands,
       manifestHydrator,
       manifestSyncManager,
       itemOperations,

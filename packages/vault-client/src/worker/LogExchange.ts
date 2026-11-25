@@ -9,7 +9,7 @@ import { checkAlive } from '../utils/abort'
 export interface LogExchangeDeps {
   accountId: string
   session: Pick<SyncSessionState, 'isOperational'>
-  puller: Pick<SyncLogPuller, 'cursor' | 'recordOwnPushes' | 'needsCatchUpManifest' | 'onBehindSeen' | 'process'>
+  puller: Pick<SyncLogPuller, 'cursor' | 'recordOwnPushes' | 'dropPageIfBehind' | 'process'>
   apiClient: Pick<SyncApiClient, 'pollLog'>
 }
 
@@ -32,7 +32,7 @@ export class LogExchange {
   /**
    * Sends `push` in one `pollLog` and reads the log. `onResults` runs before the entries are applied,
    * so a pull sees the state the acknowledgement leaves. A page the device can't read yet is dropped,
-   * and read again once it has caught up.
+   * and read again at once after catch-up's manifest sync (rule 4).
    */
   readonly exchange = async (
     push: SyncLogMessage[],
@@ -49,10 +49,7 @@ export class LogExchange {
       await onResults(response.pushResults)
       this.completed += 1
 
-      if (puller.needsCatchUpManifest(response.serverNow)) {
-        puller.onBehindSeen()
-        return
-      }
+      if (puller.dropPageIfBehind(response)) return
       await puller.process(response)
     })
   }

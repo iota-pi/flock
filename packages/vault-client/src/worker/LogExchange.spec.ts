@@ -17,8 +17,7 @@ describe('LogExchange', () => {
   let puller: {
     cursor: number
     recordOwnPushes: AnyMock
-    needsCatchUpManifest: AnyMock
-    onBehindSeen: AnyMock
+    dropPageIfBehind: AnyMock
     process: AnyMock
   }
   let apiClient: { pollLog: AnyMock }
@@ -29,8 +28,7 @@ describe('LogExchange', () => {
     puller = {
       cursor: 7,
       recordOwnPushes: vi.fn(),
-      needsCatchUpManifest: vi.fn().mockReturnValue(false),
-      onBehindSeen: vi.fn(),
+      dropPageIfBehind: vi.fn().mockReturnValue(false),
       process: vi.fn().mockResolvedValue(undefined),
     }
     apiClient = { pollLog: vi.fn().mockResolvedValue(response()) }
@@ -76,12 +74,11 @@ describe('LogExchange', () => {
 
   // Rule 4: the page is read again once a manifest sync has caught the device up
   it('drops a page when the server clock shows the device is behind', async () => {
-    puller.needsCatchUpManifest.mockReturnValue(true)
+    puller.dropPageIfBehind.mockReturnValue(true)
 
     await exchange.exchange([], async () => {})
 
-    expect(puller.needsCatchUpManifest).toHaveBeenCalledWith(1000)
-    expect(puller.onBehindSeen).toHaveBeenCalledTimes(1)
+    expect(puller.dropPageIfBehind).toHaveBeenCalledWith(response())
     expect(puller.process).not.toHaveBeenCalled()
   })
 

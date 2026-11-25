@@ -12,6 +12,7 @@ import { isRequestFailure } from '../utils/errorClassifier'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { calculateSyncDeltas, type QuarantinedItem, type SyncDeltas } from './calculateSyncDeltas'
 import type { ManifestHydrator } from './ManifestHydrator'
+import type { ManifestDemand, ManifestDemands } from './ManifestDemands'
 import { findSnapshotsCoveredLocally } from './findSnapshotsCoveredLocally'
 import { areHeadsEqual } from './utils/automerge'
 import type { ItemSyncState } from './ItemSyncState'
@@ -38,6 +39,8 @@ export interface ManifestSyncManagerDeps {
   keys: KeyProvider
   recoveryManager: RecoveryManager
   apiClient: SyncApiClient
+  /** The syncs other components demand, which a phase meets once it fetches the manifest */
+  demands: ManifestDemands
   /** Fetches the snapshots the manifest shows this device lacks, and merges them in */
   hydrator: Pick<ManifestHydrator, 'fetchAndHydrateRemoteItems'>
   storeItems: (items: VaultDoc[], options?: StoreItemsOptions) => Promise<void>
@@ -79,12 +82,19 @@ export interface ManifestSyncTicket {
   result?: ManifestPhaseResult
 }
 
+/** Where in the poll a manifest phase runs: before the log is read, or after */
+export type ManifestStage = 'beforeRead' | 'afterRead'
+
 const MODE_STRENGTH: Record<ManifestMode, number> = { due: 0, now: 1, force: 2 }
 
 function strongerMode(a: ManifestMode | undefined, b: ManifestMode | undefined): ManifestMode | undefined {
   if (a === undefined) return b
   if (b === undefined) return a
   return MODE_STRENGTH[b] > MODE_STRENGTH[a] ? b : a
+}
+
+function describeDemands(demands: ManifestDemand[]): string {
+  return demands.map(demand => demand.purpose).join(', ')
 }
 
 const NOT_SYNCED: ManifestPhaseResult = { added: [], success: false, fetchedManifest: false }
@@ -135,7 +145,7 @@ export class ManifestSyncManager {
    */
   getDueAt(now = Date.now()): number | undefined {
     if (!this.canSync) return undefined
-    if (this.requested !== undefined || this.tickets.size > 0) return now
+    if (this.requested !== undefined || this.tickets.size > 0 || this.deps.demands.size > 0) return now
     return this.periodicDueAt
   }
 
@@ -145,22 +155,32 @@ export class ManifestSyncManager {
   }
 
   /**
-   * The poll's manifest phase. Runs a sync at the strongest mode asked for (by `request`, an open
-   * ticket or `minMode`), or a `due` one if the periodic sync is due, and returns null if none is.
-   * A manifest that can't be fetched throws, which fails the poll (rule 4), and what was asked for stays
-   * asked for. Items that fail to hydrate don't throw: they are left for the next sync.
+   * One of the poll's manifest phases. Before the log is read, it runs a sync only for a demand that
+   * must run then. After, it runs one for any demand, `request` or open ticket, or a `due` one if the
+   * periodic sync is due. A sync that runs takes the strongest mode asked for and serves everything
+   * it meets, and null means none ran. A manifest that can't be fetched throws, which fails the poll
+   * (rule 4), and what was asked for stays asked for. Items that fail to hydrate don't throw: they
+   * are left for the next sync.
    */
-  async runPhase(signal: AbortSignal, minMode?: ManifestMode): Promise<ManifestPhaseResult | null> {
-    if (!this.canSync) return null
+  async runPhase(stage: ManifestStage, signal: AbortSignal): Promise<ManifestPhaseResult | null> {
+    const demands = this.deps.demands.list()
+    const demanded = stage === 'afterRead' ? demands.length > 0 : demands.some(demand => demand.beforeRead)
+    if (!this.canSync) {
+      if (demanded) throw new Error(`${describeDemands(demands)} needs the manifest, which this tab can't fetch`)
+      return null
+    }
     this.lastCleanAt ??= await this.deps.indexManager.getLastManifestSyncTime()
     checkAlive(signal, this.isAlive)
 
-    let mode = strongerMode(this.requested, minMode)
-    for (const ticket of this.tickets) {
-      mode = strongerMode(mode, ticket.mode)
+    let mode: ManifestMode | undefined = demanded ? 'now' : undefined
+    if (stage === 'afterRead' || demanded) {
+      mode = strongerMode(mode, this.requested)
+      for (const ticket of this.tickets) {
+        mode = strongerMode(mode, ticket.mode)
+      }
     }
     const periodicDueAt = this.periodicDueAt
-    if (mode === undefined && periodicDueAt !== undefined && Date.now() >= periodicDueAt) {
+    if (stage === 'afterRead' && mode === undefined && periodicDueAt !== undefined && Date.now() >= periodicDueAt) {
       mode = 'due'
     }
     if (mode === undefined) return null
@@ -179,6 +199,11 @@ export class ManifestSyncManager {
     for (const ticket of served) {
       ticket.result = result
       this.tickets.delete(ticket)
+    }
+    if (result.fetchedManifest) {
+      for (const demand of demands) {
+        this.deps.demands.meet(demand)
+      }
     }
     return result
   }

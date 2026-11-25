@@ -1,6 +1,7 @@
 import type { Mock } from 'vitest'
 import type { ItemId, SyncLogEntry } from '@vault/shared'
 import type { KeyProvider } from '../keys/Keyring'
+import type { ManifestDemand } from './ManifestDemands'
 import { SyncLogPuller, type LogPage, type SyncLogPullerDeps } from './SyncLogPuller'
 import { SyncSessionState } from './SyncSessionState'
 import { MissingKeyError } from './utils/decryptWithKeyResolution'
@@ -25,6 +26,19 @@ function page(entries: SyncLogEntry[], overrides: Partial<LogPage> = {}): LogPag
   return { entries, hasMore: false, serverNow: NOW, ...overrides }
 }
 
+/** Holds demands as `ManifestSyncManager` does, and meets them all when a sync fetches the manifest */
+class FakeManifest {
+  readonly demands = new Set<ManifestDemand>()
+  demand(demand: ManifestDemand): void { this.demands.add(demand) }
+  isDemanded(demand: ManifestDemand): boolean { return this.demands.has(demand) }
+  fetch(): void {
+    for (const demand of Array.from(this.demands)) {
+      this.demands.delete(demand)
+      demand.onFetched?.()
+    }
+  }
+}
+
 describe('SyncLogPuller', () => {
   let session: SyncSessionState
   let stored: { cursor: number; lastPullAt: number | null }
@@ -38,6 +52,7 @@ describe('SyncLogPuller', () => {
   let itemSyncState: { recordPulledChanges: AnyMock; save: AnyMock }
   let bus: { publishSyncPing: AnyMock }
   let onRemoteChangesApplied: AnyMock
+  let manifest: FakeManifest
   let puller: SyncLogPuller
 
   beforeEach(async () => {
@@ -72,6 +87,7 @@ describe('SyncLogPuller', () => {
     }
     bus = { publishSyncPing: vi.fn() }
     onRemoteChangesApplied = vi.fn()
+    manifest = new FakeManifest()
     puller = new SyncLogPuller({
       cursorStore: cursorStore as unknown as SyncLogPullerDeps['cursorStore'],
       docs,
@@ -79,6 +95,7 @@ describe('SyncLogPuller', () => {
       session,
       incoming: incoming as unknown as SyncLogPullerDeps['incoming'],
       healer: healer as unknown as SyncLogPullerDeps['healer'],
+      manifest,
       itemSyncState: itemSyncState as unknown as SyncLogPullerDeps['itemSyncState'],
       bus: bus as unknown as SyncLogPullerDeps['bus'],
       onRemoteChangesApplied,
@@ -259,17 +276,18 @@ describe('SyncLogPuller', () => {
 
       expect(puller.cursor).toBe(3)
       expect(puller.gapRepollDelay).toBeUndefined()
-      expect(puller.pendingManifestSync).toBe('recovery')
+      expect(manifest.demands).toEqual(new Set([puller.recoveryDemand]))
+      expect(puller.recoveryDemand.beforeRead).toBe(false)
     })
 
     it('keeps asking for the recovery sync until one fetches the manifest', async () => {
       await puller.process(page([entry(3, { createdAt: NOW - SYNC_TIMEOUTS.gapWait })]))
       await puller.process(page([entry(4)]))
 
-      expect(puller.pendingManifestSync).toBe('recovery')
+      expect(manifest.isDemanded(puller.recoveryDemand)).toBe(true)
 
-      puller.onRecoveryManifestSynced()
-      expect(puller.pendingManifestSync).toBeUndefined()
+      manifest.fetch()
+      expect(manifest.isDemanded(puller.recoveryDemand)).toBe(false)
     })
 
     it('moves past a fresh gap that has lasted the whole wait', async () => {
@@ -278,7 +296,7 @@ describe('SyncLogPuller', () => {
       await puller.process(page([entry(2)], { serverNow: NOW + SYNC_TIMEOUTS.gapWait }))
 
       expect(puller.cursor).toBe(2)
-      expect(puller.pendingManifestSync).toBe('recovery')
+      expect(manifest.isDemanded(puller.recoveryDemand)).toBe(true)
     })
 
     it('expects stale gaps while catching up, and asks for no second manifest sync', async () => {
@@ -290,15 +308,17 @@ describe('SyncLogPuller', () => {
         session,
         incoming: incoming as unknown as SyncLogPullerDeps['incoming'],
         healer: healer as unknown as SyncLogPullerDeps['healer'],
+        manifest,
         itemSyncState: itemSyncState as unknown as SyncLogPullerDeps['itemSyncState'],
       })
       await fresh.loadState()
-      fresh.onCatchUpManifestSynced()
+      expect(fresh.demandCatchUpIfBehind(NOW)).toBe(true)
+      manifest.fetch()
 
       await fresh.process(page([entry(5, { createdAt: NOW - SYNC_TIMEOUTS.gapWait })]))
 
       expect(fresh.cursor).toBe(5)
-      expect(fresh.pendingManifestSync).toBeUndefined()
+      expect(manifest.demands.size).toBe(0)
       await fresh.shutdown({ clearLocalData: true })
     })
   })
@@ -313,15 +333,63 @@ describe('SyncLogPuller', () => {
         session,
         incoming: incoming as unknown as SyncLogPullerDeps['incoming'],
         healer: healer as unknown as SyncLogPullerDeps['healer'],
+        manifest,
         itemSyncState: itemSyncState as unknown as SyncLogPullerDeps['itemSyncState'],
       })
       await fresh.loadState()
 
       expect(fresh.needsCatchUpManifest(NOW)).toBe(true)
+      expect(fresh.isCaughtUp).toBe(false)
 
-      fresh.onCatchUpManifestSynced()
+      expect(fresh.demandCatchUpIfBehind(NOW)).toBe(true)
+      expect(manifest.demands).toEqual(new Set([fresh.catchUpDemand]))
+      expect(fresh.catchUpDemand.beforeRead).toBe(true)
+
+      const caughtUp = fresh.whenCaughtUp()
+      manifest.fetch()
+      await caughtUp
       expect(fresh.needsCatchUpManifest(NOW)).toBe(false)
+      expect(fresh.demandCatchUpIfBehind(NOW)).toBe(false)
       await fresh.shutdown({ clearLocalData: true })
+    })
+
+    it('drops a page when the server clock shows it is behind, and reads again at once after catching up', async () => {
+      const behind = page([entry(1)], { serverNow: NOW - 1000 + SYNC_TIMEOUTS.logCatchUpAge + 1 })
+
+      expect(puller.dropPageIfBehind(behind)).toBe(true)
+      expect(puller.hasImmediatePendingPulls()).toBe(true)
+      expect(manifest.isDemanded(puller.catchUpDemand)).toBe(true)
+      // Demanded, so it's due whatever the local clock says
+      expect(puller.needsCatchUpManifest(NOW)).toBe(true)
+
+      manifest.fetch()
+      expect(puller.dropPageIfBehind(behind)).toBe(false)
+    })
+
+    it('stays caught up until the end of the log, then goes by the last finished pull', async () => {
+      stored = { cursor: 0, lastPullAt: null }
+      await puller.shutdown({ clearLocalData: true })
+      const fresh = new SyncLogPuller({
+        cursorStore: cursorStore as unknown as SyncLogPullerDeps['cursorStore'],
+        docs,
+        keys: keys as unknown as KeyProvider,
+        session,
+        incoming: incoming as unknown as SyncLogPullerDeps['incoming'],
+        healer: healer as unknown as SyncLogPullerDeps['healer'],
+        manifest,
+        itemSyncState: itemSyncState as unknown as SyncLogPullerDeps['itemSyncState'],
+      })
+      puller = fresh
+      await fresh.loadState()
+      fresh.demandCatchUpIfBehind(NOW)
+      manifest.fetch()
+
+      await fresh.process(page([entry(1)], { hasMore: true }))
+      expect(fresh.needsCatchUpManifest(NOW + SYNC_TIMEOUTS.logCatchUpAge * 2)).toBe(false)
+
+      await fresh.process(page([entry(2)]))
+      expect(fresh.needsCatchUpManifest(NOW)).toBe(false)
+      expect(fresh.needsCatchUpManifest(NOW + SYNC_TIMEOUTS.logCatchUpAge + 1)).toBe(true)
     })
 
     it('needs one when the last finished pull is older than the catch-up age', () => {
