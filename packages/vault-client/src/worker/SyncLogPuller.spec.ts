@@ -31,7 +31,9 @@ describe('SyncLogPuller', () => {
   let cursorStore: { load: AnyMock; save: AnyMock }
   let docs: { flushToStorage: AnyMock }
   let keys: { hasKey: AnyMock; decryptBytes: AnyMock; waitForKey: AnyMock }
-  let incoming: { apply: AnyMock }
+  let incoming: { apply: AnyMock, takeAddedChanges: () => ItemId[] }
+  /** Items whose docs gained changes, which `incoming` hands over */
+  let addedChanges: Set<ItemId>
   let healer: { park: AnyMock; onLogEntry: AnyMock }
   let itemSyncState: { recordPulledChanges: AnyMock; save: AnyMock }
   let bus: { publishSyncPing: AnyMock }
@@ -53,7 +55,15 @@ describe('SyncLogPuller', () => {
       decryptBytes: vi.fn(async () => new Uint8Array([1, 2, 3])),
       waitForKey: vi.fn().mockResolvedValue(false),
     }
-    incoming = { apply: vi.fn().mockResolvedValue(true) }
+    addedChanges = new Set()
+    incoming = {
+      apply: vi.fn().mockResolvedValue(true),
+      takeAddedChanges: () => {
+        const itemIds = Array.from(addedChanges)
+        addedChanges.clear()
+        return itemIds
+      },
+    }
     healer = { park: vi.fn().mockResolvedValue(undefined), onLogEntry: vi.fn() }
     itemSyncState = {
       recordPulledChanges: vi.fn().mockResolvedValue(undefined),
@@ -165,7 +175,7 @@ describe('SyncLogPuller', () => {
 
   it('records items whose docs gained changes', async () => {
     incoming.apply.mockImplementationOnce(async () => {
-      puller.onChangesAdded(ITEM)
+      addedChanges.add(ITEM)
       return true
     })
 
@@ -337,7 +347,7 @@ describe('SyncLogPuller', () => {
     it('stores the S2 records for pulled changes before saving the cursor', async () => {
       const order: string[] = []
       incoming.apply.mockImplementationOnce(async () => {
-        puller.onChangesAdded(ITEM)
+        addedChanges.add(ITEM)
         return true
       })
       itemSyncState.recordPulledChanges.mockImplementation(async (itemIds: ItemId[]) => {
@@ -373,7 +383,7 @@ describe('SyncLogPuller', () => {
 
     it('records pulled changes from a page that fails part way, before the cursor can be saved', async () => {
       incoming.apply.mockImplementationOnce(async () => {
-        puller.onChangesAdded(ITEM)
+        addedChanges.add(ITEM)
         return true
       }).mockResolvedValueOnce(false)
       healer.park.mockRejectedValueOnce(new Error('quota'))

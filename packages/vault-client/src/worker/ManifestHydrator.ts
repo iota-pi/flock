@@ -14,6 +14,7 @@ import { classifySyncError, isRequestFailure } from '../utils/errorClassifier'
 import { mapWithConcurrency } from '@vault/shared'
 import { SYNC_BATCH_SIZES, SYNC_TIMEOUTS } from '../shared/syncConfig'
 import type { SyncDomain } from './domain'
+import type { SyncSessionState } from './SyncSessionState'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('ManifestHydrator')
@@ -64,9 +65,11 @@ interface FetchAndHydrateParams {
 
 export interface ManifestHydratorDeps {
   accountId: string
+  /** Only the leader talks to the server, and nothing starts once the session is shutting down */
+  session: Pick<SyncSessionState, 'isLeader' | 'isShutdown'>
   apiClient: SyncApiClient
   docStore: AutomergeDocStore
-  indexManager: AutomergeIndexManager
+  indexManager: Pick<AutomergeIndexManager, 'listItemIds' | 'listTombstoneIds' | 'addItemIds' | 'removeItemIds'>
   itemSyncState: Pick<ItemSyncState, 'importBaseVersions'>
   snapshotSchedule: Pick<SnapshotSchedule, 'markItemDirty'>
   keys: KeyProvider
@@ -77,7 +80,6 @@ export interface ManifestHydratorDeps {
   /** Called with an item whose doc has changes the snapshot merged into it lacks */
   onLocalChangesFound?: (itemId: ItemId) => void
   onKeyVersionMissing?: (kver: string) => void
-  isShutdown: () => boolean
   hydrationConcurrency?: number
   decodeLegacyItem?: SyncDomain['decodeLegacyItem']
   /**
@@ -103,7 +105,22 @@ export class ManifestHydrator {
   constructor(private readonly deps: ManifestHydratorDeps) {}
 
   private isAlive(): boolean {
-    return !this.deps.isShutdown()
+    return !this.deps.session.isShutdown
+  }
+
+  /** Fetches items' snapshots and merges them into their docs, away from any manifest sync */
+  async fetchSnapshots(itemIds: ItemId[], signal?: AbortSignal): Promise<void> {
+    if (!this.deps.session.isLeader || !this.isAlive() || itemIds.length === 0) return
+    const [knownItemIds, tombstoneItemIds] = await Promise.all([
+      this.deps.indexManager.listItemIds(),
+      this.deps.indexManager.listTombstoneIds(),
+    ])
+    await this.fetchAndHydrateRemoteItems({
+      missingIds: itemIds,
+      manifest: [],
+      knownSet: new Set(knownItemIds),
+      tombstoneSet: new Set(tombstoneItemIds),
+    }, signal)
   }
 
   /**

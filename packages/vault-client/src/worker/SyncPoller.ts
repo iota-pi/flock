@@ -1,12 +1,10 @@
-import type { SyncLogMessage } from '@vault/shared'
-import type { ChangeOutbox, LogPushResult } from './ChangeOutbox'
+import type { ChangeOutbox } from './ChangeOutbox'
 import type { GapHealer } from './GapHealer'
+import type { LogExchange } from './LogExchange'
 import type { ManifestMode, ManifestPhaseResult } from './ManifestSyncManager'
-import type { SyncApiClient } from './SyncApiClient'
+import type { SnapshotPusher } from './SnapshotPusher'
 import type { SyncLogPuller } from './SyncLogPuller'
 import type { SyncSessionState } from './SyncSessionState'
-import { AsyncMutex } from '../utils/AsyncMutex'
-import { checkAlive } from '../utils/abort'
 import { classifySyncError } from '../utils/errorClassifier'
 import { createLogger } from '../utils/logger'
 
@@ -15,38 +13,25 @@ const log = createLogger('SyncPoller')
 export type PollOutcome = 'success' | 'failure' | 'auth-failure' | 'no-poll'
 
 export interface SyncPollerDeps {
-  accountId: string
-  session: SyncSessionState
+  session: Pick<SyncSessionState, 'isOperational'>
   puller: Pick<
     SyncLogPuller,
-    | 'cursor'
-    | 'recordOwnPushes'
-    | 'needsCatchUpManifest'
-    | 'onBehindSeen'
-    | 'onCatchUpManifestSynced'
-    | 'onRecoveryManifestSynced'
-    | 'pendingManifestSync'
-    | 'process'
+    'needsCatchUpManifest' | 'onCatchUpManifestSynced' | 'onRecoveryManifestSynced' | 'pendingManifestSync'
   >
-  /** Read from the finished services: the outbox pushes through this poller */
-  getOutbox: () => Pick<ChangeOutbox, 'pushPending'>
+  /** Reads the log, and carries the outbox's pushes */
+  exchange: Pick<LogExchange, 'exchange' | 'count'>
+  outbox: Pick<ChangeOutbox, 'pushPending'>
   healer: Pick<GapHealer, 'runDue'>
-  apiClient: Pick<SyncApiClient, 'pollLog'>
   /**
    * The manifest phase: runs a manifest sync if one is asked for, at least `minMode`, or due, and
    * returns null if none ran. Throws if the manifest can't be fetched.
    */
   runManifestPhase: (signal: AbortSignal, minMode?: ManifestMode) => Promise<ManifestPhaseResult | null>
-  /** Uploads the snapshots that are due, throwing if a request fails. Read from the finished services. */
-  getSnapshots: () => { pushDue: (signal: AbortSignal) => Promise<unknown> }
+  /** Uploads the snapshots that are due, throwing if a request fails */
+  snapshots: Pick<SnapshotPusher, 'pushDue'>
 }
 
 export class SyncPoller {
-  /** Pushes come from polls and snapshot rewrites, and only one may read the log at a time */
-  private readonly exchangeMutex = new AsyncMutex()
-  /** Exchanges completed, so that a poll that pushed nothing still reads the log */
-  private exchanges = 0
-
   constructor(private readonly deps: SyncPollerDeps) {}
 
   private get isOperational(): boolean {
@@ -65,15 +50,16 @@ export class SyncPoller {
     try {
       await this.catchUpIfNeeded(Date.now(), signal)
 
-      const exchangesBefore = this.exchanges
-      await this.deps.getOutbox().pushPending(signal)
-      if (this.exchanges === exchangesBefore) {
-        await this.exchange([], async () => {}, signal)
+      const { exchange } = this.deps
+      const exchangesBefore = exchange.count
+      await this.deps.outbox.pushPending(signal)
+      if (exchange.count === exchangesBefore) {
+        await exchange.exchange([], async () => {}, signal)
       }
 
       if (this.deps.puller.pendingManifestSync === 'catchUp') {
         await this.runCatchUpManifest(signal)
-        await this.exchange([], async () => {}, signal)
+        await exchange.exchange([], async () => {}, signal)
       }
       if (this.deps.puller.pendingManifestSync === 'recovery') {
         await this.runRecoveryManifest(signal)
@@ -81,7 +67,7 @@ export class SyncPoller {
       // After catch-up or recovery has run one, the periodic sync isn't due
       await this.deps.runManifestPhase(signal)
       await this.deps.healer.runDue(signal)
-      await this.deps.getSnapshots().pushDue(signal)
+      await this.deps.snapshots.pushDue(signal)
       return 'success'
     } catch (error) {
       const classified = classifySyncError(error)
@@ -123,34 +109,5 @@ export class SyncPoller {
       throw new Error('Recovering lost log rows needs the manifest, which could not be fetched')
     }
     this.deps.puller.onRecoveryManifestSynced()
-  }
-
-  /**
-   * Sends `push` in one `pollLog` and reads the log. `onResults` runs before the entries are applied.
-   * A page the device can't read yet is dropped, and read again once it has caught up.
-   */
-  readonly exchange = async (
-    push: SyncLogMessage[],
-    onResults: (results: LogPushResult[]) => Promise<void>,
-    signal?: AbortSignal,
-  ): Promise<void> => {
-    await this.exchangeMutex.runExclusive(async () => {
-      checkAlive(signal, () => this.isOperational)
-      const response = await this.deps.apiClient.pollLog(
-        { account: this.deps.accountId, push, after: this.deps.puller.cursor },
-        { signal },
-      )
-      checkAlive(signal, () => this.isOperational)
-
-      this.deps.puller.recordOwnPushes(response.pushResults)
-      await onResults(response.pushResults)
-      this.exchanges += 1
-
-      if (this.deps.puller.needsCatchUpManifest(response.serverNow)) {
-        this.deps.puller.onBehindSeen()
-        return
-      }
-      await this.deps.puller.process(response)
-    })
   }
 }

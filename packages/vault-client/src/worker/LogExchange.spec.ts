@@ -1,0 +1,107 @@
+import type { Mock } from 'vitest'
+import type { ItemId, SyncLogMessage } from '@vault/shared'
+import { LogExchange, type LogExchangeDeps } from './LogExchange'
+import { SyncSessionState } from './SyncSessionState'
+
+type AnyMock = Mock<(...args: any[]) => any>
+
+const ITEM = 'item-1' as ItemId
+const MESSAGE: SyncLogMessage = { itemId: ITEM, encryptedMessage: { iv: 'iv', cipher: 'cipher', kver: '1' } }
+
+function response(overrides: Record<string, unknown> = {}) {
+  return { pushResults: [], entries: [], hasMore: false, serverNow: 1000, ...overrides }
+}
+
+describe('LogExchange', () => {
+  let session: SyncSessionState
+  let puller: {
+    cursor: number
+    recordOwnPushes: AnyMock
+    needsCatchUpManifest: AnyMock
+    onBehindSeen: AnyMock
+    process: AnyMock
+  }
+  let apiClient: { pollLog: AnyMock }
+  let exchange: LogExchange
+
+  beforeEach(() => {
+    session = new SyncSessionState({ isLeader: true })
+    puller = {
+      cursor: 7,
+      recordOwnPushes: vi.fn(),
+      needsCatchUpManifest: vi.fn().mockReturnValue(false),
+      onBehindSeen: vi.fn(),
+      process: vi.fn().mockResolvedValue(undefined),
+    }
+    apiClient = { pollLog: vi.fn().mockResolvedValue(response()) }
+    exchange = new LogExchange({
+      accountId: 'account-1',
+      session,
+      puller: puller as unknown as LogExchangeDeps['puller'],
+      apiClient,
+    })
+  })
+
+  it('pushes and reads the log after the cursor, counting the exchange', async () => {
+    await exchange.exchange([MESSAGE], async () => {})
+
+    expect(apiClient.pollLog).toHaveBeenCalledWith(
+      { account: 'account-1', push: [MESSAGE], after: 7 },
+      { signal: undefined },
+    )
+    expect(puller.process).toHaveBeenCalledTimes(1)
+    expect(exchange.count).toBe(1)
+  })
+
+  it('does nothing unless the session may sync', async () => {
+    session.setOnline(false)
+
+    await expect(exchange.exchange([], async () => {})).rejects.toThrow()
+    expect(apiClient.pollLog).not.toHaveBeenCalled()
+  })
+
+  it('records acknowledgements before applying entries', async () => {
+    const order: string[] = []
+    const pushResults = [{ itemId: ITEM, seq: 8 }]
+    apiClient.pollLog.mockResolvedValue(response({ pushResults }))
+    puller.process.mockImplementation(async () => { order.push('process') })
+
+    await exchange.exchange([MESSAGE], async results => {
+      order.push(`acknowledged ${results.length}`)
+    })
+
+    expect(puller.recordOwnPushes).toHaveBeenCalledWith(pushResults)
+    expect(order).toEqual(['acknowledged 1', 'process'])
+  })
+
+  // Rule 4: the page is read again once a manifest sync has caught the device up
+  it('drops a page when the server clock shows the device is behind', async () => {
+    puller.needsCatchUpManifest.mockReturnValue(true)
+
+    await exchange.exchange([], async () => {})
+
+    expect(puller.needsCatchUpManifest).toHaveBeenCalledWith(1000)
+    expect(puller.onBehindSeen).toHaveBeenCalledTimes(1)
+    expect(puller.process).not.toHaveBeenCalled()
+  })
+
+  it('runs one exchange at a time, so that each reads from the cursor the last one left', async () => {
+    let active = 0
+    let mostActive = 0
+    apiClient.pollLog.mockImplementation(async () => {
+      active += 1
+      mostActive = Math.max(mostActive, active)
+      await new Promise(resolve => setTimeout(resolve, 1))
+      active -= 1
+      return response()
+    })
+
+    await Promise.all([
+      exchange.exchange([], async () => {}),
+      exchange.exchange([], async () => {}),
+    ])
+
+    expect(mostActive).toBe(1)
+    expect(exchange.count).toBe(2)
+  })
+})

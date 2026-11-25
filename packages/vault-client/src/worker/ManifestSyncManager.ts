@@ -5,15 +5,13 @@ import type { SnapshotPusher } from './SnapshotPusher'
 import type { ItemId, ManifestEntry } from '@vault/shared'
 import type { SyncApiClient } from './SyncApiClient'
 import type { StoreItemsOptions } from './ItemOperations'
-import type { SyncDomain } from './domain'
 import type { RecoveryManager } from './RecoveryManager'
 import type { SyncSessionState } from './SyncSessionState'
-import { AbortableRun } from '../utils/AbortableRun'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { isRequestFailure } from '../utils/errorClassifier'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { calculateSyncDeltas, type QuarantinedItem, type SyncDeltas } from './calculateSyncDeltas'
-import { ManifestHydrator } from './ManifestHydrator'
+import type { ManifestHydrator } from './ManifestHydrator'
 import { findSnapshotsCoveredLocally } from './findSnapshotsCoveredLocally'
 import { areHeadsEqual } from './utils/automerge'
 import type { ItemSyncState } from './ItemSyncState'
@@ -30,7 +28,7 @@ const PULLED_CHANGES_GRACE_MS = SYNC_TIMEOUTS.pulledChangesGrace
 export interface ManifestSyncManagerDeps {
   accountId: string
   /** Only the leader talks to the server, so a sync in any other tab does nothing */
-  session: Pick<SyncSessionState, 'isLeader'>
+  session: Pick<SyncSessionState, 'isLeader' | 'isShutdown'>
   docStore: AutomergeDocStore
   indexManager: AutomergeIndexManager
   /** The items owing the server a snapshot, which a sync reads and queues */
@@ -40,16 +38,11 @@ export interface ManifestSyncManagerDeps {
   keys: KeyProvider
   recoveryManager: RecoveryManager
   apiClient: SyncApiClient
-  onKeyVersionMissing?: (kver: string) => void
+  /** Fetches the snapshots the manifest shows this device lacks, and merges them in */
+  hydrator: Pick<ManifestHydrator, 'fetchAndHydrateRemoteItems'>
   storeItems: (items: VaultDoc[], options?: StoreItemsOptions) => Promise<void>
-  onDecryptionFailure?: (itemId: ItemId, error: unknown, serverVersion?: number) => void
-  /** Called for an item that keeps failing to hydrate with an error (see ManifestHydratorDeps) */
-  onRepeatedHydrationError?: (itemId: ItemId, error: unknown, serverVersion?: number) => void
-  onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void
   /** Called with a server snapshot the local doc already holds, which wasn't fetched */
   onSnapshotCovered?: (itemId: ItemId, heads: string[]) => void
-  /** Called with an item whose doc has changes a snapshot merged into it lacks */
-  onLocalChangesFound?: (itemId: ItemId) => void
   /** Called once a sync has merged what it could, with the manifest it fetched */
   onManifestProcessed?: (manifest: ManifestEntry[]) => Promise<void>
   /** The items' base versions, and their unconfirmed pulls for snapshot coverage's S2 */
@@ -57,9 +50,6 @@ export interface ManifestSyncManagerDeps {
     ItemSyncState,
     'listBaseVersions' | 'importBaseVersions' | 'listUnconfirmedPulls' | 'confirmPulledChanges'
   >
-  decodeLegacyItem?: SyncDomain['decodeLegacyItem']
-  /** Called when the server holds legacy rows and there is no `decodeLegacyItem` hook to read them */
-  onMigrationRequired?: () => void
   /** Fetches the manifest on every sync, rather than at most every `manifestSyncMinGap` on a device that has items */
   fetchManifestEverySync?: boolean
   /** Moves settings that predate the settings document into it (see AccountSettings) */
@@ -99,12 +89,12 @@ function strongerMode(a: ManifestMode | undefined, b: ManifestMode | undefined):
 
 const NOT_SYNCED: ManifestPhaseResult = { added: [], success: false, fetchedManifest: false }
 
+/**
+ * Runs the manifest sync as a phase of the poll, which carries the poll's abort signal, so a sync
+ * stops with the poll that runs it.
+ */
 export class ManifestSyncManager {
-  private readonly hydrator: ManifestHydrator
-  private isShutdown = false
-
-  private readonly isAlive = () => !this.isShutdown
-  private readonly syncRun = new AbortableRun(this.isAlive)
+  private readonly isAlive = () => !this.deps.session.isShutdown
 
   /** A sync asked for by an event (promotion, coming online, foreground), kept until a phase serves it */
   private requested: ManifestMode | undefined
@@ -114,35 +104,7 @@ export class ManifestSyncManager {
   /** When a sync last fetched the manifest, clean or not, so one with item failures retries hourly */
   private lastAttemptAt = 0
 
-  constructor(private readonly deps: ManifestSyncManagerDeps) {
-    this.hydrator = new ManifestHydrator({
-      accountId: this.deps.accountId,
-      apiClient: this.deps.apiClient,
-      docStore: this.deps.docStore,
-      indexManager: this.deps.indexManager,
-      itemSyncState: this.deps.itemSyncState,
-      snapshotSchedule: this.deps.snapshotSchedule,
-      keys: this.deps.keys,
-      storeItems: this.deps.storeItems,
-      onDecryptionFailure: this.deps.onDecryptionFailure,
-      onRepeatedHydrationError: this.deps.onRepeatedHydrationError,
-      onItemSnapshotHydrated: this.deps.onItemSnapshotHydrated,
-      onLocalChangesFound: this.deps.onLocalChangesFound,
-      onKeyVersionMissing: this.deps.onKeyVersionMissing,
-      decodeLegacyItem: this.deps.decodeLegacyItem,
-      onMigrationRequired: this.deps.onMigrationRequired,
-      isShutdown: () => this.isShutdown,
-    })
-  }
-
-  abort(): void {
-    this.syncRun.abort()
-  }
-
-  shutdown(): void {
-    this.isShutdown = true
-    this.abort()
-  }
+  constructor(private readonly deps: ManifestSyncManagerDeps) {}
 
   /** Asks the next poll's manifest phase for a sync at `mode` or stronger, kept until one fetches the manifest */
   request(mode: ManifestMode): void {
@@ -188,7 +150,7 @@ export class ManifestSyncManager {
    * A manifest that can't be fetched throws, which fails the poll (rule 4), and what was asked for stays
    * asked for. Items that fail to hydrate don't throw: they are left for the next sync.
    */
-  async runPhase(signal?: AbortSignal, minMode?: ManifestMode): Promise<ManifestPhaseResult | null> {
+  async runPhase(signal: AbortSignal, minMode?: ManifestMode): Promise<ManifestPhaseResult | null> {
     if (!this.canSync) return null
     this.lastCleanAt ??= await this.deps.indexManager.getLastManifestSyncTime()
     checkAlive(signal, this.isAlive)
@@ -222,22 +184,7 @@ export class ManifestSyncManager {
   }
 
   private get canSync(): boolean {
-    return !this.isShutdown && this.deps.session.isLeader
-  }
-
-  /** Fetches items' snapshots and merges them into their docs, away from any manifest sync */
-  async fetchSnapshots(itemIds: ItemId[], signal?: AbortSignal): Promise<void> {
-    if (!this.canSync || itemIds.length === 0) return
-    const [knownItemIds, tombstoneItemIds] = await Promise.all([
-      this.deps.indexManager.listItemIds(),
-      this.deps.indexManager.listTombstoneIds(),
-    ])
-    await this.hydrator.fetchAndHydrateRemoteItems({
-      missingIds: itemIds,
-      manifest: [],
-      knownSet: new Set(knownItemIds),
-      tombstoneSet: new Set(tombstoneItemIds),
-    }, signal)
+    return this.isAlive() && this.deps.session.isLeader
   }
 
   private shouldSkipSync(mode: ManifestMode, hasKnownItems: boolean, timeSinceLastSync: number): boolean {
@@ -333,78 +280,76 @@ export class ManifestSyncManager {
     }
   }
 
-  private async executeSync(mode: ManifestMode, outerSignal?: AbortSignal): Promise<ManifestPhaseResult> {
+  private async executeSync(mode: ManifestMode, signal: AbortSignal): Promise<ManifestPhaseResult> {
     const force = mode === 'force'
-    return this.syncRun.run(async signal => {
-      const gating = await this.checkGating(mode, signal)
-      if (gating.skip) {
-        // Only a sync without failures records the time that lets later syncs be skipped
-        this.deps.onSyncedWithoutFailures?.()
-        return { added: [], success: true, fetchedManifest: false }
-      }
+    const gating = await this.checkGating(mode, signal)
+    if (gating.skip) {
+      // Only a sync without failures records the time that lets later syncs be skipped
+      this.deps.onSyncedWithoutFailures?.()
+      return { added: [], success: true, fetchedManifest: false }
+    }
 
-      // Flushed first so the manifest includes them; otherwise they look missing and are pushed again
-      await this.flushPendingSnapshotsSafely(signal)
+    // Flushed first so the manifest includes them; otherwise they look missing and are pushed again
+    await this.flushPendingSnapshotsSafely(signal)
+    checkAlive(signal, this.isAlive)
+
+    const manifest = await this.fetchRemoteManifest(signal)
+    checkAlive(signal, this.isAlive)
+
+    const localState = await this.collectLocalSyncState(signal)
+    checkAlive(signal, this.isAlive)
+
+    if (!force) {
+      await this.skipSnapshotsCoveredLocally(manifest, gating.knownItemIds, localState, signal)
       checkAlive(signal, this.isAlive)
+    }
 
-      const manifest = await this.fetchRemoteManifest(signal)
+    // Step 1: Calculate sync deltas
+    const deltas = calculateSyncDeltas({
+      manifest,
+      force,
+      knownItemIds: gating.knownItemIds,
+      tombstoneItemIds: localState.tombstoneItemIds,
+      quarantinedMap: localState.quarantinedMap,
+      localVersionsMap: localState.localVersionsMap,
+    })
+
+    // Step 2: Push local updates
+    await this.pushLocalUpdates(deltas)
+    checkAlive(signal, this.isAlive)
+
+    let added: ItemId[] = []
+    let hasFailures = false
+
+    // Step 3: Fetch and hydrate remote items
+    if (deltas.missingIds.length > 0) {
+      const hydrationResult = await this.deps.hydrator.fetchAndHydrateRemoteItems(
+        {
+          missingIds: deltas.missingIds,
+          manifest,
+          knownSet: deltas.knownSet,
+          tombstoneSet: deltas.tombstoneSet,
+        },
+        signal,
+      )
+      added = hydrationResult.added
+      hasFailures = hydrationResult.hasFailures
       checkAlive(signal, this.isAlive)
+    }
 
-      const localState = await this.collectLocalSyncState(signal)
-      checkAlive(signal, this.isAlive)
+    await this.notifyManifestProcessed(manifest)
+    checkAlive(signal, this.isAlive)
 
-      if (!force) {
-        await this.skipSnapshotsCoveredLocally(manifest, gating.knownItemIds, localState, signal)
-        checkAlive(signal, this.isAlive)
-      }
+    await this.migrateLegacySettings()
+    checkAlive(signal, this.isAlive)
 
-      // Step 1: Calculate sync deltas
-      const deltas = calculateSyncDeltas({
-        manifest,
-        force,
-        knownItemIds: gating.knownItemIds,
-        tombstoneItemIds: localState.tombstoneItemIds,
-        quarantinedMap: localState.quarantinedMap,
-        localVersionsMap: localState.localVersionsMap,
-      })
+    await this.recordSyncCompletion(hasFailures)
 
-      // Step 2: Push local updates
-      await this.pushLocalUpdates(deltas)
-      checkAlive(signal, this.isAlive)
+    if (!hasFailures) {
+      this.deps.onSyncedWithoutFailures?.()
+    }
 
-      let added: ItemId[] = []
-      let hasFailures = false
-
-      // Step 3: Fetch and hydrate remote items
-      if (deltas.missingIds.length > 0) {
-        const hydrationResult = await this.hydrator.fetchAndHydrateRemoteItems(
-          {
-            missingIds: deltas.missingIds,
-            manifest,
-            knownSet: deltas.knownSet,
-            tombstoneSet: deltas.tombstoneSet,
-          },
-          signal,
-        )
-        added = hydrationResult.added
-        hasFailures = hydrationResult.hasFailures
-        checkAlive(signal, this.isAlive)
-      }
-
-      await this.notifyManifestProcessed(manifest)
-      checkAlive(signal, this.isAlive)
-
-      await this.migrateLegacySettings()
-      checkAlive(signal, this.isAlive)
-
-      await this.recordSyncCompletion(hasFailures)
-
-      if (!hasFailures) {
-        this.deps.onSyncedWithoutFailures?.()
-      }
-
-      return { added, success: !hasFailures, fetchedManifest: true }
-    }, outerSignal)
+    return { added, success: !hasFailures, fetchedManifest: true }
   }
 
   private async pushLocalUpdates(deltas: SyncDeltas): Promise<void> {
