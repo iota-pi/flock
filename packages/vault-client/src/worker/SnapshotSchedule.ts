@@ -93,7 +93,7 @@ export class SnapshotSchedule {
 
   /** Makes every dirty item due now, past any wait for the quota, such as when the page is closing */
   requestNow(): void {
-    this.notBefore = 0
+    this.liftDeferral()
     this.requestedDueAt = this.now()
   }
 
@@ -132,10 +132,23 @@ export class SnapshotSchedule {
     this.retryAtNextPoll = true
   }
 
-  /** Called when the server turned uploads away for the account's quota: none goes up before `time` */
+  /**
+   * Called when the server turned uploads away for the account's quota: none goes up before `time`,
+   * in the snapshot phase or the rewrite phase
+   */
   deferUntil(time: number): void {
     this.notBefore = time
     this.retryAtNextPoll = true
+  }
+
+  /** Whether uploads are waiting out the quota delay that `deferUntil` set */
+  isDeferred(now = this.now()): boolean {
+    return now < this.notBefore
+  }
+
+  /** Ends the quota delay, so the next poll tries the uploads again, such as for a new rewrite */
+  liftDeferral(): void {
+    this.notBefore = 0
   }
 
   /**

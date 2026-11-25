@@ -12,7 +12,8 @@ import { ReencryptionWaitError } from '../shared/reencryptionWaitError'
 import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
 import { createLogger } from '../utils/logger'
 import type { SyncSessionState } from './SyncSessionState'
-import { MAX_CONSECUTIVE_SNAPSHOT_FAILURES, type ItemUploadResult, type SnapshotPusher } from './SnapshotPusher'
+import { MAX_CONSECUTIVE_SNAPSHOT_FAILURES, SnapshotsRefusedError, type ItemUploadResult, type SnapshotPusher } from './SnapshotPusher'
+import type { SnapshotSchedule } from './SnapshotSchedule'
 
 const log = createLogger('SnapshotRewriter')
 
@@ -37,6 +38,11 @@ export interface SnapshotRewriterOptions {
    * and quarantines what keeps failing, as it does for the snapshot phase
    */
   uploader: Pick<SnapshotPusher, 'uploadItems'>
+  /**
+   * Holds the quota delay the uploader sets when the server turns uploads away (429): the rewrite
+   * phase waits it out, as the snapshot phase does
+   */
+  schedule: Pick<SnapshotSchedule, 'isDeferred' | 'liftDeferral'>
   indexManager: Pick<AutomergeIndexManager, 'listItemIds'>
   apiClient: Pick<SyncApiClient, 'getValidToken'>
   /** Rewrites run in the leader's polls, while online */
@@ -81,7 +87,8 @@ interface Pass {
  * item and asks for a poll; the poll's rewrite phase (`runDue`, after the snapshot phase) builds and
  * uploads them, so rewrites share the poll's leadership, abort, auth pause and backoff (sync rule 4).
  * A request failure fails the poll and the callers waiting, and leaves the rest of the queue for the
- * next poll.
+ * next poll. A refusal for the account's storage quota (429) rejects the callers waiting but leaves
+ * the poll's result alone, as in the snapshot phase, and the queue waits out the quota delay.
  */
 export class SnapshotRewriter {
   /** One for each request or `prepare` waiting for leadership or catch-up, which `cancel` aborts */
@@ -170,6 +177,8 @@ export class SnapshotRewriter {
     if (itemIds.length === 0) {
       this.finishPass(pass)
     } else {
+      // A new request tries once, even while waiting out the quota delay: storage may have freed up
+      this.deps.schedule.liftDeferral()
       fireAndForget(
         this.deps.runPollNow().finally(() => {
           // No poll can run (another tab leads, it went offline, it stopped). Otherwise a poll
@@ -199,16 +208,29 @@ export class SnapshotRewriter {
    * The poll's rewrite phase: uploads the queued items' snapshots. Skips the poll until the device
    * has caught up, as the snapshot phase does. Throws if a request fails, rejecting the callers
    * waiting, so the poll fails (sync rule 4) and the next one goes on with what's left.
+   *
+   * The server turning uploads away for the account's quota (429) isn't the poll's failure, since
+   * pulls still work: the callers waiting are rejected, and the queue stays until the quota delay
+   * (`SnapshotSchedule.deferUntil`) is over, as the snapshot phase's dirty items do.
    */
   async runDue(signal: AbortSignal): Promise<void> {
     while (this.pass && this.queue.length > 0) {
       if (!this.deps.session.isOperational || !this.deps.catchUp.isCaughtUp) return
       const pass = this.pass
+      if (this.deps.schedule.isDeferred()) {
+        this.rejectWaiters(pass, quotaWaiterError())
+        return
+      }
       try {
         await this.runPass(pass, AbortSignal.any([signal, pass.controller.signal]))
       } catch (error) {
         // Cancelled or replaced, which isn't the poll's failure: a replacement runs next
         if (this.pass !== pass && pass.controller.signal.aborted) continue
+        if (error instanceof SnapshotsRefusedError) {
+          log.warn('The server turned snapshots away; rewriting the rest later', error.cause)
+          this.rejectWaiters(pass, quotaWaiterError(error))
+          return
+        }
         this.rejectWaiters(pass, waiterError(error))
         throw error
       }
@@ -421,6 +443,14 @@ function waiterError(error: unknown): unknown {
     )
   }
   return error
+}
+
+/** What the callers waiting see when the server turns uploads away for the account's storage quota */
+function quotaWaiterError(cause?: unknown): Error {
+  return new Error(
+    'Re-encryption paused: the account has reached its storage quota. It will go on once storage frees up.',
+    { cause },
+  )
 }
 
 /** Why a pass gave up on an item, for its result and the log */

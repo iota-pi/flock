@@ -106,8 +106,11 @@ type ItemPreparationResult =
 /** How many failed builds or uploads in a row quarantine an item */
 export const MAX_CONSECUTIVE_SNAPSHOT_FAILURES = 5
 
-/** The server turned a snapshot upload away (429), most likely for the account's storage quota */
-class SnapshotsRefusedError extends Error {
+/**
+ * The server turned a snapshot upload away (429), most likely for the account's storage quota. The
+ * pusher has deferred uploads (`SnapshotSchedule.deferUntil`) by the time it throws this.
+ */
+export class SnapshotsRefusedError extends Error {
   constructor(cause: unknown) {
     super('The server turned the snapshot upload away', { cause })
     this.name = 'SnapshotsRefusedError'
@@ -182,7 +185,8 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
    * Builds and uploads the items' snapshots: the one pipeline that both the snapshot phase and the
    * rewrite phase run. Each item is built only through `buildAfterPush`, which pushes it to the log
    * first if it holds changes the log lacks (S1). Throws if a request fails (sync rule 4), and `SnapshotsRefusedError` if
-   * the server turns an upload away for the quota; the items not yet settled then get no result.
+   * the server turns an upload away for the quota, deferring both phases' uploads (`SnapshotSchedule.deferUntil`);
+   * the items not yet settled then get no result.
    */
   async uploadItems(itemIds: ItemId[], options: UploadItemsOptions): Promise<SnapshotPushOutcome> {
     const { signal } = options
@@ -243,7 +247,6 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
     } catch (error) {
       if (error instanceof SnapshotsRefusedError) {
         log.warn('The server turned snapshots away; uploading them later', error.cause)
-        schedule.deferUntil(Date.now() + SYNC_TIMEOUTS.snapshotQuotaRetry)
         return { persisted: 0, total: 0, success: false }
       }
       schedule.retryNextPoll()
@@ -411,7 +414,7 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
 
   /**
    * Sends a batch. Throws if the request fails (sync rule 4), and `SnapshotsRefusedError` if the
-   * server turns it away (429). Any other error is the batch's own, so it counts against its items.
+   * server turns it away (429), deferring uploads first. Any other error is the batch's own, so it counts against its items.
    */
   private async flushBatch(
     batch: UploadableSnapshot[],
@@ -429,6 +432,8 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
     } catch (error) {
       if (signal.aborted || isAbortError(error)) throw error
       if (classifySyncError(error).status === 429) {
+        // The quota holds for every upload, so both phases wait it out
+        this.deps.schedule.deferUntil(Date.now() + SYNC_TIMEOUTS.snapshotQuotaRetry)
         throw new SnapshotsRefusedError(error)
       }
       // `SyncApiClient` has already turned auth errors it couldn't recover from into `AuthExpiredError`
