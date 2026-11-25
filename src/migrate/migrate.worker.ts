@@ -12,18 +12,19 @@ import { SEALED_DATA_VERSION, SYNC_RESET_DATA_VERSION } from '../shared/flockDat
 exposeSyncWorker({
   endpoint: env.VAULT_ENDPOINT,
   storageNames: FLOCK_STORAGE_NAMES,
-  domain: {
-    ...flockSyncDomain,
-    decodeLegacyItem: decodeLegacyCipherItem,
-    legacySettings: flockLegacySettings,
-  },
-  migrateLocalData: migrateLegacyLocalData,
-  upgradeSnapshotFormat: true,
-  // A device that synced today would otherwise skip the manifest, and with it any legacy rows
-  fetchManifestEverySync: true,
+  domain: flockSyncDomain,
   // As the main app does, so the two never disagree about where this device's data is
   upgradeLocalEncryption: true,
   sealedDataVersion: SEALED_DATA_VERSION,
-  // With no `minDataVersion`, the sync reset runs here, and the device level waits for it to finish
-  syncResetDataVersion: SYNC_RESET_DATA_VERSION,
+  // Only this worker passes these. Each goes when its level is retired (docs/vault-extraction.md).
+  legacy: {
+    decodeLegacyItem: decodeLegacyCipherItem,
+    legacySettings: flockLegacySettings,
+    migrateLocalData: migrateLegacyLocalData,
+    upgradeSnapshotFormat: true,
+    // A device that synced today would otherwise skip the manifest, and with it any legacy rows
+    fetchManifestEverySync: true,
+    // With no `minDataVersion`, the sync reset runs here, and the device level waits for it to finish
+    syncResetDataVersion: SYNC_RESET_DATA_VERSION,
+  },
 })

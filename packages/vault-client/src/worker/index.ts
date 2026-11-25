@@ -6,7 +6,7 @@ export * from './domain'
 export type { ExportedKeyring, KeyProvider } from '../keys/Keyring'
 export type { MigrationRequiredReason } from '../shared/types'
 
-// Storage primitives for `SyncWorkerConfig.migrateLocalData`, which runs before the engine reads
+// Storage primitives for `LegacyHooks.migrateLocalData`, which runs before the engine reads
 // its stores
 export { createAccountStore, getAccountDatabaseName } from '../shared/createAccountStore'
 export { runStorageOperation } from '../utils/storageManager'

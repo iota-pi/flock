@@ -13,7 +13,7 @@ import { checkAlive, isAbortError } from '../utils/abort'
 import { classifySyncError, isRequestFailure } from '../utils/errorClassifier'
 import { mapWithConcurrency } from '@vault/shared'
 import { SYNC_BATCH_SIZES, SYNC_TIMEOUTS } from '../shared/syncConfig'
-import type { SyncDomain } from './domain'
+import type { LegacyHooks } from './domain'
 import type { SyncSessionState } from './SyncSessionState'
 import { createLogger } from '../utils/logger'
 
@@ -81,7 +81,7 @@ export interface ManifestHydratorDeps {
   onLocalChangesFound?: (itemId: ItemId) => void
   onKeyVersionMissing?: (kver: string) => void
   hydrationConcurrency?: number
-  decodeLegacyItem?: SyncDomain['decodeLegacyItem']
+  decodeLegacyItem?: LegacyHooks['decodeLegacyItem']
   /**
    * Called once per batch that contains legacy rows when there is no `decodeLegacyItem` hook. Such
    * rows are skipped rather than quarantined, so the app's migration app can still decode them.
