@@ -67,6 +67,12 @@ export class SnapshotSchedule {
     }
   }
 
+  /**
+   * Queues the item and makes it due. Call it only on the leader, whose queue alone uploads: a
+   * follower's marking writes the flag but goes no further until a later load. It doesn't check, since
+   * a tab that stopped leading while its push was in flight must still record the acknowledged item
+   * dirty, in the same save as its server heads, for the next leader's audit to find.
+   */
   markItemDirty(itemId: ItemId, customDebounceDelayMs?: number): void {
     if (this.deps.session.isShutdown || !itemId) return
     this.deps.state.markDirty(itemId)
@@ -87,7 +93,7 @@ export class SnapshotSchedule {
 
   /** Makes every dirty item due now, past any wait for the quota, such as when the page is closing */
   requestNow(): void {
-    this.notBefore = 0
+    this.liftDeferral()
     this.requestedDueAt = this.now()
   }
 
@@ -126,10 +132,23 @@ export class SnapshotSchedule {
     this.retryAtNextPoll = true
   }
 
-  /** Called when the server turned uploads away for the account's quota: none goes up before `time` */
+  /**
+   * Called when the server turned uploads away for the account's quota: none goes up before `time`,
+   * in the snapshot phase or the rewrite phase
+   */
   deferUntil(time: number): void {
     this.notBefore = time
     this.retryAtNextPoll = true
+  }
+
+  /** Whether uploads are waiting out the quota delay that `deferUntil` set */
+  isDeferred(now = this.now()): boolean {
+    return now < this.notBefore
+  }
+
+  /** Ends the quota delay, so the next poll tries the uploads again, such as for a new rewrite */
+  liftDeferral(): void {
+    this.notBefore = 0
   }
 
   /**

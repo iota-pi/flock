@@ -436,6 +436,7 @@ export class SyncWorkerContext {
 
     const snapshotRewriter = new SnapshotRewriter({
       uploader: snapshotPusher,
+      schedule: snapshotSchedule,
       indexManager,
       apiClient: this.apiClient,
       session,

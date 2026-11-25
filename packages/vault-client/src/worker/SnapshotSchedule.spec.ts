@@ -178,6 +178,18 @@ describe('SnapshotSchedule', () => {
 
       expect(tracker.isDue(0)).toBe(true)
     })
+
+    it('reports the deferral until it ends, for the rewrite phase', () => {
+      expect(tracker.isDeferred(9_999)).toBe(true)
+      expect(tracker.isDeferred(10_000)).toBe(false)
+    })
+
+    it('ends the deferral when it is lifted, leaving the items to retry at the next poll', () => {
+      tracker.liftDeferral()
+
+      expect(tracker.isDeferred(0)).toBe(false)
+      expect(tracker.isDue(0)).toBe(true)
+    })
   })
 
   describe('leadership', () => {

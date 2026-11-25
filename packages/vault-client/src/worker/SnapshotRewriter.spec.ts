@@ -1,6 +1,7 @@
 import { MAX_REWRITE_ATTEMPTS, SnapshotRewriter, type SnapshotRewriterOptions } from './SnapshotRewriter'
 import { SnapshotPusher } from './SnapshotPusher'
-import type { SnapshotSchedule } from './SnapshotSchedule'
+import { SnapshotSchedule } from './SnapshotSchedule'
+import type { ItemSyncState } from './ItemSyncState'
 import type { ItemId } from '@vault/shared'
 import type { StoredSnapshotDetails } from './snapshotUpload'
 import type { Mock } from 'vitest'
@@ -11,6 +12,7 @@ import { SnapshotBuilder } from './SnapshotBuilder'
 import { SyncApiClient } from './SyncApiClient'
 import { SyncSessionState } from './SyncSessionState'
 import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
+import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { createMockKeyProvider, createMockVault, noLogCoverage, spyOnVaultTrpc } from './__test__/testUtils'
 import { spyOnExports } from '../../test/moduleMocks'
 import { getApiAuthToken, setApiAuthToken } from '../keys/runtime'
@@ -45,8 +47,10 @@ async function withSnapshotResults(input: any, response: any) {
 }
 
 /** The rewriter's options, and what the snapshot pusher it uploads through is made from */
-interface TestDeps extends Omit<SnapshotRewriterOptions, 'runPollNow' | 'uploader' | 'apiClient'> {
+interface TestDeps extends Omit<SnapshotRewriterOptions, 'runPollNow' | 'uploader' | 'apiClient' | 'schedule'> {
   apiClient: SyncApiClient
+  /** Shared by the rewriter and its pusher, which defers uploads in it when the server refuses them */
+  schedule: SnapshotSchedule
   builder: Pick<SnapshotBuilder, 'build'>
   pushToLog: (itemIds: ItemId[], signal?: AbortSignal) => Promise<void>
   recoveryManager: RecoveryManager
@@ -73,7 +77,7 @@ function createUploader(deps: TestDeps): SnapshotPusher {
   return new SnapshotPusher({
     accountId: 'test-account',
     session: deps.session,
-    schedule: {} as SnapshotSchedule,
+    schedule: deps.schedule,
     state: deps.state,
     builder: deps.builder,
     pushToLog: deps.pushToLog,
@@ -123,16 +127,21 @@ function createDeps(overrides: Partial<TestDeps> = {}): TestDeps {
       doc: vi.fn().mockReturnValue({ id: 'item-1', type: 'note' }),
     }),
   }
+  const state = createState()
+  const session = new SyncSessionState({ isLeader: true })
+  const recoveryManager = new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() })
   return {
     builder: new SnapshotBuilder(mockRepo as any, keys, passthroughCodec, noLogCoverage),
     indexManager: { listItemIds: () => mockListItemIds() },
     apiClient: new SyncApiClient(),
-    recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() }),
-    session: new SyncSessionState({ isLeader: true }),
+    recoveryManager,
+    session,
     claimLeader: vi.fn(),
     catchUp: { isCaughtUp: true, whenCaughtUp: vi.fn().mockResolvedValue(undefined) },
     pushToLog: vi.fn().mockResolvedValue(undefined),
-    state: createState(),
+    state,
+    // A rewrite never loads or marks items, the parts of the state the test one lacks
+    schedule: new SnapshotSchedule({ state: state as unknown as ItemSyncState, recoveryManager, session }),
     onSnapshotStored: vi.fn(),
     ...overrides,
   }
@@ -690,6 +699,90 @@ describe('SnapshotRewriter.request', () => {
     expect(stopped.pendingCount).toBe(1)
     expect(stopped.stage).toBe('reencrypting')
     stopped.cancel()
+  })
+})
+
+// Over the storage quota the server refuses every upload, but nothing is wrong with pulls, so the
+// poll mustn't fail and back off, as it doesn't for the snapshot phase
+describe('SnapshotRewriter at the storage quota', () => {
+  const quotaError = () => Object.assign(new Error('QUOTA_EXCEEDED'), {
+    data: { code: 'TOO_MANY_REQUESTS', httpStatus: 429 },
+  })
+  const items = Array.from({ length: 20 }, (_, i) => `item-${i}`)
+
+  let deps: TestDeps
+  let rewriter: SnapshotRewriter
+  let outcomes: Array<'success' | 'failure'>
+  let poll: () => Promise<void>
+
+  beforeEach(() => {
+    vi.setSystemTime(1000)
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mockListItemIds.mockResolvedValue(items)
+    deps = createDeps()
+    ;({ rewriter, outcomes, poll } = createRewriter(deps))
+  })
+
+  afterEach(() => {
+    rewriter.cancel()
+    vi.useRealTimers()
+  })
+
+  it('rejects its callers with the quota, keeping the queue, without failing the poll', async () => {
+    mockPutSnapshots.mockRejectedValue(quotaError())
+
+    await expect(rewriter.request()).rejects.toThrow(/storage quota/)
+
+    await vi.waitFor(() => expect(outcomes).toEqual(['success']))
+    expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
+    expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
+    expect(rewriter.pendingCount).toBe(20)
+    expect(rewriter.stage).toBe('reencrypting')
+    expect(deps.schedule.isDeferred()).toBe(true)
+  })
+
+  it('waits out the quota delay, then goes on with what\'s left', async () => {
+    mockPutSnapshots.mockRejectedValueOnce(quotaError()).mockResolvedValue({ success: true })
+    await expect(rewriter.request()).rejects.toThrow(/storage quota/)
+
+    await poll()
+    expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
+    expect(rewriter.pendingCount).toBe(20)
+
+    vi.setSystemTime(1000 + SYNC_TIMEOUTS.snapshotQuotaRetry)
+    await poll()
+
+    expect(outcomes).toEqual(['success', 'success', 'success'])
+    expect(mockPutSnapshots).toHaveBeenCalledTimes(3)
+    expect(rewriter.pendingCount).toBe(0)
+    expect(rewriter.stage).toBeNull()
+  })
+
+  it('tries again at once for a new request, as storage may have freed up', async () => {
+    mockPutSnapshots.mockRejectedValueOnce(quotaError()).mockResolvedValue({ success: true })
+    await expect(rewriter.request()).rejects.toThrow(/storage quota/)
+
+    const result = await rewriter.request()
+
+    expect(result.succeeded).toEqual(items)
+    expect(deps.schedule.isDeferred()).toBe(false)
+  })
+
+  it('rejects a new request\'s callers without uploading when the snapshot phase was refused first', async () => {
+    const { rewriter: refused } = createRewriter({
+      ...deps,
+      // The poll's snapshot phase, before the rewrite phase, is turned away for the quota
+      runPollNow: async () => {
+        deps.schedule.deferUntil(Date.now() + SYNC_TIMEOUTS.snapshotQuotaRetry)
+        await refused.runDue(new AbortController().signal)
+      },
+    })
+
+    await expect(refused.request()).rejects.toThrow(/storage quota/)
+
+    expect(mockPutSnapshots).not.toHaveBeenCalled()
+    expect(refused.pendingCount).toBe(20)
+    refused.cancel()
   })
 })
 

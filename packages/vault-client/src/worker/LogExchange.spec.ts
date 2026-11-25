@@ -22,8 +22,10 @@ describe('LogExchange', () => {
   }
   let apiClient: { pollLog: AnyMock }
   let exchange: LogExchange
+  let controller: AbortController
 
   beforeEach(() => {
+    controller = new AbortController()
     session = new SyncSessionState({ isLeader: true })
     puller = {
       cursor: 7,
@@ -70,6 +72,41 @@ describe('LogExchange', () => {
 
     expect(puller.recordOwnPushes).toHaveBeenCalledWith(pushResults)
     expect(order).toEqual(['acknowledged 1', 'process'])
+  })
+
+  it.each([
+    ['the signal aborts', () => controller.abort()],
+    ['leadership moves', () => session.setLeader(false)],
+    ['the device goes offline', () => session.setOnline(false)],
+  ])('records what the server stored when %s during the request, then stops', async (_, interrupt) => {
+    const pushResults = [{ itemId: ITEM, seq: 8 }]
+    apiClient.pollLog.mockImplementation(async () => {
+      interrupt()
+      return response({ pushResults })
+    })
+    const onResults = vi.fn(async () => {})
+
+    await expect(exchange.exchange([MESSAGE], onResults, controller.signal)).rejects.toThrow()
+
+    expect(puller.recordOwnPushes).toHaveBeenCalledWith(pushResults)
+    expect(onResults).toHaveBeenCalledWith(pushResults)
+    expect(puller.process).not.toHaveBeenCalled()
+    expect(exchange.count).toBe(0)
+  })
+
+  // Its items can't be marked dirty any more, so the marks stay and the next session resends them
+  it('records nothing when the session shuts down during the request', async () => {
+    apiClient.pollLog.mockImplementation(async () => {
+      session.markShutdown()
+      controller.abort()
+      return response({ pushResults: [{ itemId: ITEM, seq: 8 }] })
+    })
+    const onResults = vi.fn(async () => {})
+
+    await expect(exchange.exchange([MESSAGE], onResults, controller.signal)).rejects.toThrow()
+
+    expect(puller.recordOwnPushes).not.toHaveBeenCalled()
+    expect(onResults).not.toHaveBeenCalled()
   })
 
   // Rule 4: the page is read again once a manifest sync has caught the device up
