@@ -44,7 +44,7 @@ export interface SnapshotPusherOptions {
   >
   builder: Pick<SnapshotBuilder, 'build'>
   /** Pushes items' changes to the log, which comes before their snapshots */
-  pushToLog: (itemIds: ItemId[], signal?: AbortSignal) => Promise<void>
+  pushToLog: (itemIds: ItemId[], signal: AbortSignal) => Promise<unknown>
   /**
    * Writes the items' docs to storage, which has to happen before their snapshots count as stored.
    * Otherwise a crash could leave the device without changes its base version says it has.

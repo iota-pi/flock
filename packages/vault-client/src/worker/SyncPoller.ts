@@ -17,7 +17,8 @@ export interface SyncPollerDeps {
   session: Pick<SyncSessionState, 'isOperational'>
   puller: Pick<SyncLogPuller, 'demandCatchUpIfBehind'>
   /** Reads the log, and carries the outbox's pushes */
-  exchange: Pick<LogExchange, 'exchange' | 'count'>
+  exchange: LogExchange
+  /** Pushes pending changes, returning whether a push read the log */
   outbox: Pick<ChangeOutbox, 'pushPending'>
   healer: Pick<GapHealer, 'runDue'>
   /**
@@ -52,11 +53,8 @@ export class SyncPoller {
       this.deps.puller.demandCatchUpIfBehind(Date.now())
       await this.deps.runManifestPhase('beforeRead', signal)
 
-      const { exchange } = this.deps
-      const exchangesBefore = exchange.count
-      await this.deps.outbox.pushPending(signal)
-      if (exchange.count === exchangesBefore) {
-        await exchange.exchange([], async () => {}, signal)
+      if (!await this.deps.outbox.pushPending(signal)) {
+        await this.deps.exchange([], async () => {}, signal)
       }
 
       await this.deps.runManifestPhase('afterRead', signal)

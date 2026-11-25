@@ -85,7 +85,7 @@ export interface ChangeOutboxDeps {
     'getServerHeads' | 'setServerHeads' | 'isSnapshotOnly' | 'setSnapshotOnly' | 'save' | 'requestSave' | 'hasUnsaved'
   >
   /** Sends messages in one `pollLog` and handles the log it reads (see LogExchange) */
-  exchange: LogExchange['exchange']
+  exchange: LogExchange
   /** Asks for an item's snapshot now, which delivers what the log can't */
   requestSnapshot: (itemId: ItemId) => void
   /**
@@ -243,21 +243,22 @@ export class ChangeOutbox {
     }
   }
 
-  /** Pushes every item with a pending mark */
-  async pushPending(signal?: AbortSignal): Promise<void> {
-    await this.pushItems(await this.listPending(), signal)
+  /** Pushes every item with a pending mark, returning whether a push read the log */
+  async pushPending(signal: AbortSignal): Promise<boolean> {
+    return this.pushItems(await this.listPending(), signal)
   }
 
   /**
    * Pushes what the given items have after their server heads, preparing items until the next would
-   * overfill a request, so each request carries as many items as one transaction can. Throws if a
-   * push fails, leaving the rest for the next one.
+   * overfill a request, so each request carries as many items as one transaction can. Returns
+   * whether a push read the log. Throws if a push fails, leaving the rest for the next one.
    */
-  async pushItems(itemIds: ItemId[], signal?: AbortSignal): Promise<void> {
-    if (itemIds.length === 0) return
+  async pushItems(itemIds: ItemId[], signal: AbortSignal): Promise<boolean> {
+    if (itemIds.length === 0) return false
     const marks = await this.listMarks()
     const marksById = new Map(marks.map(mark => [mark.itemId, mark]))
 
+    let exchanged = false
     let batch: PreparedPush[] = []
     let rows = 0
     let chars = 0
@@ -271,7 +272,7 @@ export class ChangeOutbox {
         || chars + pushChars > SYNC_BATCH_SIZES.logPushChars
       )
       if (batch.length > 0 && isFull) {
-        await this.sendSettingAsideRefused(batch, signal)
+        exchanged = await this.sendSettingAsideRefused(batch, signal) || exchanged
         batch = []
         rows = 0
         chars = 0
@@ -280,18 +281,18 @@ export class ChangeOutbox {
       rows += push.messages.length
       chars += pushChars
     }
-    await this.sendSettingAsideRefused(batch, signal)
+    return await this.sendSettingAsideRefused(batch, signal) || exchanged
   }
 
   /**
    * Sends the pushes, and if the server refuses the request itself, finds the items it refuses on
    * their own and delivers those by snapshot, as it does a change too large for a row. Otherwise one
    * such item would fail every push for good. Resending what an earlier request
-   * stored only repeats changes, which Automerge ignores.
+   * stored only repeats changes, which Automerge ignores. Returns whether a push read the log.
    */
-  private async sendSettingAsideRefused(prepared: PreparedPush[], signal?: AbortSignal): Promise<void> {
+  private async sendSettingAsideRefused(prepared: PreparedPush[], signal: AbortSignal): Promise<boolean> {
     try {
-      await this.send(prepared, signal)
+      return await this.send(prepared, signal)
     } catch (error) {
       if (!isRefusedRequest(error)) throw error
       if (prepared.length === 1) {
@@ -299,12 +300,12 @@ export class ChangeOutbox {
         log.warn(`The server refused the log rows of item ${itemId}; delivering it with a snapshot`, error)
         this.deps.itemSyncState.setSnapshotOnly(itemId)
         this.deps.requestSnapshot(itemId)
-        return
+        return false
       }
       // A full request holds dozens of items, so halve it rather than resend them one at a time
       const half = Math.ceil(prepared.length / 2)
-      await this.sendSettingAsideRefused(prepared.slice(0, half), signal)
-      await this.sendSettingAsideRefused(prepared.slice(half), signal)
+      const first = await this.sendSettingAsideRefused(prepared.slice(0, half), signal)
+      return await this.sendSettingAsideRefused(prepared.slice(half), signal) || first
     }
   }
 
@@ -362,9 +363,12 @@ export class ChangeOutbox {
     return { itemId, tick, heads: outgoing.heads, messages }
   }
 
-  /** Sends the prepared rows and records each item the server acknowledged in full */
-  private async send(prepared: PreparedPush[], signal?: AbortSignal): Promise<void> {
-    if (prepared.length === 0) return
+  /**
+   * Sends the prepared rows and records each item the server acknowledged in full. Returns whether it
+   * read the log, which it does unless there was nothing to send.
+   */
+  private async send(prepared: PreparedPush[], signal: AbortSignal): Promise<boolean> {
+    if (prepared.length === 0) return false
     const unacknowledged = new Map(prepared.map(push => [push.itemId, push.messages.length]))
     const pushesByItem = new Map(prepared.map(push => [push.itemId, push]))
 
@@ -385,6 +389,7 @@ export class ChangeOutbox {
     if (unconfirmed > 0) {
       throw new Error(`The server didn't acknowledge every row of ${unconfirmed} items`)
     }
+    return true
   }
 
   /** Writes the item's doc to storage if it isn't there yet, and returns whether it's stored */

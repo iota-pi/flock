@@ -1,6 +1,6 @@
 import type { Mock } from 'vitest'
 import type { ItemId, SyncLogMessage } from '@vault/shared'
-import { LogExchange, type LogExchangeDeps } from './LogExchange'
+import { createLogExchange, type LogExchange, type LogExchangeDeps } from './LogExchange'
 import { SyncPoller, type SyncPollerDeps } from './SyncPoller'
 import { SyncSessionState } from './SyncSessionState'
 import { AuthError } from './SyncApiClient'
@@ -41,13 +41,13 @@ describe('SyncPoller', () => {
       dropPageIfBehind: vi.fn().mockReturnValue(false),
       process: vi.fn().mockResolvedValue(undefined),
     }
-    outbox = { pushPending: vi.fn().mockResolvedValue(undefined) }
+    outbox = { pushPending: vi.fn().mockResolvedValue(false) }
     healer = { runDue: vi.fn().mockResolvedValue(undefined) }
     apiClient = { pollLog: vi.fn().mockResolvedValue(response()) }
     runManifestPhase = vi.fn().mockResolvedValue(null)
     snapshots = { pushDue: vi.fn().mockResolvedValue({ persisted: 0, total: 0, success: true }) }
     rewrites = { runDue: vi.fn().mockResolvedValue(undefined), onPollStopped: vi.fn() }
-    exchange = new LogExchange({
+    exchange = createLogExchange({
       accountId: 'account-1',
       session,
       puller: puller as unknown as LogExchangeDeps['puller'],
@@ -139,7 +139,10 @@ describe('SyncPoller', () => {
   })
 
   it('reads the log only once when a push already did', async () => {
-    outbox.pushPending.mockImplementation(() => exchange.exchange([MESSAGE], async () => {}))
+    outbox.pushPending.mockImplementation(async (signal: AbortSignal) => {
+      await exchange([MESSAGE], async () => {}, signal)
+      return true
+    })
 
     await poller.executePoll()
 
