@@ -34,7 +34,7 @@ import { ServiceLifecycleManager, type ServiceRegistration } from './ServiceLife
 import type { SyncApiClient } from './SyncApiClient'
 import { StorageRecoveryService } from './StorageRecoveryService'
 import { ItemRecoveryService } from './ItemRecoveryService'
-import { ItemReencryptor } from './ItemReencryptor'
+import { SnapshotRewriter } from './SnapshotRewriter'
 import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
 import { DataVersionTracker, MigrationRequiredError, readDeviceDataVersion } from './DataVersionTracker'
 import { fireAndForget } from '../utils/fireAndForget'
@@ -164,7 +164,7 @@ export interface SyncWorkerServices {
   itemOperations: ItemOperations
   storageRecoveryService: StorageRecoveryService
   itemRecoveryService: ItemRecoveryService
-  itemReencryptor: ItemReencryptor
+  snapshotRewriter: SnapshotRewriter
   accountSettings: AccountSettings
   snapshotFormatUpgrade: SnapshotFormatUpgrade | null
   dataVersionTracker: DataVersionTracker
@@ -443,7 +443,7 @@ export class SyncWorkerContext {
       hasPendingMarks: async () => (await changeOutbox.listPending()).length > 0,
     })
 
-    const itemReencryptor = new ItemReencryptor({
+    const snapshotRewriter = new SnapshotRewriter({
       accountId,
       builder: snapshotBuilder,
       indexManager,
@@ -453,6 +453,7 @@ export class SyncWorkerContext {
       recorder: snapshotPusher,
       claimLeader: () => signals.raise.claimLeader(),
       catchUp: puller,
+      runPollNow: () => signals.raise.pollNow(),
       pushToLog,
       onStage: stage => this.clientEventHub.emit({ type: 'reencryptStage', stage }),
     })
@@ -472,7 +473,7 @@ export class SyncWorkerContext {
           dataVersionTracker.onSnapshotsUpgraded(),
           'SyncWorkerContext:raiseAccountDataVersion',
         ),
-        rewriteSnapshots: signal => itemReencryptor.run({ signal }),
+        rewriteSnapshots: signal => snapshotRewriter.request({ signal }),
       })
       : null
 
@@ -515,6 +516,7 @@ export class SyncWorkerContext {
       healer: gapHealer,
       runManifestPhase: (stage, signal) => manifestSyncManager.runPhase(stage, signal),
       snapshots: snapshotPusher,
+      rewrites: snapshotRewriter,
     })
 
     const orchestrator = new SyncOrchestrator({
@@ -608,7 +610,7 @@ export class SyncWorkerContext {
       itemOperations,
       storageRecoveryService,
       itemRecoveryService,
-      itemReencryptor,
+      snapshotRewriter,
       accountSettings,
       snapshotFormatUpgrade,
       dataVersionTracker,
@@ -652,7 +654,7 @@ export class SyncWorkerContext {
   private registerLifecycleServices(services: SyncWorkerServices): void {
     const {
       realtimeBus, foregroundTracker, repoManager, syncLogDatabase, storageRecoveryService, indexManager, recoveryManager,
-      docStore, snapshotSchedule, snapshotPusher, itemSyncState, changeOutbox, puller, orchestrator, itemReencryptor, snapshotFormatUpgrade, syncProgress,
+      docStore, snapshotSchedule, snapshotPusher, itemSyncState, changeOutbox, puller, orchestrator, snapshotRewriter, snapshotFormatUpgrade, syncProgress,
     } = services
 
     // Teardown runs in LIFO order (reverse registration order).
@@ -699,7 +701,7 @@ export class SyncWorkerContext {
         onStart: () => orchestrator.start(),
         onStop: () => orchestrator.shutdown(),
       },
-      { name: 'ItemReencryptor', onStop: () => itemReencryptor.cancelScheduled() },
+      { name: 'SnapshotRewriter', onStop: () => snapshotRewriter.cancel() },
       {
         name: 'SyncProgressTracker',
         onStart: () => syncProgress.start(),
@@ -949,12 +951,12 @@ export class SyncWorkerContext {
 
   /** What this session is waiting on, for a migration app to report when it stalls */
   getSyncDiagnostics(): SyncDiagnostics {
-    const { puller, itemReencryptor } = this.services
+    const { puller, snapshotRewriter } = this.services
     return {
       isLeader: this.session.isLeader,
       isOnline: this.session.isOnline,
       caughtUp: puller.isCaughtUp,
-      reencryptStage: itemReencryptor.stage,
+      reencryptStage: snapshotRewriter.stage,
     }
   }
 

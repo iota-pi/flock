@@ -1193,7 +1193,7 @@ describe('SyncWorkerContext', () => {
       'ChangeOutbox',
       'SyncLogPuller',
       'SyncOrchestrator',
-      'ItemReencryptor',
+      'SnapshotRewriter',
       'SyncProgressTracker',
     ])
   })

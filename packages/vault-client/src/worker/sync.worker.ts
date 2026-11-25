@@ -431,7 +431,7 @@ export class SyncWorker implements SyncApi {
 
   reencryptAllItems = (options: ReencryptOptions = {}) =>
     this.withContext(async ctx => {
-      const result = await ctx.services.itemReencryptor.run({
+      const result = await ctx.services.snapshotRewriter.request({
         ...options,
         onProgress: (done, total) => {
           this.clientEventHub.emit({ type: 'reencryptProgress', done, total })
@@ -443,10 +443,10 @@ export class SyncWorker implements SyncApi {
     })
 
   prepareReencryption = (options: ReencryptOptions = {}) =>
-    this.withContext(ctx => ctx.services.itemReencryptor.prepare(options))
+    this.withContext(ctx => ctx.services.snapshotRewriter.prepare(options))
 
   cancelReencryption = () =>
-    this.withContext(ctx => ctx.services.itemReencryptor.cancel())
+    this.withContext(ctx => ctx.services.snapshotRewriter.cancel())
 
   getSyncDiagnostics = () =>
     this.withContext(ctx => ctx.getSyncDiagnostics())

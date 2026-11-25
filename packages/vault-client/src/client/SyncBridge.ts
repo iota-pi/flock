@@ -410,7 +410,7 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
     ))
   }
 
-  /** Stops the re-encryption in flight and any retry it scheduled */
+  /** Stops the re-encryption in flight and clears what it has queued */
   cancelReencryption(): Promise<void> {
     return this.execute(api => api.cancelReencryption())
   }

@@ -28,6 +28,7 @@ describe('SyncPoller', () => {
   let apiClient: { pollLog: AnyMock }
   let runManifestPhase: AnyMock
   let snapshots: { pushDue: AnyMock }
+  let rewrites: { runDue: AnyMock; onPollStopped: AnyMock }
   let exchange: LogExchange
   let poller: SyncPoller
 
@@ -45,6 +46,7 @@ describe('SyncPoller', () => {
     apiClient = { pollLog: vi.fn().mockResolvedValue(response()) }
     runManifestPhase = vi.fn().mockResolvedValue(null)
     snapshots = { pushDue: vi.fn().mockResolvedValue({ persisted: 0, total: 0, success: true }) }
+    rewrites = { runDue: vi.fn().mockResolvedValue(undefined), onPollStopped: vi.fn() }
     exchange = new LogExchange({
       accountId: 'account-1',
       session,
@@ -59,6 +61,7 @@ describe('SyncPoller', () => {
       healer,
       runManifestPhase,
       snapshots,
+      rewrites,
     })
   })
 
@@ -69,7 +72,7 @@ describe('SyncPoller', () => {
     expect(apiClient.pollLog).not.toHaveBeenCalled()
   })
 
-  it('runs a manifest phase before and after pushing and reading the log, then heals and uploads snapshots', async () => {
+  it('runs a manifest phase before and after pushing and reading the log, then heals, uploads snapshots and rewrites', async () => {
     const order: string[] = []
     puller.demandCatchUpIfBehind.mockImplementation(() => { order.push('catchUp?') })
     outbox.pushPending.mockImplementation(async () => { order.push('push') })
@@ -83,6 +86,7 @@ describe('SyncPoller', () => {
     })
     healer.runDue.mockImplementation(async () => { order.push('heal') })
     snapshots.pushDue.mockImplementation(async () => { order.push('snapshots') })
+    rewrites.runDue.mockImplementation(async () => { order.push('rewrites') })
 
     expect(await poller.executePoll()).toBe('success')
 
@@ -94,6 +98,7 @@ describe('SyncPoller', () => {
       'manifest afterRead',
       'heal',
       'snapshots',
+      'rewrites',
     ])
     expect(apiClient.pollLog).toHaveBeenCalledWith(
       { account: 'account-1', push: [], after: 7 },
@@ -107,6 +112,7 @@ describe('SyncPoller', () => {
     await poller.executePoll(controller.signal)
 
     expect(snapshots.pushDue).toHaveBeenCalledWith(controller.signal)
+    expect(rewrites.runDue).toHaveBeenCalledWith(controller.signal)
   })
 
   it('runs the manifest phases with the poll signal, so aborting the poll aborts them', async () => {
@@ -148,10 +154,20 @@ describe('SyncPoller', () => {
       ['processing the page', () => puller.process],
       ['healing', () => healer.runDue],
       ['uploading snapshots', () => snapshots.pushDue],
+      ['rewriting snapshots', () => rewrites.runDue],
     ])('%s failing', async (_name, getStep) => {
       getStep().mockRejectedValue(new Error('failed'))
 
       expect(await poller.executePoll()).toBe('failure')
+    })
+
+    it('tells the rewrite a poll failed, so its callers stop waiting', async () => {
+      const error = new Error('failed')
+      apiClient.pollLog.mockRejectedValue(error)
+
+      await poller.executePoll()
+
+      expect(rewrites.onPollStopped).toHaveBeenCalledWith(error)
     })
 
     it('reports an auth failure apart', async () => {
@@ -163,6 +179,13 @@ describe('SyncPoller', () => {
     // So an expired session pauses snapshot uploads with polling, rather than leaving them to retry alone
     it('reports an auth failure while uploading snapshots apart', async () => {
       snapshots.pushDue.mockRejectedValue({ data: { httpStatus: 401, code: 'UNAUTHORIZED' }, message: 'UNAUTHORIZED' })
+
+      expect(await poller.executePoll()).toBe('auth-failure')
+    })
+
+    // So an expired session pauses rewrites with polling too
+    it('reports an auth failure while rewriting snapshots apart', async () => {
+      rewrites.runDue.mockRejectedValue({ data: { httpStatus: 401, code: 'UNAUTHORIZED' }, message: 'UNAUTHORIZED' })
 
       expect(await poller.executePoll()).toBe('auth-failure')
     })
