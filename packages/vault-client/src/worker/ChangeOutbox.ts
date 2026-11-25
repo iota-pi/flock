@@ -58,9 +58,15 @@ interface PreparedPush {
   messages: SyncLogMessage[]
 }
 
-/** Whether the item has a pending mark, read straight from the outbox store */
-export async function hasPendingMark(db: Pick<SyncLogDatabase, 'get'>, itemId: ItemId): Promise<boolean> {
-  return await db.get<PendingMark>(SYNC_LOG_STORES.outbox, itemId) !== undefined
+/** Reads which items have pending marks */
+export type PendingMarkReader = Pick<ChangeOutbox, 'isPending' | 'listPending'>
+
+/** Reads pending marks straight from the outbox store, for a component built before the outbox */
+export function readPendingMarks(db: Pick<SyncLogDatabase, 'get' | 'getAll'>): PendingMarkReader {
+  return {
+    isPending: async itemId => await db.get<PendingMark>(SYNC_LOG_STORES.outbox, itemId) !== undefined,
+    listPending: async () => (await db.getAll<PendingMark>(SYNC_LOG_STORES.outbox)).map(mark => mark.itemId),
+  }
 }
 
 export interface LogPushResult {
@@ -200,7 +206,7 @@ export class ChangeOutbox {
   }
 
   async isPending(itemId: ItemId): Promise<boolean> {
-    return hasPendingMark(this.deps.db, itemId)
+    return await this.deps.db.get<PendingMark>(SYNC_LOG_STORES.outbox, itemId) !== undefined
   }
 
   private async clearMark(itemId: ItemId, tick: number | undefined): Promise<void> {

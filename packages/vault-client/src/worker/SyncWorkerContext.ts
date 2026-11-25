@@ -15,7 +15,7 @@ import { ManifestHydrator } from './ManifestHydrator'
 import { ManifestSyncManager } from './ManifestSyncManager'
 import { ItemOperations } from './ItemOperations'
 import { INBOUND_MESSAGE_RESOLVABLE_KINDS, RecoveryManager } from './RecoveryManager'
-import { ChangeOutbox, hasPendingMark } from './ChangeOutbox'
+import { ChangeOutbox, readPendingMarks } from './ChangeOutbox'
 import { GapHealer } from './GapHealer'
 import { IncomingChanges } from './IncomingChanges'
 import { ItemSyncState } from './ItemSyncState'
@@ -359,7 +359,7 @@ export class SyncWorkerContext {
 
     const incoming = new IncomingChanges({
       docStore,
-      isPending: itemId => hasPendingMark(syncLogDatabase, itemId),
+      marks: readPendingMarks(syncLogDatabase),
       itemSyncState,
       onItemApplied: itemId => this.notifyDocumentReceived(itemId),
     })
@@ -387,11 +387,11 @@ export class SyncWorkerContext {
       itemSyncState,
       bus: realtimeBus,
       onKeyVersionMissing: this.emitKeyVersionMissing,
-      onRemoteChangesApplied: itemId => {
+      onRemoteChangesApplied: itemIds => {
         // Someone is using another device, so poll at the active rate while a tab is visible
         foregroundTracker.noteActivity()
         fireAndForget(
-          recoveryManager.resolveQuarantines([itemId], INBOUND_MESSAGE_RESOLVABLE_KINDS),
+          recoveryManager.resolveQuarantines(itemIds, INBOUND_MESSAGE_RESOLVABLE_KINDS),
           'SyncWorkerContext:resolveQuarantines',
         )
       },
