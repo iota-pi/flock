@@ -4,7 +4,7 @@ import type { ItemId } from '@vault/shared'
 import type { SyncLogDatabase } from './stores/SyncLogDatabase'
 import { readItemSyncRecords, updateItemSyncRecords, type ItemSyncRecord } from './stores/itemSyncRecords'
 import type { SyncSessionState } from './SyncSessionState'
-import { areHeadsEqual } from './utils/automerge'
+import { areHeadsEqual, frontierOf } from './utils/automerge'
 import { SYNC_LOG_STORES } from '../shared/syncLogStorage'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { AsyncMutex } from '../utils/AsyncMutex'
@@ -183,6 +183,20 @@ export class ItemSyncState {
     if (areHeadsEqual(entry.serverHeads, heads)) return
     entry.serverHeads = heads
     this.markUnsaved(itemId, 'serverHeads')
+  }
+
+  /**
+   * Records that the server has everything up to `heads` (a snapshot's), without moving the item's
+   * server heads back: they become the frontier of both sets in `doc`, which must hold both. Every
+   * ancestor of either set is on the server, so the same goes for their frontier. Without a loaded doc
+   * to compare them in, existing heads stay, which can only claim less.
+   */
+  advanceServerHeads(itemId: ItemId, heads: string[], doc: Automerge.Doc<unknown> | undefined): void {
+    if (!this.hasServerHeads(itemId)) {
+      this.setServerHeads(itemId, heads)
+    } else if (doc) {
+      this.setServerHeads(itemId, frontierOf(doc, [...this.getServerHeads(itemId), ...heads]))
+    }
   }
 
   /** The server version of the latest snapshot this device uploaded or merged, 0 when there's none */
