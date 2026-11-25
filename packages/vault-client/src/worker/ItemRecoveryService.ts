@@ -53,9 +53,14 @@ export class ItemRecoveryService {
     await recoveryManager.unquarantine(itemId)
   }
 
-  /** Releases a quarantined item and pushes its snapshot again */
+  /**
+   * Releases a quarantined item and pushes its snapshot again. Only the leader's queue uploads, so a
+   * follower takes over first: queued in a follower, the item would leave recovery but never go up.
+   */
   async retryRecoveryItem(itemId: ItemId): Promise<void> {
     const { recoveryManager, snapshotSchedule, snapshotPusher } = this.deps
+    // Before the item leaves recovery, so a tab that can't take over leaves it there
+    await this.deps.becomeLeader()
     await recoveryManager.unquarantine(itemId)
     snapshotPusher.clearOversized(itemId)
     snapshotSchedule.markItemDirty(itemId)

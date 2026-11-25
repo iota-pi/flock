@@ -67,6 +67,12 @@ export class SnapshotSchedule {
     }
   }
 
+  /**
+   * Queues the item and makes it due. Call it only on the leader, whose queue alone uploads: a
+   * follower's marking writes the flag but goes no further until a later load. It doesn't check, since
+   * a tab that stopped leading while its push was in flight must still record the acknowledged item
+   * dirty, in the same save as its server heads, for the next leader's audit to find.
+   */
   markItemDirty(itemId: ItemId, customDebounceDelayMs?: number): void {
     if (this.deps.session.isShutdown || !itemId) return
     this.deps.state.markDirty(itemId)
