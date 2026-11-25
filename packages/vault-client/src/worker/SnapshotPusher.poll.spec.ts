@@ -262,7 +262,7 @@ describe('SnapshotPusher in a poll', () => {
   })
 
   it('reports nothing uploaded when the flush poll failed', async () => {
-    mockPutSnapshots.mockRejectedValue(new Error('Network disconnected'))
+    mockPutSnapshots.mockRejectedValue(new TypeError('Failed to fetch'))
     snapshots.schedule.markItemDirty('item-1' as ItemId)
 
     const result = await snapshots.pusher.flushPendingSnapshots()

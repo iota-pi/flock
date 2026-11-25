@@ -21,12 +21,6 @@ export type BuildSnapshotResult =
   | { type: 'deferred'; reason: 'unpushed' }
   | { type: 'error'; reason?: string }
 
-export interface PreparedSnapshotItem {
-  snapshot: VaultSnapshotInput
-  tick: number
-  heads?: string[]
-}
-
 /**
  * Direct ciphertext length estimation.
  * Estimates the serialized JSON size by calculating ciphertext length plus base metadata/envelope overhead (~128 bytes),

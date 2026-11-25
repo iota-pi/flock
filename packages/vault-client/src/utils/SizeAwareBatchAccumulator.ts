@@ -53,26 +53,4 @@ export class SizeAwareBatchAccumulator<T> {
     this.currentBatch = []
     this.currentBatchBytes = 0
   }
-
-  /**
-   * Partitions items into batches adhering to maxBatchCount and maxBatchBytes.
-   */
-  static batch<T>(
-    items: Iterable<T>,
-    options: SizeAwareBatchAccumulatorOptions & { calculateSize: (item: T) => number },
-  ): T[][] {
-    const accumulator = new SizeAwareBatchAccumulator<T>(options)
-    const batches: T[][] = []
-    for (const item of items) {
-      const size = options.calculateSize(item)
-      if (accumulator.wouldExceed(size) && !accumulator.isEmpty) {
-        batches.push(accumulator.drain())
-      }
-      accumulator.push(item, size)
-    }
-    if (!accumulator.isEmpty) {
-      batches.push(accumulator.drain())
-    }
-    return batches
-  }
 }
