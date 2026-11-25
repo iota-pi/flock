@@ -69,6 +69,71 @@ describe('ItemSyncState', () => {
     })
   })
 
+  describe('advancing server heads to a snapshot\'s', () => {
+    /** A doc whose server heads are past a stale snapshot's, and one where they're on another branch */
+    function histories() {
+      const base = Automerge.change(Automerge.init<Record<string, number>>({ actor: 'aa' }), doc => { doc.a = 1 })
+      const pushed = Automerge.change(Automerge.clone(base), doc => { doc.b = 1 })
+      const other = Automerge.change(Automerge.clone(base, { actor: 'bb' }), doc => { doc.c = 1 })
+      return {
+        doc: Automerge.merge(Automerge.clone(pushed), other),
+        base: Automerge.getHeads(base),
+        pushed: Automerge.getHeads(pushed),
+        other: Automerge.getHeads(other),
+      }
+    }
+
+    it('takes the snapshot\'s heads for an item with none', () => {
+      const state = createState()
+      const { doc, other } = histories()
+
+      state.advanceServerHeads(ITEM_1, other, doc)
+
+      expect(state.getServerHeads(ITEM_1)).toEqual(other)
+    })
+
+    it('never moves them back to a snapshot they are already past', () => {
+      const state = createState()
+      const { doc, base, pushed } = histories()
+      state.setServerHeads(ITEM_1, pushed)
+
+      state.advanceServerHeads(ITEM_1, base, doc)
+
+      expect(state.getServerHeads(ITEM_1)).toEqual(pushed)
+    })
+
+    it('moves them to a snapshot past them', () => {
+      const state = createState()
+      const { doc, base, pushed } = histories()
+      state.setServerHeads(ITEM_1, base)
+
+      state.advanceServerHeads(ITEM_1, pushed, doc)
+
+      expect(state.getServerHeads(ITEM_1)).toEqual(pushed)
+    })
+
+    it('takes the frontier of both when they have diverged, so a push sends nothing either holds', () => {
+      const state = createState()
+      const { doc, pushed, other } = histories()
+      state.setServerHeads(ITEM_1, pushed)
+
+      state.advanceServerHeads(ITEM_1, other, doc)
+
+      expect(state.getServerHeads(ITEM_1).sort()).toEqual([...pushed, ...other].sort())
+      expect(state.isCovered(ITEM_1, doc)).toBe(true)
+    })
+
+    it('keeps its heads when there is no loaded doc to compare them in', () => {
+      const state = createState()
+      const { base, pushed } = histories()
+      state.setServerHeads(ITEM_1, pushed)
+
+      state.advanceServerHeads(ITEM_1, base, undefined)
+
+      expect(state.getServerHeads(ITEM_1)).toEqual(pushed)
+    })
+  })
+
   describe('saving', () => {
     it('saves after the debounce, and within the max wait while changes keep coming', async () => {
       vi.useFakeTimers()

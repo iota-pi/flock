@@ -177,6 +177,41 @@ describe('sync model', () => {
       model.durableEdits.set(itemId, new Set([...(model.durableEdits.get(itemId) ?? []), key]))
     }
 
+    it('never moves server heads back to a stale snapshot it hydrates', async () => {
+      const { setup, world: w, a, b, itemId } = await sharedItem()
+      await a.edit(itemId, { e1: 1 })
+      await a.poll()
+      await a.uploadSnapshots()
+      await a.flushDocs([itemId])
+      recordStoredEdit(setup.model, itemId, 'e1')
+      const pushedHeads = a.services.itemSyncState.getServerHeads(itemId)
+      expect(pushedHeads).toEqual(await a.heads(itemId))
+
+      // B uploads a later snapshot that lacks A's edit, and A merges it before pulling B's row
+      w.server.hiddenSeqs.add(w.server.head)
+      try {
+        await b.edit(itemId, { e2: 2 })
+        await b.poll()
+        await b.uploadSnapshots()
+        await b.flushDocs([itemId])
+        recordStoredEdit(setup.model, itemId, 'e2')
+        w.server.hiddenSeqs.add(w.server.head)
+        await a.manifestSync()
+      } finally {
+        w.server.hiddenSeqs.clear()
+      }
+      expect(await a.read(itemId)).toMatchObject({ e1: 1, e2: 2 })
+
+      // A's server heads cover its edit and the snapshot, so it has nothing to send again
+      expect([...a.services.itemSyncState.getServerHeads(itemId)].sort()).toEqual([...(await a.heads(itemId))!].sort())
+      const pollLog = vi.spyOn(w.server, 'pollLog')
+      await a.poll()
+      expect(pollLog.mock.calls.flatMap(([input]) => input.push)).toEqual([])
+
+      await quiesce(w, setup.model)
+      await assertConverged(w, setup.model, observers)
+    })
+
     it('stores pulled docs before the log cursor moves past them', async () => {
       const { setup, world: w, a, b, itemId } = await sharedItem()
       await a.edit(itemId, { e1: 1 })

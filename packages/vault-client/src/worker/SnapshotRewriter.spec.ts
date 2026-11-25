@@ -553,7 +553,7 @@ describe('SnapshotRewriter.request', () => {
       mockListItemIds.mockResolvedValue(['item-1'])
       const refused = { message: 'CLIENT_OUTDATED', data: { code: 'PRECONDITION_FAILED', httpStatus: 412 } }
       const builder = { build: vi.fn().mockResolvedValue({ type: 'deferred', reason: 'unpushed' }) }
-      const pushToLog = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValue(refused)
+      const pushToLog = vi.fn().mockRejectedValue(refused)
       const { rewriter: refusing } = createRewriter({ ...deps, builder, pushToLog })
 
       await expect(refusing.request()).rejects.toBe(refused)
@@ -563,13 +563,15 @@ describe('SnapshotRewriter.request', () => {
       expect(mockPutSnapshots).not.toHaveBeenCalled()
     })
 
-    it('fails the poll when the chunk\'s push fails on the network', async () => {
+    it('fails the poll when an item\'s push fails on the network', async () => {
       mockListItemIds.mockResolvedValue(['item-1'])
-      vi.mocked(deps.pushToLog).mockRejectedValue(new TypeError('Failed to fetch'))
+      const builder = { build: vi.fn().mockResolvedValue({ type: 'deferred', reason: 'unpushed' }) }
+      const pushToLog = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
+      const { rewriter: failing, outcomes: failingOutcomes } = createRewriter({ ...deps, builder, pushToLog })
 
-      await expect(rewriter.request()).rejects.toThrow('Failed to fetch')
+      await expect(failing.request()).rejects.toThrow('Failed to fetch')
 
-      await vi.waitFor(() => expect(outcomes).toEqual(['failure']))
+      await vi.waitFor(() => expect(failingOutcomes).toEqual(['failure']))
       expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
       expect(mockPutSnapshots).not.toHaveBeenCalled()
     })
