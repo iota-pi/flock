@@ -1,4 +1,9 @@
 import { MAX_REWRITE_ATTEMPTS, SnapshotRewriter, type SnapshotRewriterOptions } from './SnapshotRewriter'
+import { SnapshotPusher } from './SnapshotPusher'
+import type { SnapshotSchedule } from './SnapshotSchedule'
+import type { ItemId } from '@vault/shared'
+import type { StoredSnapshotDetails } from './snapshotUpload'
+import type { Mock } from 'vitest'
 import { RecoveryManager } from './RecoveryManager'
 import { ClientEventHub } from './SyncEventHub'
 import { passthroughCodec } from './domain'
@@ -39,11 +44,54 @@ async function withSnapshotResults(input: any, response: any) {
   return { ...resolved, persisted, results }
 }
 
+/** The rewriter's options, and what the snapshot pusher it uploads through is made from */
+interface TestDeps extends Omit<SnapshotRewriterOptions, 'runPollNow' | 'uploader' | 'apiClient'> {
+  apiClient: SyncApiClient
+  builder: Pick<SnapshotBuilder, 'build'>
+  pushToLog: (itemIds: ItemId[], signal?: AbortSignal) => Promise<void>
+  recoveryManager: RecoveryManager
+  schedule: ReturnType<typeof createSchedule>
+  onSnapshotStored: Mock<(details: StoredSnapshotDetails) => void>
+  maxPayloadBytes?: number
+  runPollNow?: () => Promise<void>
+}
+
+/** The parts of the schedule a rewrite reaches, with no item dirty */
+function createSchedule() {
+  return {
+    getDirtyTick: vi.fn<(itemId: ItemId) => number | undefined>(() => undefined),
+    recordSnapshotSuccess: vi.fn(),
+    recordOversized: vi.fn(() => true),
+    clearOversized: vi.fn(),
+    removeDirtyItemIfTickMatches: vi.fn(),
+  }
+}
+
+/** The snapshot pusher whose pipeline the rewriter runs */
+function createUploader(deps: TestDeps): SnapshotPusher {
+  return new SnapshotPusher({
+    accountId: 'test-account',
+    session: deps.session,
+    schedule: deps.schedule as unknown as SnapshotSchedule,
+    state: { flushPendingSave: vi.fn() },
+    builder: deps.builder,
+    pushToLog: deps.pushToLog,
+    onSnapshotStored: deps.onSnapshotStored,
+    recoveryManager: deps.recoveryManager,
+    apiClient: deps.apiClient,
+    eventHub: new ClientEventHub(),
+    maxPayloadBytes: deps.maxPayloadBytes,
+    runPollNow: vi.fn().mockResolvedValue(undefined),
+    isCaughtUp: () => true,
+    hasPendingMarks: vi.fn().mockResolvedValue(false),
+  })
+}
+
 /**
  * A rewriter whose `runPollNow` runs polls one after another, as the orchestrator does, each running
  * the rewrite phase. `outcomes` records whether each poll's phase succeeded or threw.
  */
-function createRewriter(deps: Omit<SnapshotRewriterOptions, 'runPollNow'> & { runPollNow?: () => Promise<void> }) {
+function createRewriter(deps: TestDeps) {
   const outcomes: Array<'success' | 'failure'> = []
   const polled: { rewriter?: SnapshotRewriter } = {}
   let lastPoll = Promise.resolve()
@@ -61,12 +109,12 @@ function createRewriter(deps: Omit<SnapshotRewriterOptions, 'runPollNow'> & { ru
     })
     return lastPoll
   }
-  const rewriter = new SnapshotRewriter({ runPollNow: poll, ...deps })
+  const rewriter = new SnapshotRewriter({ runPollNow: poll, ...deps, uploader: createUploader(deps) })
   polled.rewriter = rewriter
   return { rewriter, outcomes, poll }
 }
 
-function createDeps(overrides: Partial<SnapshotRewriterOptions> = {}): Omit<SnapshotRewriterOptions, 'runPollNow'> {
+function createDeps(overrides: Partial<TestDeps> = {}): TestDeps {
   const mockRepo = {
     find: vi.fn().mockResolvedValue({
       isReady: vi.fn().mockReturnValue(true),
@@ -74,7 +122,6 @@ function createDeps(overrides: Partial<SnapshotRewriterOptions> = {}): Omit<Snap
     }),
   }
   return {
-    accountId: 'test-account',
     builder: new SnapshotBuilder(mockRepo as any, keys, passthroughCodec, noLogCoverage),
     indexManager: { listItemIds: () => mockListItemIds() },
     apiClient: new SyncApiClient(),
@@ -83,6 +130,8 @@ function createDeps(overrides: Partial<SnapshotRewriterOptions> = {}): Omit<Snap
     claimLeader: vi.fn(),
     catchUp: { isCaughtUp: true, whenCaughtUp: vi.fn().mockResolvedValue(undefined) },
     pushToLog: vi.fn().mockResolvedValue(undefined),
+    schedule: createSchedule(),
+    onSnapshotStored: vi.fn(),
     ...overrides,
   }
 }
@@ -119,7 +168,7 @@ beforeEach(() => {
 })
 
 describe('SnapshotRewriter.request', () => {
-  let deps: Omit<SnapshotRewriterOptions, 'runPollNow'>
+  let deps: TestDeps
   let rewriter: SnapshotRewriter
   let outcomes: Array<'success' | 'failure'>
 
@@ -190,8 +239,6 @@ describe('SnapshotRewriter.request', () => {
   })
 
   it('records the versions and heads of the snapshots the server stored', async () => {
-    const recorder = { recordStoredSnapshots: vi.fn() }
-    const { rewriter: recording } = createRewriter({ ...deps, recorder })
     mockListItemIds.mockResolvedValue(['item-1', 'item-2'])
     mockPutSnapshots.mockResolvedValue({
       success: true,
@@ -199,20 +246,26 @@ describe('SnapshotRewriter.request', () => {
       results: [{ itemId: 'item-1', version: 4 }, { itemId: 'item-2', version: 9 }],
     })
 
-    await recording.request()
+    await rewriter.request()
 
-    expect(recorder.recordStoredSnapshots).toHaveBeenCalledWith(
-      [
-        expect.objectContaining({ snapshot: expect.objectContaining({ itemId: 'item-1' }), heads: ['mock-head'] }),
-        expect.objectContaining({ snapshot: expect.objectContaining({ itemId: 'item-2' }), heads: ['mock-head'] }),
-      ],
-      new Map([['item-1', 4], ['item-2', 9]]),
-    )
+    expect(deps.schedule.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', undefined, 4)
+    expect(deps.schedule.recordSnapshotSuccess).toHaveBeenCalledWith('item-2', undefined, 9)
+    expect(deps.onSnapshotStored).toHaveBeenCalledWith({ itemId: 'item-1', heads: ['mock-head'] })
+    expect(deps.onSnapshotStored).toHaveBeenCalledWith({ itemId: 'item-2', heads: ['mock-head'] })
+  })
+
+  it('uploads a dirty item with its tick, so the stored snapshot takes it out of the queue', async () => {
+    deps.schedule.getDirtyTick.mockImplementation(itemId => (itemId === 'item-1' ? 7 : undefined))
+    mockListItemIds.mockResolvedValue(['item-1', 'item-2'])
+    mockPutSnapshots.mockResolvedValue({ success: true })
+
+    await rewriter.request()
+
+    expect(deps.schedule.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 7, 1)
+    expect(deps.schedule.recordSnapshotSuccess).toHaveBeenCalledWith('item-2', undefined, 1)
   })
 
   it('retries only the items the server didn\'t store', async () => {
-    const recorder = { recordStoredSnapshots: vi.fn() }
-    const { rewriter: recording } = createRewriter({ ...deps, recorder })
     mockListItemIds.mockResolvedValue(['item-1', 'item-2'])
     mockPutSnapshots.mockResolvedValue({
       success: true,
@@ -220,11 +273,11 @@ describe('SnapshotRewriter.request', () => {
       results: [{ itemId: 'item-2', version: 3 }],
     })
 
-    const result = await recording.request()
+    const result = await rewriter.request()
 
     expect(mockPutSnapshots).toHaveBeenCalledTimes(MAX_REWRITE_ATTEMPTS)
     expect(mockPutSnapshots.mock.calls[1][0].snapshots.map((s: any) => s.itemId)).toEqual(['item-1'])
-    expect(recorder.recordStoredSnapshots).toHaveBeenCalledTimes(1)
+    expect(deps.onSnapshotStored).toHaveBeenCalledTimes(1)
     expect(result.succeeded).toEqual(['item-2'])
     expect(result.failed).toEqual([
       { itemId: 'item-1', error: expect.stringContaining('Failed to upload the snapshot') },
@@ -245,7 +298,7 @@ describe('SnapshotRewriter.request', () => {
     expect(upsertManualRecoveryEntry).toHaveBeenCalledWith('test-account', {
       itemId: 'item-1',
       kind: 'snapshotFailure',
-      detail: { code: 'reencryptionFailed', stage: 'upload' },
+      detail: { code: 'snapshotFailed', stage: 'upload' },
     })
     // Item failures aren't the poll's
     await vi.waitFor(() => expect(outcomes).toEqual(['success']))
@@ -293,7 +346,7 @@ describe('SnapshotRewriter.request', () => {
     expect(upsertManualRecoveryEntry).toHaveBeenCalledWith('test-account', {
       itemId: 'item-bad',
       kind: 'snapshotFailure',
-      detail: { code: 'reencryptionFailed', stage: 'build' },
+      detail: { code: 'snapshotFailed', stage: 'build' },
     })
     expect(badItemAttempts).toBe(MAX_REWRITE_ATTEMPTS)
     expect(mockPutSnapshots.mock.calls[0][0].snapshots.map((s: any) => s.itemId)).toEqual(['item-1', 'item-2'])
@@ -336,8 +389,9 @@ describe('SnapshotRewriter.request', () => {
     await vi.waitFor(() => expect(pollOutcomes).toEqual(['success']))
   })
 
-  it('quarantines a document that never becomes ready', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {})
+  // Nothing is wrong with it, so a later rewrite can retry it, as the snapshot phase would
+  it('gives up on a document that never becomes ready without quarantining it', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
     mockListItemIds.mockResolvedValue(['item-never'])
     const { rewriter: retrying } = createRewriter({
       ...deps,
@@ -350,11 +404,7 @@ describe('SnapshotRewriter.request', () => {
       itemId: 'item-never',
       error: 'Failed to build snapshot for item item-never: document or vault was not ready',
     }])
-    expect(upsertManualRecoveryEntry).toHaveBeenCalledWith('test-account', {
-      itemId: 'item-never',
-      kind: 'snapshotFailure',
-      detail: { code: 'reencryptionFailed', stage: 'build' },
-    })
+    expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
   })
 
   it('logs and goes on if quarantining a failed item fails', async () => {
@@ -370,7 +420,7 @@ describe('SnapshotRewriter.request', () => {
 
     expect(result.failed.map(f => f.itemId)).toEqual(['item-bad-storage'])
     expect(consoleErrorSpy).toHaveBeenCalledWith(
-      '[SnapshotRewriter] Failed to quarantine item item-bad-storage:',
+      '[SnapshotPusher] Failed to record manual recovery entry',
       expect.any(Error),
     )
   })
@@ -531,7 +581,7 @@ describe('SnapshotRewriter.request', () => {
       expect(upsertManualRecoveryEntry).toHaveBeenCalledWith('test-account', {
         itemId: 'item-perm-fail',
         kind: 'snapshotFailure',
-        detail: { code: 'reencryptionFailed', stage: 'upload' },
+        detail: { code: 'snapshotFailed', stage: 'upload' },
       })
       await vi.waitFor(() => expect(outcomes).toEqual(['success']))
     })
@@ -556,7 +606,7 @@ describe('SnapshotRewriter.request', () => {
     mockListItemIds.mockResolvedValue(['item-1', 'item-2', 'item-3'])
     mockPutSnapshots.mockResolvedValue({ success: true })
     // Each mock snapshot is about 150 bytes, so a batch holds one
-    const { rewriter: small } = createRewriter({ ...deps, maxBatchBytes: 200 })
+    const { rewriter: small } = createRewriter({ ...deps, maxPayloadBytes: 200 })
 
     const result = await small.request()
 
@@ -565,6 +615,24 @@ describe('SnapshotRewriter.request', () => {
     for (const [input] of mockPutSnapshots.mock.calls) {
       expect(input.snapshots).toHaveLength(1)
     }
+  })
+
+  it('fails an oversized item at once, quarantining it as oversized as the snapshot phase does', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockListItemIds.mockResolvedValue(['item-1'])
+    // Each mock snapshot is about 150 bytes
+    const { rewriter: small } = createRewriter({ ...deps, maxPayloadBytes: 100 })
+
+    const result = await small.request()
+
+    expect(result.failed).toEqual([{ itemId: 'item-1', error: expect.stringContaining('exceeds the') }])
+    expect(mockPutSnapshots).not.toHaveBeenCalled()
+    expect(deps.schedule.recordOversized).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(upsertManualRecoveryEntry).toHaveBeenCalledWith('test-account', {
+      itemId: 'item-1',
+      kind: 'oversized',
+      detail: { code: 'oversized', sizeKb: 0 },
+    }))
   })
 
   it('claims leadership first when this tab is a follower', async () => {

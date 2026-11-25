@@ -1,33 +1,28 @@
 import type { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
-import { buildAfterPush, estimateSnapshotSize, type SnapshotBuilder } from './SnapshotBuilder'
-import type { RecoveryManager } from './RecoveryManager'
 import type { SyncApiClient } from './SyncApiClient'
-import { uploadSnapshotBatch, type StoredSnapshotRecorder, type UploadableSnapshot } from './snapshotUpload'
-import { classifySyncError, isRequestFailure } from '../utils/errorClassifier'
-import { isClientOutdatedError } from '@vault/shared'
+import { classifySyncError } from '../utils/errorClassifier'
+import { isClientOutdatedError, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import type { SyncLogPuller } from './SyncLogPuller'
 import { AbortError, checkAlive, isAbortError, untilAborted, withTimeout } from '../utils/abort'
 import { errorMessage } from '../utils/errorMessage'
-import {
-  SizeAwareBatchAccumulator,
-  DEFAULT_MAX_BATCH_BYTES,
-} from '../utils/SizeAwareBatchAccumulator'
 import { fireAndForget } from '../utils/fireAndForget'
 import type { ItemId } from '@vault/shared'
 import type { ReencryptOptions, ReencryptResult, ReencryptStage } from '../shared/types'
-import type { ManualRecoveryStage } from '../shared/manualRecoveryStore'
 import { ReencryptionWaitError } from '../shared/reencryptionWaitError'
 import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
 import { createLogger } from '../utils/logger'
 import type { SyncSessionState } from './SyncSessionState'
+import { MAX_CONSECUTIVE_SNAPSHOT_FAILURES, type ItemUploadResult, type SnapshotPusher } from './SnapshotPusher'
 
 const log = createLogger('SnapshotRewriter')
 
-/** How many times an item is built and uploaded before the pass gives up on it */
-export const MAX_REWRITE_ATTEMPTS = 3
+/**
+ * How many times a pass builds and uploads an item before it gives up on it. It matches the failures
+ * that quarantine an item, so an item that keeps failing is quarantined within the pass, and the cap
+ * itself only stops an item that keeps waiting for the log.
+ */
+export const MAX_REWRITE_ATTEMPTS = MAX_CONSECUTIVE_SNAPSHOT_FAILURES
 const REWRITE_CHUNK_SIZE = SYNC_BATCH_SIZES.reencryptChunk
-
-type FailedItem = ReencryptResult['failed'][number]
 
 /** One call's options for `SnapshotRewriter.request` */
 export interface RewriteRequestOptions extends ReencryptOptions {
@@ -37,11 +32,13 @@ export interface RewriteRequestOptions extends ReencryptOptions {
 }
 
 export interface SnapshotRewriterOptions {
-  accountId: string
-  builder: Pick<SnapshotBuilder, 'build'>
+  /**
+   * The snapshot pusher's per-item pipeline, which builds, uploads, records what the server stored
+   * and quarantines what keeps failing, as it does for the snapshot phase
+   */
+  uploader: Pick<SnapshotPusher, 'uploadItems'>
   indexManager: Pick<AutomergeIndexManager, 'listItemIds'>
-  apiClient: SyncApiClient
-  recoveryManager: RecoveryManager
+  apiClient: Pick<SyncApiClient, 'getValidToken'>
   /** Rewrites run in the leader's polls, while online */
   session: SyncSessionState
   /** Makes this tab the leader, which polls */
@@ -55,14 +52,6 @@ export interface SnapshotRewriterOptions {
   runPollNow: () => Promise<void>
   /** Called whenever the rewrite's stage changes, and with null once it stops */
   onStage?: (stage: ReencryptStage | null) => void
-  /** Pushes items' changes to the log, which comes before their snapshots */
-  pushToLog: (itemIds: ItemId[], signal?: AbortSignal) => Promise<void>
-  maxBatchBytes?: number
-  /**
-   * Records the snapshots the server stored, as the snapshot pusher does. Otherwise the next manifest
-   * sync would take the new versions for remote changes and fetch every item.
-   */
-  recorder?: StoredSnapshotRecorder
 }
 
 interface QueuedItem {
@@ -95,16 +84,13 @@ interface Pass {
  * next poll.
  */
 export class SnapshotRewriter {
-  private readonly maxBatchBytes: number
   /** One for each request or `prepare` waiting for leadership or catch-up, which `cancel` aborts */
   private readonly cancellers = new Set<AbortController>()
   private queue: QueuedItem[] = []
   private pass: Pass | null = null
   private currentStage: ReencryptStage | null = null
 
-  constructor(private readonly deps: SnapshotRewriterOptions) {
-    this.maxBatchBytes = deps.maxBatchBytes ?? DEFAULT_MAX_BATCH_BYTES
-  }
+  constructor(private readonly deps: SnapshotRewriterOptions) {}
 
   /** What the rewrite is doing, or null when none is waiting or queued */
   get stage(): ReencryptStage | null {
@@ -359,8 +345,9 @@ export class SnapshotRewriter {
   }
 
   /**
-   * Builds and uploads one chunk's snapshots. Each item it settles, or queues again for another
-   * attempt, goes in `handled`; a request failure throws, leaving the rest for the next poll.
+   * Builds and uploads one chunk's snapshots through the snapshot pusher's pipeline. Each item it
+   * settles, or queues again for another attempt, goes in `handled`; a request failure throws,
+   * leaving the rest for the next poll.
    */
   private async processChunk(
     items: QueuedItem[],
@@ -368,115 +355,44 @@ export class SnapshotRewriter {
     handled: Set<ItemId>,
     signal: AbortSignal,
   ): Promise<void> {
-    await this.deps.pushToLog(items.map(item => item.itemId), signal)
-
-    const settled = await Promise.allSettled(
-      items.map(item => buildAfterPush(this.deps.builder, this.deps.pushToLog, item.itemId, signal)),
-    )
-
-    const ready: Array<UploadableSnapshot & { item: QueuedItem }> = []
-    for (const [index, outcome] of settled.entries()) {
-      const item = items[index]
-      if (outcome.status === 'rejected') {
-        // A push that failed the request as a whole says nothing about the item
-        if (signal.aborted || isAbortError(outcome.reason) || isRequestFailure(outcome.reason)) {
-          throw outcome.reason
-        }
-        await this.retryLater(item, pass, handled, {
-          stage: 'build',
-          error: `Failed to build snapshot for item ${item.itemId}: ${errorMessage(outcome.reason)}`,
-        })
-        continue
-      }
-      const result = outcome.value
-      if (result.type === 'success') {
-        ready.push({ item, snapshot: result.snapshot, heads: result.heads })
-      } else if (result.type === 'deferred') {
-        // Not broken: it waits for the log, so a later rewrite can retry it
-        await this.retryLater(item, pass, handled, {
-          stage: null,
-          error: `The snapshot of item ${item.itemId} has to wait for the log`,
-        })
-      } else {
-        const reason = result.type === 'not-ready' ? 'document or vault was not ready' : result.reason
-        await this.retryLater(item, pass, handled, {
-          stage: 'build',
-          error: `Failed to build snapshot for item ${item.itemId}${reason ? `: ${reason}` : ''}`,
-        })
-      }
-    }
-
-    // The chunk already caps the item count
-    const batches = SizeAwareBatchAccumulator.batch(ready, {
-      maxBatchBytes: this.maxBatchBytes,
-      calculateSize: entry => estimateSnapshotSize(entry.snapshot),
+    const byId = new Map(items.map(item => [item.itemId, item]))
+    await this.deps.uploader.uploadItems(items.map(item => item.itemId), {
+      signal,
+      includeClean: true,
+      onItemResult: (itemId, result) => {
+        const item = byId.get(itemId)
+        if (!item) return
+        handled.add(itemId)
+        this.recordResult(item, pass, result)
+      },
     })
-
-    for (const batch of batches) {
-      checkAlive(signal, () => this.deps.session.isOperational, 'Re-encryption aborted')
-      let stored: typeof batch
-      let rejected: typeof batch
-      try {
-        ({ stored, rejected } = await uploadSnapshotBatch(batch, {
-          accountId: this.deps.accountId,
-          apiClient: this.deps.apiClient,
-          recorder: this.deps.recorder,
-          signal,
-        }))
-      } catch (error) {
-        // `SyncApiClient` has already turned auth errors it couldn't recover from into `AuthExpiredError`
-        if (signal.aborted || isAbortError(error) || isRequestFailure(error)) throw error
-        stored = []
-        rejected = batch
-        log.warn('A snapshot batch upload failed:', error)
-      }
-      for (const { item } of stored) {
-        handled.add(item.itemId)
-        pass.result.succeeded.push(item.itemId)
-        pass.done += 1
-      }
-      for (const { item } of rejected) {
-        await this.retryLater(item, pass, handled, {
-          stage: 'upload',
-          error: `Failed to upload the snapshot of item ${item.itemId} after ${MAX_REWRITE_ATTEMPTS} attempts`,
-        })
-      }
-    }
   }
 
   /**
-   * Queues an item again, or once it has used its attempts, records it as failed. A failure with a
-   * stage is quarantined for manual recovery; one without (an item waiting for the log) isn't.
+   * Records what became of an item, or queues it again. An item that's oversized or now quarantined
+   * goes in `failed` at once; one that failed or is waiting for the log gets another attempt, up to
+   * `MAX_REWRITE_ATTEMPTS`. Quarantining is the pipeline's, so an item that gives up while waiting
+   * for the log isn't quarantined, and a later rewrite can retry it.
    */
-  private async retryLater(
-    item: QueuedItem,
-    pass: Pass,
-    handled: Set<ItemId>,
-    failure: { stage: ManualRecoveryStage | null; error: string },
-  ): Promise<void> {
-    handled.add(item.itemId)
+  private recordResult(item: QueuedItem, pass: Pass, result: ItemUploadResult): void {
+    if (result.type === 'stored') {
+      pass.result.succeeded.push(item.itemId)
+      pass.done += 1
+      return
+    }
     item.attempts += 1
-    if (item.attempts < MAX_REWRITE_ATTEMPTS) {
+    const terminal = result.type === 'oversized' || (result.type === 'failed' && result.quarantined)
+    if (!terminal && item.attempts < MAX_REWRITE_ATTEMPTS) {
       if (this.pass === pass) this.queue.push(item)
       return
     }
     pass.done += 1
-    const failed: FailedItem = { itemId: item.itemId, error: failure.error }
-    pass.result.failed.push(failed)
-    if (failure.stage === null) {
-      log.warn(failure.error)
-      return
-    }
-    log.error(failure.error)
-    try {
-      // The error stays in the logged result; the stored entry gets only the stage
-      await this.deps.recoveryManager.quarantine(
-        item.itemId,
-        'snapshotFailure',
-        { code: 'reencryptionFailed', stage: failure.stage },
-      )
-    } catch (storageErr) {
-      log.error(`Failed to quarantine item ${item.itemId}:`, storageErr)
+    const error = describeFailure(item.itemId, result, item.attempts)
+    pass.result.failed.push({ itemId: item.itemId, error })
+    if (result.type === 'waiting') {
+      log.warn(error)
+    } else {
+      log.error(error)
     }
   }
 
@@ -505,4 +421,20 @@ function waiterError(error: unknown): unknown {
     )
   }
   return error
+}
+
+/** Why a pass gave up on an item, for its result and the log */
+function describeFailure(itemId: ItemId, result: Exclude<ItemUploadResult, { type: 'stored' }>, attempts: number): string {
+  switch (result.type) {
+    case 'oversized':
+      return `The snapshot of item ${itemId} (${Math.round(result.sizeBytes / 1024)} KB) exceeds the ${MAX_ITEM_SIZE_KB} KB limit`
+    case 'waiting':
+      return result.reason === 'deferred'
+        ? `The snapshot of item ${itemId} has to wait for the log`
+        : `Failed to build snapshot for item ${itemId}: document or vault was not ready`
+    case 'failed':
+      return result.stage === 'build'
+        ? `Failed to build snapshot for item ${itemId}${result.reason ? `: ${result.reason}` : ''}`
+        : `Failed to upload the snapshot of item ${itemId} after ${attempts} attempts`
+  }
 }

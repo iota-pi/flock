@@ -27,6 +27,7 @@ export type ManualRecoveryDetail =
   | { code: 'hydrationFailed' }
   | { code: 'oversized'; sizeKb: number }
   | { code: 'snapshotFailed'; stage: ManualRecoveryStage }
+  /** Only older builds' rewrites wrote this; rewrites now quarantine through the snapshot pipeline (`snapshotFailed`) */
   | { code: 'reencryptionFailed'; stage: ManualRecoveryStage }
   | { code: 'waitingForChanges' }
   | { code: 'changesWontApply' }
