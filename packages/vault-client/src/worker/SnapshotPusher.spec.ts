@@ -90,6 +90,10 @@ describe('SnapshotPusher', () => {
       accountId: 'test-acc',
       session: new SyncSessionState({ isLeader: true }),
       schedule: mockTracker as unknown as SnapshotSchedule,
+      state: { flushPendingSave: vi.fn() },
+      runPollNow: vi.fn().mockResolvedValue(undefined),
+      isCaughtUp: () => true,
+      hasPendingMarks: vi.fn().mockResolvedValue(false),
       builder: mockBuilder as unknown as SnapshotBuilder,
       pushToLog: mockPushToLog,
       onSnapshotStored: mockOnSnapshotStored,
@@ -129,6 +133,10 @@ describe('SnapshotPusher', () => {
       accountId: 'test-acc',
       session: new SyncSessionState({ isLeader: false }),
       schedule: mockTracker as unknown as SnapshotSchedule,
+      state: { flushPendingSave: vi.fn() },
+      runPollNow: vi.fn().mockResolvedValue(undefined),
+      isCaughtUp: () => true,
+      hasPendingMarks: vi.fn().mockResolvedValue(false),
       builder: mockBuilder as unknown as SnapshotBuilder,
       pushToLog: mockPushToLog,
       onSnapshotStored: mockOnSnapshotStored,
@@ -435,6 +443,10 @@ describe('SnapshotPusher', () => {
         accountId: 'test-acc',
         session: new SyncSessionState({ isLeader: true }),
         schedule: mockTracker as unknown as SnapshotSchedule,
+        state: { flushPendingSave: vi.fn() },
+        runPollNow: vi.fn().mockResolvedValue(undefined),
+        isCaughtUp: () => true,
+        hasPendingMarks: vi.fn().mockResolvedValue(false),
         builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec, noLogCoverage),
         pushToLog: mockPushToLog,
         onSnapshotStored: mockOnSnapshotStored,
@@ -535,7 +547,7 @@ describe('SnapshotPusher', () => {
     }
 
 
-    /** Replaces `tracker` and `pusher` with a real tracker wired to a pusher, as SnapshotManager wires them */
+    /** Replaces `tracker` and `pusher` with a real tracker wired to a pusher, as the context wires them */
     function createPusher(options: { maxPayloadBytes?: number } = {}): void {
       session = new SyncSessionState({ isLeader: true })
       state = new ItemSyncState({ db: records.db, session })
@@ -548,6 +560,10 @@ describe('SnapshotPusher', () => {
         accountId: 'test-account',
         session,
         schedule: tracker,
+        state,
+        runPollNow: vi.fn().mockResolvedValue(undefined),
+        isCaughtUp: () => true,
+        hasPendingMarks: vi.fn().mockResolvedValue(false),
         builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec, noLogCoverage),
         pushToLog: mockPushToLog,
         onSnapshotStored: mockOnSnapshotStored,
@@ -567,8 +583,8 @@ describe('SnapshotPusher', () => {
     /** Simulates a worker restart: drops the in-memory state and replaces it with a fresh tracker and pusher */
     async function restart(): Promise<void> {
       session.markShutdown()
-      pusher.clear()
-      tracker.clear()
+      pusher.shutdown()
+      await tracker.shutdown()
       await state.shutdown({ clearLocalData: true })
       createPusher()
     }
@@ -1319,8 +1335,7 @@ describe('SnapshotPusher', () => {
         await restart()
         expect(tracker.getDirtyItemIds()).not.toContain('item-1')
 
-        await state.load()
-        await tracker.restoreFlagged()
+        await tracker.load()
         expect(tracker.getDirtyItemIds()).toContain('item-1')
       })
     })

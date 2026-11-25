@@ -8,7 +8,8 @@ describe('StorageRecoveryService', () => {
   let clientEventHub: ClientEventHub
   let mockOutbox: any
   let mockDocStore: any
-  let mockSnapshotManager: any
+  let mockSnapshotSchedule: any
+  let mockSnapshotPusher: any
   let mockItemSyncState: any
   let mockMetadataStore: any
   let mockOrchestrator: any
@@ -26,12 +27,11 @@ describe('StorageRecoveryService', () => {
     mockItemSyncState = {
       save: vi.fn().mockResolvedValue(undefined),
     }
-    mockSnapshotManager = {
+    mockSnapshotPusher = {
       flushPendingSnapshots: vi.fn().mockResolvedValue({ persisted: 1, total: 1 }),
-      schedule: {
-        getDirtyItemIds: vi.fn().mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId]),
-      },
-      state: mockItemSyncState,
+    }
+    mockSnapshotSchedule = {
+      getDirtyItemIds: vi.fn().mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId]),
     }
     mockMetadataStore = {
       testStorageAvailable: vi.fn().mockResolvedValue(undefined),
@@ -46,7 +46,9 @@ describe('StorageRecoveryService', () => {
       clientEventHub,
       outbox: mockOutbox,
       docStore: mockDocStore,
-      snapshotManager: mockSnapshotManager,
+      itemSyncState: mockItemSyncState,
+      snapshotSchedule: mockSnapshotSchedule,
+      snapshotPusher: mockSnapshotPusher,
       metadataStore: mockMetadataStore,
       orchestrator: mockOrchestrator,
     })
@@ -100,7 +102,7 @@ describe('StorageRecoveryService', () => {
       expect(mockOutbox.markAll).toHaveBeenCalledWith(['item-1', 'item-2'])
 
       expect(mockItemSyncState.save).toHaveBeenCalled()
-      expect(mockSnapshotManager.flushPendingSnapshots).toHaveBeenCalled()
+      expect(mockSnapshotPusher.flushPendingSnapshots).toHaveBeenCalled()
       expect(mockOrchestrator.flush).toHaveBeenCalled()
 
       expect(resetSpy).toHaveBeenCalledTimes(1)
@@ -108,7 +110,7 @@ describe('StorageRecoveryService', () => {
     })
 
     it("saves the docs of this tab's edits, which aren't queued for a snapshot, until a retry succeeds", async () => {
-      mockSnapshotManager.schedule.getDirtyItemIds.mockReturnValue([])
+      mockSnapshotSchedule.getDirtyItemIds.mockReturnValue([])
       service.recordEdit('edited' as ItemId)
       mockMetadataStore.testStorageAvailable.mockRejectedValueOnce(new DOMException('Quota exceeded', 'QuotaExceededError'))
 
@@ -187,7 +189,7 @@ describe('StorageRecoveryService', () => {
       const result = await service.retrySave()
 
       expect(result.success).toBe(true)
-      expect(mockSnapshotManager.flushPendingSnapshots).not.toHaveBeenCalled()
+      expect(mockSnapshotPusher.flushPendingSnapshots).not.toHaveBeenCalled()
       expect(mockOrchestrator.flush).not.toHaveBeenCalled()
     })
   })

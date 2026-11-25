@@ -68,7 +68,7 @@ describe('SnapshotBuilder', () => {
   })
 
   it('defers an item whose changes have not reached the log, without saving it', async () => {
-    const coverage = { check: vi.fn().mockReturnValue({ covered: false, reason: 'unpushed' }) }
+    const coverage = { isCovered: vi.fn().mockReturnValue(false) }
     const deferring = new SnapshotBuilder(mockRepo, keys, passthroughCodec, coverage)
 
 

@@ -39,16 +39,15 @@ describe('SnapshotSchedule', () => {
   })
 
   /** Marks the session shut down and stops the schedule and then the state, as the context does */
-  function shutDown(options?: { clearLocalData?: boolean }): Promise<void> {
+  async function shutDown(options?: { clearLocalData?: boolean }): Promise<void> {
     session.markShutdown()
-    tracker.clear()
-    return state.shutdown(options)
+    await tracker.shutdown()
+    await state.shutdown(options)
   }
 
   /** Loads the records and runs the audit, as the context does at start and on promotion */
-  async function load(): Promise<void> {
-    await state.load()
-    await tracker.restoreFlagged()
+  function load(): Promise<void> {
+    return tracker.load()
   }
 
   it('marks items dirty with monotonic tick, due once the debounce expires', async () => {
@@ -408,8 +407,7 @@ describe('SnapshotSchedule', () => {
       const restartedSession = new SyncSessionState({ isLeader: true })
       const restartedState = new ItemSyncState({ db: store.db, session: restartedSession })
       const restarted = new SnapshotSchedule({ state: restartedState, recoveryManager: mockRecoveryManager, session: restartedSession })
-      await restartedState.load()
-      await restarted.restoreFlagged()
+      await restarted.load()
 
       expect(restarted.getDirtyItemIds()).toEqual(['item-offline'])
     })

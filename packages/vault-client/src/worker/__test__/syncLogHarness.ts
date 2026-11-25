@@ -111,7 +111,7 @@ export class Device {
   async promote(): Promise<void> {
     this.options.isLeader = true
     if (!this.context.session.setLeader(true)) return
-    this.services.snapshotManager.onLeaderChange()
+    this.services.snapshotSchedule.onLeaderChange()
     await this.services.puller.loadState()
   }
 
@@ -119,7 +119,7 @@ export class Device {
   demote(): void {
     this.options.isLeader = false
     if (!this.context.session.setLeader(false)) return
-    this.services.snapshotManager.onLeaderChange()
+    this.services.snapshotSchedule.onLeaderChange()
   }
 
   /** Makes the next save of the item sync records fail, as a full disk would, while the tab carries on */
@@ -223,7 +223,7 @@ export class Device {
 
   async uploadSnapshots(): Promise<void> {
     await this.settle()
-    await this.services.snapshotManager.flushPendingSnapshots()
+    await this.services.snapshotPusher.flushPendingSnapshots()
   }
 
   /** A poll whose manifest phase syncs now, whenever the last sync ran */

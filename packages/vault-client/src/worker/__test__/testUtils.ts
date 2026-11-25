@@ -16,7 +16,7 @@ import type { RealtimeBus, TabVisibility } from '../RealtimeBus'
 import type { VaultMetadata } from '../../shared/types'
 
 /** Snapshot coverage that lets every snapshot be built */
-export const noLogCoverage = { check: () => ({ covered: true as const }) }
+export const noLogCoverage = { isCovered: () => true }
 
 /** A real local cipher over a fresh one-key keyring */
 export async function createTestLocalCipher(accountId = 'test-account'): Promise<LocalCipher> {

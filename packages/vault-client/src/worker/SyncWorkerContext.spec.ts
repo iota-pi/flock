@@ -29,7 +29,8 @@ import * as indexStoreModule from './stores/IndexStore'
 import * as syncLogDatabaseModule from './stores/SyncLogDatabase'
 import * as docStoreModule from './docStore'
 import * as automergeRepoManager from './AutomergeRepoManager'
-import * as snapshotManagerModule from './SnapshotManager'
+import * as snapshotScheduleModule from './SnapshotSchedule'
+import * as snapshotPusherModule from './SnapshotPusher'
 import * as syncOrchestrator from './SyncOrchestrator'
 import * as itemOperationsModule from './ItemOperations'
 import * as realtimeBusModule from './RealtimeBus'
@@ -138,23 +139,22 @@ beforeEach(() => {
       close = vi.fn().mockResolvedValue(undefined)
     },
   })
-  spyOnExports(snapshotManagerModule, {
-    SnapshotManager: class MockSnapshotManager {
-      schedule = {
-        markItemDirty: vi.fn(),
-        getDirtyItemIds: vi.fn().mockReturnValue([]),
-      }
-
-      readonly state: unknown
-
-      constructor(readonly deps: { state: unknown }) {
-        this.state = deps.state
-      }
-
+  spyOnExports(snapshotScheduleModule, {
+    SnapshotSchedule: class MockSnapshotSchedule {
+      constructor(readonly deps: unknown) {}
+      nextDueAt: number | undefined = undefined
+      markItemDirty = vi.fn()
+      getDirtyItemIds = vi.fn().mockReturnValue([])
       load = vi.fn().mockResolvedValue(undefined)
       shutdown = vi.fn().mockResolvedValue(undefined)
-      flushPendingSnapshots = vi.fn().mockResolvedValue({ persisted: 0, total: 0 })
       onLeaderChange = vi.fn()
+    },
+  })
+  spyOnExports(snapshotPusherModule, {
+    SnapshotPusher: class MockSnapshotPusher {
+      constructor(readonly deps: unknown) {}
+      shutdown = vi.fn()
+      flushPendingSnapshots = vi.fn().mockResolvedValue({ persisted: 0, total: 0 })
       pushDue = vi.fn().mockResolvedValue({ persisted: 0, total: 0, success: true })
     },
   })
@@ -228,7 +228,7 @@ describe('SyncWorkerContext', () => {
 
   it('marks items dirty at once when a change can only reach the server in a snapshot', () => {
     depsOf<ChangeOutboxDeps>(context.services.changeOutbox).requestSnapshot('oversized-item' as ItemId)
-    expect(context.services.snapshotManager.schedule.markItemDirty).toHaveBeenCalledWith('oversized-item' as ItemId, 0)
+    expect(context.services.snapshotSchedule.markItemDirty).toHaveBeenCalledWith('oversized-item' as ItemId, 0)
   })
 
   it('reports poll results and pull retries to the status manager', () => {
@@ -247,7 +247,8 @@ describe('SyncWorkerContext', () => {
 
     expect(pullerShutdown).toHaveBeenCalledWith({ clearLocalData: true })
     expect(stateShutdown).toHaveBeenCalledWith({ clearLocalData: true })
-    expect(context.services.snapshotManager.shutdown).toHaveBeenCalled()
+    expect(context.services.snapshotSchedule.shutdown).toHaveBeenCalled()
+    expect(context.services.snapshotPusher.shutdown).toHaveBeenCalled()
     expect(context.services.orchestrator.shutdown).toHaveBeenCalled()
     expect(context.services.docStore.shutdown).toHaveBeenCalled()
     expect(clearSyncMetadataStorage).not.toHaveBeenCalled()
@@ -255,15 +256,15 @@ describe('SyncWorkerContext', () => {
   })
 
   it('loads the item records with the log state, and only there, at start and on promotion', async () => {
-    const { snapshotManager } = context.services
-    const loadsAtStart = vi.mocked(snapshotManager.load).mock.calls.length
+    const { snapshotSchedule } = context.services
+    const loadsAtStart = vi.mocked(snapshotSchedule.load).mock.calls.length
     expect(loadsAtStart).toBeGreaterThanOrEqual(1)
 
     await depsOf<SyncLogPullerDeps>(context.services.puller).onLoad!()
     depsOf<SyncOrchestratorDeps>(context.services.orchestrator).onLeaderChange!(true)
 
-    expect(snapshotManager.load).toHaveBeenCalledTimes(loadsAtStart + 1)
-    expect(snapshotManager.onLeaderChange).toHaveBeenCalled()
+    expect(snapshotSchedule.load).toHaveBeenCalledTimes(loadsAtStart + 1)
+    expect(snapshotSchedule.onLeaderChange).toHaveBeenCalled()
   })
 
   it('shuts down cleanly without clearLocalData', async () => {
@@ -273,7 +274,8 @@ describe('SyncWorkerContext', () => {
 
     expect(pullerShutdown).toHaveBeenCalledWith(undefined)
     expect(stateShutdown).toHaveBeenCalledWith(undefined)
-    expect(context.services.snapshotManager.shutdown).toHaveBeenCalled()
+    expect(context.services.snapshotSchedule.shutdown).toHaveBeenCalled()
+    expect(context.services.snapshotPusher.shutdown).toHaveBeenCalled()
     expect(clearSyncMetadataStorage).not.toHaveBeenCalled()
     expect(context.services.indexStore.clear).not.toHaveBeenCalled()
   })
@@ -286,13 +288,13 @@ describe('SyncWorkerContext', () => {
 
     expect(markSpy).toHaveBeenCalledWith('edited-item')
     expect(recordEdit).toHaveBeenCalledWith('edited-item')
-    expect(context.services.snapshotManager.schedule.markItemDirty).not.toHaveBeenCalled()
+    expect(context.services.snapshotSchedule.markItemDirty).not.toHaveBeenCalled()
     expect(realtimeBus.publishSyncPing).not.toHaveBeenCalled()
   })
 
   it("asks for restored items' snapshots only on the leader, and marks them pending on every tab", async () => {
     const markAll = vi.spyOn(context.services.changeOutbox, 'markAll').mockResolvedValue(undefined)
-    const { markItemDirty } = context.services.snapshotManager.schedule
+    const { markItemDirty } = context.services.snapshotSchedule
 
     context.session.setLeader(false)
     await context.markRestored(['restored-1' as ItemId])
@@ -307,7 +309,7 @@ describe('SyncWorkerContext', () => {
   it('marks an item dirty when the leader records the acknowledgement of its push', () => {
     depsOf<ChangeOutboxDeps>(context.services.changeOutbox).onAcknowledged('pushed-item' as ItemId)
 
-    expect(context.services.snapshotManager.schedule.markItemDirty).toHaveBeenCalledWith('pushed-item')
+    expect(context.services.snapshotSchedule.markItemDirty).toHaveBeenCalledWith('pushed-item')
   })
 
   it('closes its realtime bus on shutdown', async () => {
@@ -324,9 +326,9 @@ describe('SyncWorkerContext', () => {
     expect(shutDownFirst).toBe(true)
   })
 
-  it('tells the snapshot manager about leaderChange', () => {
+  it('tells the snapshot schedule about leaderChange', () => {
     depsOf<SyncOrchestratorDeps>(context.services.orchestrator).onLeaderChange!(true)
-    expect(context.services.snapshotManager.onLeaderChange).toHaveBeenCalledTimes(1)
+    expect(context.services.snapshotSchedule.onLeaderChange).toHaveBeenCalledTimes(1)
   })
 
   it('tells the other tabs when it starts or stops leading, while visible', () => {
@@ -375,21 +377,21 @@ describe('SyncWorkerContext', () => {
   })
 
   it('uploads snapshots as a phase of the poll, scheduled by the orchestrator', async () => {
-    const managerDeps = depsOf<ConstructorParameters<typeof snapshotManagerModule.SnapshotManager>[0]>(
-      context.services.snapshotManager,
-    )
+    const scheduleDeps = depsOf<snapshotScheduleModule.SnapshotScheduleOptions>(context.services.snapshotSchedule)
+    const pusherDeps = depsOf<snapshotPusherModule.SnapshotPusherOptions>(context.services.snapshotPusher)
     const orchestratorDeps = depsOf<SyncOrchestratorDeps>(context.services.orchestrator)
     const pollerDeps = depsOf<SyncPollerDeps>(context.services.poller)
 
-    expect(pollerDeps.getSnapshots()).toBe(context.services.snapshotManager)
+    expect(pollerDeps.getSnapshots()).toBe(context.services.snapshotPusher)
+    expect(pusherDeps.schedule).toBe(context.services.snapshotSchedule)
 
-    managerDeps.onDueChanged!()
+    scheduleDeps.onDueChanged!()
     expect(context.services.orchestrator.onSnapshotDue).toHaveBeenCalledTimes(1)
 
-    await managerDeps.runPollNow()
+    await pusherDeps.runPollNow()
     expect(context.services.orchestrator.pollNow).toHaveBeenCalledTimes(1)
 
-    Object.assign(context.services.snapshotManager.schedule, { nextDueAt: 1234 })
+    Object.assign(context.services.snapshotSchedule, { nextDueAt: 1234 })
     expect(orchestratorDeps.getSnapshotDueAt!()).toBe(1234)
   })
 
@@ -464,7 +466,7 @@ describe('SyncWorkerContext', () => {
     })
 
     it('saves dirty documents, marks them pending, saves their records, and emits quotaResolved on success', async () => {
-      vi.spyOn(context.services.snapshotManager.schedule, 'getDirtyItemIds').mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId])
+      vi.spyOn(context.services.snapshotSchedule, 'getDirtyItemIds').mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId])
       const saveDocSpy = vi.spyOn(context.services.docStore, 'saveDocToStorage').mockResolvedValue(true)
       const saveRecordsSpy = vi.spyOn(context.services.itemSyncState, 'save').mockResolvedValue(undefined)
       const emitSpy = vi.spyOn(context.clientEventHub, 'emit')
@@ -514,7 +516,7 @@ describe('SyncWorkerContext', () => {
 
       expect(await context.getUnsyncedChanges()).toEqual({ pendingItems: 0, quarantinedItems: 0 })
       expect(context.services.orchestrator.flush).toHaveBeenCalled()
-      expect(context.services.snapshotManager.flushPendingSnapshots).toHaveBeenCalled()
+      expect(context.services.snapshotPusher.flushPendingSnapshots).toHaveBeenCalled()
     })
 
     it("reloads the item records before counting, so a follower sees the leader's dirty flags", async () => {
@@ -560,7 +562,7 @@ describe('SyncWorkerContext', () => {
 
     it('still counts when the snapshot push fails', async () => {
       stubPending({ dirty: ['item-1'] })
-      vi.spyOn(context.services.snapshotManager, 'flushPendingSnapshots').mockRejectedValue(new Error('offline'))
+      vi.spyOn(context.services.snapshotPusher, 'flushPendingSnapshots').mockRejectedValue(new Error('offline'))
 
       expect(await context.getUnsyncedChanges()).toEqual({ pendingItems: 1, quarantinedItems: 0 })
     })
@@ -569,7 +571,7 @@ describe('SyncWorkerContext', () => {
       vi.useFakeTimers()
       try {
         stubPending({ dirty: ['item-1'] })
-        vi.spyOn(context.services.snapshotManager, 'flushPendingSnapshots').mockReturnValue(new Promise(() => {}))
+        vi.spyOn(context.services.snapshotPusher, 'flushPendingSnapshots').mockReturnValue(new Promise(() => {}))
 
         const result = context.getUnsyncedChanges()
         await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.unsyncedChangesFlush)
@@ -582,14 +584,14 @@ describe('SyncWorkerContext', () => {
   })
 
   it('saves the item records and flushes the log push when the page is hidden, without forcing snapshots up', () => {
-    const { orchestrator, snapshotManager, itemSyncState } = context.services
+    const { orchestrator, snapshotPusher, itemSyncState } = context.services
     const flushPendingSave = vi.spyOn(itemSyncState, 'flushPendingSave')
 
     context.onPageHidden()
 
     expect(flushPendingSave).toHaveBeenCalledTimes(1)
     expect(orchestrator.flush).toHaveBeenCalled()
-    expect(snapshotManager.flushPendingSnapshots).not.toHaveBeenCalled()
+    expect(snapshotPusher.flushPendingSnapshots).not.toHaveBeenCalled()
   })
 
   it('wires manifestSyncManager into orchestrator on construction', () => {
@@ -1187,7 +1189,8 @@ describe('SyncWorkerContext', () => {
       'IndexDocument',
       'RecoveryManager',
       'DocStore',
-      'SnapshotManager',
+      'SnapshotSchedule',
+      'SnapshotPusher',
       'ChangeOutbox',
       'SyncLogPuller',
       'ManifestSyncManager',

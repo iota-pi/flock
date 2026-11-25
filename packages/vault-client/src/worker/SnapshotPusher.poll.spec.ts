@@ -1,5 +1,6 @@
 import type { ItemId } from '@vault/shared'
-import { SnapshotManager, type SnapshotManagerOptions } from './SnapshotManager'
+import { SnapshotPusher, type SnapshotPusherOptions } from './SnapshotPusher'
+import { SnapshotSchedule } from './SnapshotSchedule'
 import { SyncSessionState } from './SyncSessionState'
 import { ItemSyncState } from './ItemSyncState'
 import { RecoveryManager } from './RecoveryManager'
@@ -32,66 +33,82 @@ const vault = {
 }
 const keys = createMockKeyProvider(vault)
 
-const sessions = new WeakMap<SnapshotManager, SyncSessionState>()
-const pollControllers = new WeakMap<SnapshotManager, AbortController>()
+/** A session's snapshot components, wired as the context wires them */
+interface Snapshots {
+  session: SyncSessionState
+  state: ItemSyncState
+  schedule: SnapshotSchedule
+  pusher: SnapshotPusher
+}
+
+const pollControllers = new WeakMap<Snapshots, AbortController>()
 
 /** Runs one poll's snapshot phase, as the orchestrator does, swallowing its failure as a poll would */
-async function poll(target: SnapshotManager): Promise<void> {
+async function poll(target: Snapshots): Promise<void> {
   const controller = new AbortController()
   pollControllers.set(target, controller)
   try {
-    await target.pushDue(controller.signal)
+    await target.pusher.pushDue(controller.signal)
   } catch {
     // The poll reports a failure
   }
 }
 
 /** Aborts the poll in flight, as the orchestrator does when leadership or the connection goes */
-function abortPoll(target: SnapshotManager): void {
+function abortPoll(target: Snapshots): void {
   pollControllers.get(target)?.abort()
 }
 
 type ItemRecordsDb = ReturnType<typeof createMemoryItemRecords>['db']
 
-/** A manager with its own session state, a leader's when `isLeader` is set */
-function createManager(
-  context: Omit<ConstructorParameters<typeof SnapshotManager>[0], 'session' | 'state' | 'builder' | 'runPollNow'> & {
-    repo: Repo
-    keys: KeyProvider
-    codec?: DocCodec
-  },
+type PusherContext = Omit<SnapshotPusherOptions, 'session' | 'schedule' | 'state' | 'builder' | 'runPollNow'> & {
+  repo: Repo
+  keys: KeyProvider
+  codec?: DocCodec
+  onDueChanged?: () => void
+}
+
+/** A schedule and pusher with their own session state, a leader's when `isLeader` is set */
+function createSnapshots(
+  context: PusherContext,
   db: ItemRecordsDb,
-  options: SnapshotManagerOptions & { isLeader?: boolean } = {},
-): SnapshotManager {
-  const { isLeader, ...managerOptions } = options
-  const { repo, keys, codec = passthroughCodec, ...deps } = context
-  const session = new SyncSessionState({ isLeader })
-  const builder = new SnapshotBuilder(repo, keys, codec, noLogCoverage)
-  const created: SnapshotManager = new SnapshotManager(
-    { ...deps, session, state: new ItemSyncState({ db, session }), builder, runPollNow: () => poll(created) },
-    managerOptions,
-  )
-  sessions.set(created, session)
+  options: { isLeader?: boolean; runPollNow?: (target: Snapshots) => Promise<void> } = {},
+): Snapshots {
+  const { repo, keys, codec = passthroughCodec, onDueChanged, ...deps } = context
+  const session = new SyncSessionState({ isLeader: options.isLeader })
+  const state = new ItemSyncState({ db, session })
+  const schedule = new SnapshotSchedule({ state, recoveryManager: deps.recoveryManager, session, onDueChanged })
+  const runPollNow = options.runPollNow ?? poll
+  const created: Snapshots = {
+    session,
+    state,
+    schedule,
+    pusher: new SnapshotPusher({
+      ...deps,
+      session,
+      schedule,
+      state,
+      builder: new SnapshotBuilder(repo, keys, codec, noLogCoverage),
+      runPollNow: () => runPollNow(created),
+    }),
+  }
   return created
 }
 
-/** Changes the session's leadership and tells the manager, loading the records on promotion as the context does */
-async function setLeader(target: SnapshotManager, isLeader: boolean): Promise<void> {
-  if (sessions.get(target)!.setLeader(isLeader)) {
-    target.onLeaderChange()
-    if (isLeader) await target.load()
+/** Changes the session's leadership and tells the schedule, loading the records on promotion as the context does */
+async function setLeader(target: Snapshots, isLeader: boolean): Promise<void> {
+  if (target.session.setLeader(isLeader)) {
+    target.schedule.onLeaderChange()
+    if (isLeader) await target.schedule.load()
   }
 }
 
-/** Marks the session shut down and stops the manager and then its records, as the context does */
-async function shutDown(target: SnapshotManager, options?: { clearLocalData?: boolean }): Promise<void> {
-  sessions.get(target)!.markShutdown()
-  await target.shutdown()
+/** Marks the session shut down and stops the pusher, the schedule and then the records, as the context does */
+async function shutDown(target: Snapshots, options?: { clearLocalData?: boolean }): Promise<void> {
+  target.session.markShutdown()
+  target.pusher.shutdown()
+  await target.schedule.shutdown()
   await target.state.shutdown(options)
-}
-
-function isLeader(target: SnapshotManager): boolean {
-  return sessions.get(target)!.isLeader
 }
 
 /**
@@ -128,8 +145,8 @@ beforeEach(() => {
   vi.spyOn(docStore, 'normalizeItemSnapshot').mockReturnValue({ type: 'note' } as any)
 })
 
-describe('SnapshotManager', () => {
-  let manager: SnapshotManager
+describe('SnapshotPusher in a poll', () => {
+  let snapshots: Snapshots
   let mockRepo: any
   let mockHandle: any
   let mockEventHub: { emit: ReturnType<typeof vi.fn> }
@@ -188,7 +205,7 @@ describe('SnapshotManager', () => {
     }
 
     records = createMemoryItemRecords()
-    manager = createManager(context as any, records.db, { isLeader: true })
+    snapshots = createSnapshots(context as any, records.db, { isLeader: true })
   })
 
   afterEach(() => {
@@ -201,93 +218,78 @@ describe('SnapshotManager', () => {
   }
 
   it('tells the orchestrator when an edit makes snapshots due', () => {
-    manager.schedule.markItemDirty('item-1' as ItemId)
+    snapshots.schedule.markItemDirty('item-1' as ItemId)
 
     expect(onDueChanged).toHaveBeenCalledTimes(1)
   })
 
   it('uploads at a poll once the debounce has passed, and not before', async () => {
     mockPutSnapshots.mockResolvedValue({ success: true, persisted: 1 })
-    manager.schedule.markItemDirty('item-1' as ItemId)
+    snapshots.schedule.markItemDirty('item-1' as ItemId)
 
-    await poll(manager)
+    await poll(snapshots)
     expect(mockPutSnapshots).not.toHaveBeenCalled()
 
     elapse()
-    await poll(manager)
+    await poll(snapshots)
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
   })
 
   it('uploads nothing until the device has caught up, keeping what is due for the poll that has', async () => {
     mockPutSnapshots.mockResolvedValue({ success: true, persisted: 1 })
-    manager.schedule.markItemDirty('item-1' as ItemId)
-    manager.schedule.requestNow()
+    snapshots.schedule.markItemDirty('item-1' as ItemId)
+    snapshots.schedule.requestNow()
     caughtUp = false
 
-    await expect(poll(manager)).resolves.toBeUndefined()
+    await expect(poll(snapshots)).resolves.toBeUndefined()
     expect(mockPutSnapshots).not.toHaveBeenCalled()
 
     caughtUp = true
     pendingMarks = false
-    await poll(manager)
+    await poll(snapshots)
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
   })
 
   it('flushes by running a poll with every snapshot due now, and reports what it uploaded', async () => {
     mockPutSnapshots.mockResolvedValue({ success: true, persisted: 1 })
-    manager.schedule.markItemDirty('item-1' as ItemId)
+    snapshots.schedule.markItemDirty('item-1' as ItemId)
 
-    const result = await manager.flushPendingSnapshots()
+    const result = await snapshots.pusher.flushPendingSnapshots()
 
     expect(result).toEqual({ persisted: 1, total: 1 })
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-    expect(manager.schedule.dirtyCount).toBe(0)
+    expect(snapshots.schedule.dirtyCount).toBe(0)
   })
 
   it('reports nothing uploaded when the flush poll failed', async () => {
     mockPutSnapshots.mockRejectedValue(new Error('Network disconnected'))
-    manager.schedule.markItemDirty('item-1' as ItemId)
+    snapshots.schedule.markItemDirty('item-1' as ItemId)
 
-    const result = await manager.flushPendingSnapshots()
+    const result = await snapshots.pusher.flushPendingSnapshots()
 
     expect(result).toEqual({ persisted: 0, total: 0 })
-    expect(manager.schedule.getDirtyItemIds()).toContain('item-1')
+    expect(snapshots.schedule.getDirtyItemIds()).toContain('item-1')
   })
 
   it('does not run a poll to flush when nothing is dirty', async () => {
     const runPollNow = vi.fn().mockResolvedValue(undefined)
-    const idle = new SnapshotManager({
-      ...context as any,
-      session: new SyncSessionState({ isLeader: true }),
-      state: new ItemSyncState({ db: records.db, session: new SyncSessionState() }),
-      builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec, noLogCoverage),
-      runPollNow,
-    })
+    const idle = createSnapshots(context as any, records.db, { isLeader: true, runPollNow })
 
-    await expect(idle.flushPendingSnapshots()).resolves.toEqual({ persisted: 0, total: 0 })
+    await expect(idle.pusher.flushPendingSnapshots()).resolves.toEqual({ persisted: 0, total: 0 })
     expect(runPollNow).not.toHaveBeenCalled()
   })
 
   it('runs a poll to flush when nothing is dirty yet but items have pending marks', async () => {
     pendingMarks = true
     let dueInPoll = false
-    // eslint-disable-next-line prefer-const -- read by the poll, before it's assigned below
-    let leader: SnapshotManager
-    const runPollNow = vi.fn(async () => {
+    const runPollNow = vi.fn(async (leader: Snapshots) => {
       // The poll's log push is acknowledged, which marks the item dirty
       leader.schedule.markItemDirty('item-1' as ItemId)
       dueInPoll = leader.schedule.isDue()
     })
-    const session = new SyncSessionState({ isLeader: true })
-    leader = new SnapshotManager({
-      ...context as any,
-      session,
-      state: new ItemSyncState({ db: records.db, session }),
-      builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec, noLogCoverage),
-      runPollNow: () => runPollNow(),
-    })
+    const leader = createSnapshots(context as any, records.db, { isLeader: true, runPollNow })
 
-    await leader.flushPendingSnapshots()
+    await leader.pusher.flushPendingSnapshots()
 
     expect(runPollNow).toHaveBeenCalledTimes(1)
     expect(dueInPoll).toBe(true)
@@ -296,16 +298,9 @@ describe('SnapshotManager', () => {
   it("doesn't leave a flush's request due when the poll made nothing dirty", async () => {
     pendingMarks = true
     const runPollNow = vi.fn().mockResolvedValue(undefined)
-    const session = new SyncSessionState({ isLeader: true })
-    const leader = new SnapshotManager({
-      ...context as any,
-      session,
-      state: new ItemSyncState({ db: records.db, session }),
-      builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec, noLogCoverage),
-      runPollNow,
-    })
+    const leader = createSnapshots(context as any, records.db, { isLeader: true, runPollNow })
 
-    await leader.flushPendingSnapshots()
+    await leader.pusher.flushPendingSnapshots()
     leader.schedule.markItemDirty('item-1' as ItemId)
 
     expect(runPollNow).toHaveBeenCalledTimes(1)
@@ -313,12 +308,12 @@ describe('SnapshotManager', () => {
   })
 
   it('saves pending dirty flags at once when flushed, even in a follower tab', async () => {
-    const follower = createManager(context as any, records.db, { isLeader: false })
+    const follower = createSnapshots(context as any, records.db, { isLeader: false })
     follower.schedule.markItemDirty('item-1' as ItemId)
     expect(records.db.update).not.toHaveBeenCalled()
 
     // As the page being hidden does
-    await follower.flushPendingSnapshots()
+    await follower.pusher.flushPendingSnapshots()
     await vi.advanceTimersByTimeAsync(0)
 
     expect(records.get('item-1')).toEqual({ itemId: 'item-1', dirty: true })
@@ -326,31 +321,31 @@ describe('SnapshotManager', () => {
   })
 
   describe('Leadership Coordination and Follower Protection', () => {
-    let followerManager: SnapshotManager
+    let follower: Snapshots
 
     beforeEach(() => {
       // Default creation without options starts with isLeader: false
-      followerManager = createManager(context as any, records.db)
+      follower = createSnapshots(context as any, records.db)
     })
 
     it('defaults isLeader to false and exposes leader getter', () => {
-      expect(isLeader(followerManager)).toBe(false)
+      expect(follower.session.isLeader).toBe(false)
     })
 
     it('prevents flushPendingSnapshots from uploading when not leader', async () => {
-      followerManager.schedule.markItemDirty('follower-item-1' as ItemId)
+      follower.schedule.markItemDirty('follower-item-1' as ItemId)
 
-      const result = await followerManager.flushPendingSnapshots()
+      const result = await follower.pusher.flushPendingSnapshots()
 
       expect(result).toEqual({ persisted: 0, total: 0 })
       expect(mockPutSnapshots).not.toHaveBeenCalled()
     })
 
     it('does not upload from a follower however long its items have been dirty', async () => {
-      followerManager.schedule.markItemDirty('follower-item-1' as ItemId)
+      follower.schedule.markItemDirty('follower-item-1' as ItemId)
 
       elapse(2 * SYNC_TIMEOUTS.snapshotMaxWait)
-      await poll(followerManager)
+      await poll(follower)
 
       expect(mockPutSnapshots).not.toHaveBeenCalled()
     })
@@ -361,29 +356,29 @@ describe('SnapshotManager', () => {
         persisted: 1,
       })
 
-      followerManager.schedule.markItemDirty('follower-item-1' as ItemId)
+      follower.schedule.markItemDirty('follower-item-1' as ItemId)
       expect(mockPutSnapshots).not.toHaveBeenCalled()
 
       // Promoted to leader
-      await setLeader(followerManager, true)
-      expect(isLeader(followerManager)).toBe(true)
+      await setLeader(follower, true)
+      expect(follower.session.isLeader).toBe(true)
 
       elapse()
-      await poll(followerManager)
+      await poll(follower)
 
       expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
       expect(mockPutSnapshots.mock.calls[0][0].snapshots[0].itemId).toBe('follower-item-1')
     })
 
     it('drops the due time when leadership is revoked', async () => {
-      manager.schedule.markItemDirty('leader-item-1' as ItemId)
+      snapshots.schedule.markItemDirty('leader-item-1' as ItemId)
 
-      await setLeader(manager, false)
-      expect(isLeader(manager)).toBe(false)
+      await setLeader(snapshots, false)
+      expect(snapshots.session.isLeader).toBe(false)
 
-      expect(manager.schedule.nextDueAt).toBeUndefined()
+      expect(snapshots.schedule.nextDueAt).toBeUndefined()
       elapse(2 * SYNC_TIMEOUTS.snapshotMaxWait)
-      await poll(manager)
+      await poll(snapshots)
       expect(mockPutSnapshots).not.toHaveBeenCalled()
     })
 
@@ -391,12 +386,12 @@ describe('SnapshotManager', () => {
       records.records.set('item-unpushed' as ItemId, { itemId: 'item-unpushed' as ItemId, dirty: true })
       records.records.set('item-clean' as ItemId, { itemId: 'item-clean' as ItemId, baseVersion: 3 })
 
-      expect(followerManager.schedule.getDirtyItemIds()).toEqual([])
+      expect(follower.schedule.getDirtyItemIds()).toEqual([])
 
-      await setLeader(followerManager, true)
+      await setLeader(follower, true)
 
-      expect(followerManager.schedule.getDirtyItemIds()).toContain('item-unpushed')
-      expect(followerManager.schedule.getDirtyItemIds()).not.toContain('item-clean')
+      expect(follower.schedule.getDirtyItemIds()).toContain('item-unpushed')
+      expect(follower.schedule.getDirtyItemIds()).not.toContain('item-clean')
     })
 
     it('pushes un-snapshotted items from previous leader after follower promotion', async () => {
@@ -408,10 +403,10 @@ describe('SnapshotManager', () => {
 
       records.records.set('item-from-previous-leader' as ItemId, { itemId: 'item-from-previous-leader' as ItemId, dirty: true })
 
-      await setLeader(followerManager, true)
+      await setLeader(follower, true)
 
       elapse()
-      await poll(followerManager)
+      await poll(follower)
 
       expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
       expect(mockPutSnapshots.mock.calls[0][0].snapshots[0].itemId).toBe('item-from-previous-leader')
@@ -424,17 +419,17 @@ describe('SnapshotManager', () => {
         total: 2,
       })
 
-      followerManager.schedule.markItemDirty('follower-local-item' as ItemId)
+      follower.schedule.markItemDirty('follower-local-item' as ItemId)
 
       records.records.set('item-from-previous-leader' as ItemId, { itemId: 'item-from-previous-leader' as ItemId, dirty: true })
 
-      await setLeader(followerManager, true)
+      await setLeader(follower, true)
 
-      expect(followerManager.schedule.getDirtyItemIds()).toContain('follower-local-item')
-      expect(followerManager.schedule.getDirtyItemIds()).toContain('item-from-previous-leader')
+      expect(follower.schedule.getDirtyItemIds()).toContain('follower-local-item')
+      expect(follower.schedule.getDirtyItemIds()).toContain('item-from-previous-leader')
 
       elapse()
-      await poll(followerManager)
+      await poll(follower)
 
       expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
       const sentIds = mockPutSnapshots.mock.calls[0][0].snapshots.map((s: any) => s.itemId)
@@ -445,10 +440,10 @@ describe('SnapshotManager', () => {
     it('has nothing due upon promotion if all stored items are clean', async () => {
       records.records.set('item-clean' as ItemId, { itemId: 'item-clean' as ItemId, baseVersion: 4 })
 
-      await setLeader(followerManager, true)
+      await setLeader(follower, true)
 
-      expect(followerManager.schedule.getDirtyItemIds()).toHaveLength(0)
-      expect(followerManager.schedule.nextDueAt).toBeUndefined()
+      expect(follower.schedule.getDirtyItemIds()).toHaveLength(0)
+      expect(follower.schedule.nextDueAt).toBeUndefined()
     })
 
     it('does not upload if leadership is revoked while promotion audit is in flight', async () => {
@@ -458,17 +453,17 @@ describe('SnapshotManager', () => {
       })
       records.db.getAll.mockReturnValueOnce(pendingLoad as any)
 
-      const promotionPromise = setLeader(followerManager, true)
+      const promotionPromise = setLeader(follower, true)
 
       // Leadership revoked before load completes
-      await setLeader(followerManager, false)
-      expect(isLeader(followerManager)).toBe(false)
+      await setLeader(follower, false)
+      expect(follower.session.isLeader).toBe(false)
 
       resolveRecords!([{ itemId: 'item-unpushed', dirty: true }])
       await promotionPromise
 
       elapse()
-      await poll(followerManager)
+      await poll(follower)
       expect(mockPutSnapshots).not.toHaveBeenCalled()
     })
   })
@@ -487,26 +482,26 @@ describe('SnapshotManager', () => {
         })
       })
 
-      manager.schedule.markItemDirty('item-1' as ItemId)
-      const flush = manager.flushPendingSnapshots()
+      snapshots.schedule.markItemDirty('item-1' as ItemId)
+      const flush = snapshots.pusher.flushPendingSnapshots()
 
       await vi.advanceTimersByTimeAsync(0)
       expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
       expect(capturedSignal?.aborted).toBe(false)
 
-      abortPoll(manager)
+      abortPoll(snapshots)
 
       expect(capturedSignal?.aborted).toBe(true)
       await expect(flush).resolves.toEqual({ persisted: 0, total: 0 })
-      expect(manager.schedule.getDirtyItemIds()).toContain('item-1')
+      expect(snapshots.schedule.getDirtyItemIds()).toContain('item-1')
     })
 
     it('stops cleanly once polling has stopped', async () => {
-      manager.schedule.markItemDirty('item-1' as ItemId)
+      snapshots.schedule.markItemDirty('item-1' as ItemId)
 
-      await shutDown(manager)
+      await shutDown(snapshots)
 
-      expect(manager.schedule.dirtyCount).toBe(0)
+      expect(snapshots.schedule.dirtyCount).toBe(0)
       expect(vi.getTimerCount()).toBe(0)
     })
   })

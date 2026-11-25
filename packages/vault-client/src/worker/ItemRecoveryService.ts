@@ -5,7 +5,8 @@ import type { AutomergeRepoManager } from './AutomergeRepoManager'
 import type { ItemOperations } from './ItemOperations'
 import type { ManifestMode, ManifestPhaseResult } from './ManifestSyncManager'
 import type { RecoveryManager } from './RecoveryManager'
-import type { SnapshotManager } from './SnapshotManager'
+import type { SnapshotPusher } from './SnapshotPusher'
+import type { SnapshotSchedule } from './SnapshotSchedule'
 import { toDocumentIdFromItemId } from './utils/automerge'
 import { fireAndForget } from '../utils/fireAndForget'
 
@@ -13,7 +14,8 @@ export interface ItemRecoveryServiceDeps {
   repoManager: AutomergeRepoManager
   docStore: AutomergeDocStore
   recoveryManager: RecoveryManager
-  snapshotManager: SnapshotManager
+  snapshotSchedule: Pick<SnapshotSchedule, 'clearOversized' | 'markItemDirty'>
+  snapshotPusher: Pick<SnapshotPusher, 'flushPendingSnapshots'>
   /** Runs a poll whose manifest phase syncs at `mode`, returning that sync's result */
   syncManifest: (mode: ManifestMode) => Promise<ManifestPhaseResult>
   itemOperations: ItemOperations
@@ -53,24 +55,24 @@ export class ItemRecoveryService {
 
   /** Releases a quarantined item and pushes its snapshot again */
   async retryRecoveryItem(itemId: ItemId): Promise<void> {
-    const { recoveryManager, snapshotManager } = this.deps
+    const { recoveryManager, snapshotSchedule, snapshotPusher } = this.deps
     await recoveryManager.unquarantine(itemId)
-    snapshotManager.schedule.clearOversized(itemId)
-    snapshotManager.schedule.markItemDirty(itemId)
+    snapshotSchedule.clearOversized(itemId)
+    snapshotSchedule.markItemDirty(itemId)
     fireAndForget(
-      snapshotManager.flushPendingSnapshots(),
+      snapshotPusher.flushPendingSnapshots(),
       'ItemRecoveryService:retryRecoveryItem:flushPendingSnapshots',
     )
   }
 
   /** Copies an oversized item to a new ID and deletes the old one. Returns the new item's ID. */
   async recreateOversizedItem(itemId: ItemId): Promise<ItemId> {
-    const { itemOperations, snapshotManager } = this.deps
+    const { itemOperations, snapshotSchedule, snapshotPusher } = this.deps
     const newItemId = await itemOperations.recreateOversizedItem(itemId)
     // The deleted old item is too large to upload, so it is pushed as a metadata-only tombstone
-    snapshotManager.schedule.clearOversized(itemId)
+    snapshotSchedule.clearOversized(itemId)
     fireAndForget(
-      snapshotManager.flushPendingSnapshots(),
+      snapshotPusher.flushPendingSnapshots(),
       'ItemRecoveryService:recreateOversizedItem:flushPendingSnapshots',
     )
     return newItemId

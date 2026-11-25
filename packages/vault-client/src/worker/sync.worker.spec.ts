@@ -31,7 +31,6 @@ const mockItemOperationsMutateItem = vi.fn().mockResolvedValue(undefined)
 const mockRecoveryManagerListRecoveryItems = vi.fn().mockResolvedValue([])
 const mockContextSetOnlineState = vi.fn()
 const mockOrchestratorFlush = vi.fn()
-const mockSnapshotManagerOnOnlineStateChange = vi.fn()
 const mockAccountSettingsHandleSettingsDoc = vi.fn()
 
 const mockRepoFind = vi.fn().mockImplementation(() => Promise.resolve({
@@ -100,12 +99,8 @@ beforeEach(() => {
         itemOperations: {
           mutateItem: mockItemOperationsMutateItem,
         },
-        snapshotManager: {
-          onOnlineStateChange: mockSnapshotManagerOnOnlineStateChange,
-          markItemDirty: vi.fn(),
+        snapshotPusher: {
           flushPendingSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
-          exportLastModified: vi.fn().mockReturnValue({}),
-          importLastModified: vi.fn().mockResolvedValue(undefined),
         },
         orchestrator: {
           flush: mockOrchestratorFlush,
