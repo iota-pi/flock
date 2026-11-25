@@ -371,7 +371,7 @@ export class SyncWorker implements SyncApi {
     this.withContext(ctx => ctx.fullResync())
 
   pushSnapshots = () =>
-    this.withContext(ctx => ctx.services.snapshotManager.flushPendingSnapshots())
+    this.withContext(ctx => ctx.services.snapshotPusher.flushPendingSnapshots())
 
   onPageHidden = (): Promise<void> =>
     this.withContext(ctx => ctx.onPageHidden())

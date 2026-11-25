@@ -10,7 +10,7 @@ import { classifySyncError } from '../utils/errorClassifier'
 import { createLogger } from '../utils/logger'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { encryptSnapshotHeads } from './snapshotHeads'
-import type { SnapshotCoverage } from './SnapshotCoverage'
+import type { ItemSyncState } from './ItemSyncState'
 
 const log = createLogger('SnapshotBuilder')
 
@@ -59,7 +59,8 @@ export class SnapshotBuilder {
     private readonly repo: Repo,
     private readonly keys: KeyProvider,
     private readonly codec: DocCodec,
-    private readonly coverage: Pick<SnapshotCoverage, 'check'>,
+    /** Snapshot coverage (S1), so a snapshot only holds what the log has */
+    private readonly syncState: Pick<ItemSyncState, 'isCovered'>,
   ) {}
 
   /** Reports failures as results; only an abort of `signal` throws */
@@ -108,9 +109,8 @@ export class SnapshotBuilder {
     }
 
     // In the same synchronous section as the save, so the snapshot holds exactly what was checked
-    const coverage = this.coverage.check(itemId, doc)
-    if (!coverage.covered) {
-      return { type: 'deferred', reason: coverage.reason }
+    if (!this.syncState.isCovered(itemId, doc)) {
+      return { type: 'deferred', reason: 'unpushed' }
     }
 
     const heads = Automerge.getHeads(doc)

@@ -1,6 +1,7 @@
 import type { VaultDoc } from '../shared/types'
 import type { AutomergeDocStore, AutomergeIndexManager } from './docStore'
-import type { SnapshotManager } from './SnapshotManager'
+import type { SnapshotSchedule } from './SnapshotSchedule'
+import type { SnapshotPusher } from './SnapshotPusher'
 import type { ItemId, ManifestEntry } from '@vault/shared'
 import type { SyncApiClient } from './SyncApiClient'
 import type { StoreItemsOptions } from './ItemOperations'
@@ -31,7 +32,10 @@ export interface ManifestSyncManagerDeps {
   session: Pick<SyncSessionState, 'isLeader'>
   docStore: AutomergeDocStore
   indexManager: AutomergeIndexManager
-  snapshotManager: SnapshotManager
+  /** The items owing the server a snapshot, which a sync reads and queues */
+  snapshotSchedule: Pick<SnapshotSchedule, 'dirtyCount' | 'requestNow' | 'isDirty' | 'getDirtyItemIds' | 'markItemDirty' | 'deleteDirtyItem'>
+  /** Uploads the dirty items' snapshots before the manifest is fetched */
+  snapshotPusher: Pick<SnapshotPusher, 'pushDue'>
   keys: KeyProvider
   recoveryManager: RecoveryManager
   apiClient: SyncApiClient
@@ -47,8 +51,11 @@ export interface ManifestSyncManagerDeps {
   onLocalChangesFound?: (itemId: ItemId) => void
   /** Called once a sync has merged what it could, with the manifest it fetched */
   onManifestProcessed?: (manifest: ManifestEntry[]) => Promise<void>
-  /** The items' unconfirmed pulls, for snapshot coverage's S2 */
-  itemSyncState: Pick<ItemSyncState, 'listUnconfirmedPulls' | 'confirmPulledChanges'>
+  /** The items' base versions, and their unconfirmed pulls for snapshot coverage's S2 */
+  itemSyncState: Pick<
+    ItemSyncState,
+    'listBaseVersions' | 'importBaseVersions' | 'listUnconfirmedPulls' | 'confirmPulledChanges'
+  >
   decodeLegacyItem?: SyncDomain['decodeLegacyItem']
   /** Called when the server holds legacy rows and there is no `decodeLegacyItem` hook to read them */
   onMigrationRequired?: () => void
@@ -112,8 +119,8 @@ export class ManifestSyncManager {
       apiClient: this.deps.apiClient,
       docStore: this.deps.docStore,
       indexManager: this.deps.indexManager,
-      itemSyncState: this.deps.snapshotManager.state,
-      snapshotSchedule: this.deps.snapshotManager.schedule,
+      itemSyncState: this.deps.itemSyncState,
+      snapshotSchedule: this.deps.snapshotSchedule,
       keys: this.deps.keys,
       storeItems: this.deps.storeItems,
       onDecryptionFailure: this.deps.onDecryptionFailure,
@@ -247,7 +254,7 @@ export class ManifestSyncManager {
 
   private async collectLocalSyncState(signal: AbortSignal) {
     const tombstoneItemIds = await this.deps.indexManager.listTombstoneIds()
-    const localVersionsMap = this.deps.snapshotManager.exportItemVersions()
+    const localVersionsMap = this.listLocalVersions()
     checkAlive(signal, this.isAlive)
 
     const quarantinedMap = new Map<ItemId, QuarantinedItem>()
@@ -263,6 +270,19 @@ export class ManifestSyncManager {
     }
 
     return { tombstoneItemIds, quarantinedMap, localVersionsMap }
+  }
+
+  /** Each item's base version, and whether it's queued for a snapshot */
+  private listLocalVersions(): Map<ItemId, { baseVersion: number; isDirty: boolean }> {
+    const { itemSyncState, snapshotSchedule } = this.deps
+    const result = new Map<ItemId, { baseVersion: number; isDirty: boolean }>()
+    for (const [itemId, baseVersion] of itemSyncState.listBaseVersions()) {
+      result.set(itemId, { baseVersion, isDirty: snapshotSchedule.isDirty(itemId) })
+    }
+    for (const itemId of snapshotSchedule.getDirtyItemIds()) {
+      if (!result.has(itemId)) result.set(itemId, { baseVersion: 0, isDirty: true })
+    }
+    return result
   }
 
   private async checkGating(
@@ -288,11 +308,11 @@ export class ManifestSyncManager {
    * itself a phase of the poll, so nothing else is uploading.
    */
   private async flushPendingSnapshotsSafely(signal: AbortSignal): Promise<void> {
-    const { snapshotManager } = this.deps
-    if (snapshotManager.schedule.dirtyCount === 0) return
+    const { snapshotSchedule, snapshotPusher } = this.deps
+    if (snapshotSchedule.dirtyCount === 0) return
     try {
-      snapshotManager.schedule.requestNow()
-      await snapshotManager.pushDue(signal)
+      snapshotSchedule.requestNow()
+      await snapshotPusher.pushDue(signal)
     } catch (flushErr) {
       if (signal.aborted || isAbortError(flushErr)) throw flushErr
       log.warn('Failed to flush pending snapshots before sync', flushErr)
@@ -391,22 +411,22 @@ export class ManifestSyncManager {
         await this.deps.storeItems(deltas.locallyTombstonedSnapshots, { markDirty: false })
       } finally {
         for (const item of deltas.locallyTombstonedSnapshots) {
-          this.deps.snapshotManager.schedule.deleteDirtyItem(item.id)
+          this.deps.snapshotSchedule.deleteDirtyItem(item.id)
         }
       }
     }
 
     if (deltas.deletedVersionUpdates.length > 0) {
       for (const [id] of deltas.deletedVersionUpdates) {
-        this.deps.snapshotManager.schedule.deleteDirtyItem(id)
+        this.deps.snapshotSchedule.deleteDirtyItem(id)
       }
       // The tombstones must be stored before the base version says this device has them (rule 1)
       await this.deps.docStore.flushToStorage(deltas.locallyTombstonedSnapshots.map(item => item.id))
-      await this.deps.snapshotManager.state.importBaseVersions(deltas.deletedVersionUpdates)
+      await this.deps.itemSyncState.importBaseVersions(deltas.deletedVersionUpdates)
     }
 
     for (const id of deltas.upstreamIds) {
-      this.deps.snapshotManager.schedule.markItemDirty(id, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
+      this.deps.snapshotSchedule.markItemDirty(id, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
     }
   }
 
@@ -459,7 +479,7 @@ export class ManifestSyncManager {
       // The doc may hold the snapshot only in memory, such as changes pulled moments ago. Saving an
       // unchanged doc is a no-op.
       await this.deps.docStore.flushToStorage(covered.map(({ itemId }) => itemId))
-      await this.deps.snapshotManager.state.importBaseVersions(covered.map(({ itemId, version }) => [itemId, version]))
+      await this.deps.itemSyncState.importBaseVersions(covered.map(({ itemId, version }) => [itemId, version]))
       for (const { itemId, heads } of covered) {
         this.deps.onSnapshotCovered?.(itemId, heads)
       }
@@ -471,7 +491,7 @@ export class ManifestSyncManager {
       if (areHeadsEqual(heads, docHeads)) {
         if (unconfirmedPulls.has(itemId)) confirmed.push(itemId)
       } else if (isNewer || (unconfirmedPulls.get(itemId) ?? Infinity) <= graceStart) {
-        this.deps.snapshotManager.schedule.markItemDirty(itemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
+        this.deps.snapshotSchedule.markItemDirty(itemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
       }
     }
     if (confirmed.length > 0) {
@@ -509,7 +529,7 @@ export class ManifestSyncManager {
         && !tombstones.has(entry.itemId)
         && !localState.quarantinedMap.has(entry.itemId)
       ) {
-        this.deps.snapshotManager.schedule.markItemDirty(entry.itemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
+        this.deps.snapshotSchedule.markItemDirty(entry.itemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
       }
     }
     return forgotten

@@ -3,6 +3,7 @@ import type { ItemSyncState } from './ItemSyncState'
 import type { RecoveryManager } from './RecoveryManager'
 import type { SyncSessionState } from './SyncSessionState'
 import { checkAlive, isAbortError } from '../utils/abort'
+import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { createLogger } from '../utils/logger'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 
@@ -10,7 +11,7 @@ const log = createLogger('SnapshotSchedule')
 
 export interface SnapshotScheduleOptions {
   /** Where each item's dirty flag and base version are kept */
-  state: Pick<ItemSyncState, 'setDirty' | 'raiseBaseVersion' | 'listFlagged'>
+  state: Pick<ItemSyncState, 'load' | 'setDirty' | 'raiseBaseVersion' | 'listFlagged'>
   recoveryManager: Pick<RecoveryManager, 'listRecoveryItems'>
   debounceDelayMs?: number
   maxWaitMs?: number
@@ -49,6 +50,7 @@ export class SnapshotSchedule {
   private notBefore = 0
   private readonly debounceDelayMs: number
   private readonly maxWaitMs: number
+  private readonly loadGuard = new SingleFlightGuard<void>()
 
   constructor(private readonly deps: SnapshotScheduleOptions) {
     this.debounceDelayMs = deps.debounceDelayMs ?? SYNC_TIMEOUTS.snapshotDebounce
@@ -150,11 +152,23 @@ export class SnapshotSchedule {
   }
 
   /**
+   * Loads the item records and queues the items they flag, at start and when this tab becomes the
+   * leader. Concurrent callers share one load.
+   */
+  async load(): Promise<void> {
+    if (this.deps.session.isShutdown) return
+    await this.loadGuard.run(async () => {
+      await this.deps.state.load()
+      await this.restoreFlagged()
+    })
+  }
+
+  /**
    * The startup and promotion audit, run once the item records have loaded: queues every flagged item
    * that isn't quarantined, due after `restoredSnapshotDelay` however later edits come, and notes the
    * items quarantined as oversized.
    */
-  async restoreFlagged(): Promise<void> {
+  private async restoreFlagged(): Promise<void> {
     if (this.deps.session.isShutdown) return
     try {
       const quarantinedIds = new Set<ItemId>()
@@ -248,11 +262,16 @@ export class SnapshotSchedule {
     return Array.from(this.dirtyItems.keys())
   }
 
-  /** Forgets the session's queue and due times. Called once, as the session stops. */
-  clear(): void {
+  /**
+   * Forgets the session's queue and due times, once a load in flight has finished. Called once, as the
+   * session stops and after polling has. The item records save as `ItemSyncState` stops.
+   */
+  async shutdown(): Promise<void> {
+    await this.loadGuard.waitForRunning()
     this.clearDue()
     this.notBefore = 0
     this.dirtyItems.clear()
     this.oversizedItems.clear()
+    this.loadGuard.clear()
   }
 }

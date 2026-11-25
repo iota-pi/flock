@@ -8,12 +8,14 @@ import { ConsecutiveFailureCounter } from '../utils/ConsecutiveFailureCounter'
 import { checkAlive } from '../utils/abort'
 import { SizeAwareBatchAccumulator } from '../utils/SizeAwareBatchAccumulator'
 import type { SnapshotSchedule } from './SnapshotSchedule'
+import type { ItemSyncState } from './ItemSyncState'
 import { estimateSnapshotSize, type SnapshotBuilder, toTombstoneSnapshot, type PreparedSnapshotItem } from './SnapshotBuilder'
 import { fireAndForget } from '../utils/fireAndForget'
 import {
   uploadSnapshotBatch,
   type SnapshotBatchResult,
   type StoredSnapshotDetails,
+  type StoredSnapshotRecorder,
   type UploadableSnapshot,
 } from './snapshotUpload'
 import { createLogger } from '../utils/logger'
@@ -27,6 +29,8 @@ export interface SnapshotPusherOptions {
   /** Only the leader uploads snapshots, and only while online */
   session: SyncSessionState
   schedule: SnapshotSchedule
+  /** Saved at once when flushing, in case the page is closing */
+  state: Pick<ItemSyncState, 'flushPendingSave'>
   builder: SnapshotBuilder
   /** Pushes items' changes to the log, which comes before their snapshots */
   pushToLog: (itemIds: ItemId[], signal?: AbortSignal) => Promise<void>
@@ -36,6 +40,18 @@ export interface SnapshotPusherOptions {
   apiClient: SyncApiClient
   eventHub: ClientEventHub
   maxPayloadBytes?: number
+  /** Runs a poll now, or right after the one in flight, resolving once it has finished */
+  runPollNow: () => Promise<void>
+  /**
+   * Whether the device has caught up (`SyncLogPuller.isCaughtUp`). Until then nothing is uploaded,
+   * since a snapshot could replace one holding what the doc hasn't merged yet.
+   */
+  isCaughtUp: () => boolean
+  /**
+   * Whether any item has a pending mark. A pushed mark's acknowledgement makes its item dirty in
+   * the same poll, so a flush with nothing dirty yet still has something to upload.
+   */
+  hasPendingMarks: () => Promise<boolean>
 }
 
 /** A push's result, and whether every batch in it was sent and accepted */
@@ -62,22 +78,68 @@ class SnapshotsRefusedError extends Error {
   }
 }
 
-export class SnapshotPusher {
+/**
+ * Uploads the dirty items' snapshots from `SnapshotSchedule`. Uploads run as the last phase of each
+ * poll (`pushDue`), so they share the poll's leadership, online state, abort, auth handling and
+ * backoff.
+ */
+export class SnapshotPusher implements StoredSnapshotRecorder {
   private readonly maxPayloadBytes: number
 
   private readonly consecutiveFailures = new ConsecutiveFailureCounter<ItemId>(MAX_CONSECUTIVE_SNAPSHOT_FAILURES)
+  private lastPush: SnapshotPushResult = { persisted: 0, total: 0 }
+  private pushes = 0
 
   constructor(private readonly deps: SnapshotPusherOptions) {
     this.maxPayloadBytes = deps.maxPayloadBytes ?? MAX_ITEM_SIZE_BYTES
   }
 
   /**
-   * The poll's snapshot phase: uploads every dirty item's snapshot if they're due. Throws if a request
-   * fails, so the poll fails (sync rule 4), except when the server turns snapshots away for the
-   * account's quota (429): that defers them and leaves the poll's result alone, since pulls still work.
-   * Items a push leaves dirty after a failure go up at the next poll.
+   * The poll's snapshot phase, and the manifest phase's upload before it fetches the manifest. Both
+   * run inside the poll, so never at once. Uploads every dirty item's snapshot if they're due.
+   *
+   * Throws if a request fails, so the poll fails (sync rule 4), except when the server turns snapshots
+   * away for the account's quota (429): that defers them and leaves the poll's result alone, since
+   * pulls still work. Items a push leaves dirty after a failure go up at the next poll.
+   *
+   * Uploads nothing until the device has caught up, leaving what's due for the snapshot phase of the
+   * poll that does. Catch-up's own manifest sync would otherwise upload before it has merged the
+   * server's snapshots: a device away longer than the log's TTL, or one that has just reset its
+   * sync state, can hold a doc that lacks what only the server's snapshot holds.
    */
   async pushDue(signal: AbortSignal): Promise<SnapshotPushOutcome> {
+    if (!this.deps.isCaughtUp()) return { persisted: 0, total: 0, success: true }
+    const result = await this.pushDueSnapshots(signal)
+    if (result.total > 0 || !result.success) {
+      this.lastPush = { persisted: result.persisted, total: result.total }
+      this.pushes += 1
+    }
+    return result
+  }
+
+  /**
+   * Uploads every dirty item's snapshot now, with a poll, such as when the page may be closing. Items
+   * with pending marks go too: the poll pushes them to the log first, and their acknowledgement makes
+   * them dirty, due in the same poll's snapshot phase. Never call it from inside a poll, which it
+   * would wait for.
+   */
+  async flushPendingSnapshots(): Promise<SnapshotPushResult> {
+    const { schedule, session, state } = this.deps
+    // Saved first, in case the page is closing
+    state.flushPendingSave()
+    if (!session.isOperational) return { persisted: 0, total: 0 }
+    if (schedule.dirtyCount === 0 && !(await this.deps.hasPendingMarks())) {
+      return { persisted: 0, total: 0 }
+    }
+    schedule.requestNow()
+    const pushesBefore = this.pushes
+    await this.deps.runPollNow()
+    // Nothing became dirty, so the request mustn't make a later edit's snapshot due at once
+    if (schedule.dirtyCount === 0) schedule.clearDue()
+    return this.pushes > pushesBefore ? this.lastPush : { persisted: 0, total: 0 }
+  }
+
+  private async pushDueSnapshots(signal: AbortSignal): Promise<SnapshotPushOutcome> {
     const { schedule, session } = this.deps
     if (!session.isOperational || !schedule.isDue()) {
       return { persisted: 0, total: 0, success: true }
@@ -301,7 +363,8 @@ export class SnapshotPusher {
     return { persisted, total, success }
   }
 
-  clear(): void {
+  /** Called once polling has stopped, so no upload is in flight */
+  shutdown(): void {
     this.consecutiveFailures.clear()
   }
 }

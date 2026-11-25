@@ -1,3 +1,4 @@
+import * as Automerge from '@automerge/automerge/slim'
 import { debounce } from 'lodash-es'
 import type { ItemId } from '@vault/shared'
 import type { SyncLogDatabase } from './stores/SyncLogDatabase'
@@ -239,9 +240,32 @@ export class ItemSyncState {
       .map(([itemId, { dirty }]) => ({ itemId, dirty: dirty === true }))
   }
 
-  /** Whether only a snapshot can deliver the item's changes, so snapshot coverage lets it through */
+  /** Whether only a snapshot can deliver the item's changes, so `isCovered` lets it through */
   isSnapshotOnly(itemId: ItemId): boolean {
     return this.items.get(itemId)?.snapshotOnly === true
+  }
+
+  /**
+   * Snapshot coverage keeps each server snapshot a superset of every one it replaced, and every change
+   * in some snapshot. Snapshot uploads stay unconditional and last-write-wins, so this is two rules on
+   * the client:
+   *
+   * - **S1, log before snapshot:** this check lets a snapshot be built only when everything in it is
+   *   already in the log.
+   * - **S2, backstop at manifest sync:** a device holding changes newer than the server's snapshot
+   *   uploads them if nobody else does. `ManifestSyncManager` runs the check, with the unconfirmed
+   *   pulls kept here.
+   *
+   * S1 is synchronous, so that `SnapshotBuilder` can run it in the same section as `Automerge.save`.
+   * The one exception has no log to wait for: a change too large for a row (`snapshotOnly`).
+   */
+  isCovered(itemId: ItemId, doc: Automerge.Doc<unknown>): boolean {
+    if (this.isSnapshotOnly(itemId)) return true
+
+    const serverHeads = this.getServerHeads(itemId)
+    if (areHeadsEqual(Automerge.getHeads(doc), serverHeads)) return true
+    const since = Automerge.hasHeads(doc, serverHeads) ? serverHeads : []
+    return Automerge.getChangesSince(doc, since).length === 0
   }
 
   /** Records that the log refused the item's changes or can't hold one of them */

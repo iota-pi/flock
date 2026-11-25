@@ -8,7 +8,8 @@ describe('ItemRecoveryService', () => {
   let mockRepoManager: any
   let mockDocStore: any
   let mockRecoveryManager: any
-  let mockSnapshotManager: any
+  let mockSnapshotSchedule: any
+  let mockSnapshotPusher: any
   let syncManifest: any
   let mockItemOperations: any
   let onLocalCopyDiscarded: Mock<(documentId: DocumentId) => void>
@@ -26,11 +27,11 @@ describe('ItemRecoveryService', () => {
     mockRecoveryManager = {
       unquarantine: vi.fn().mockResolvedValue(undefined),
     }
-    mockSnapshotManager = {
-      schedule: {
-        clearOversized: vi.fn(),
-        markItemDirty: vi.fn(),
-      },
+    mockSnapshotSchedule = {
+      clearOversized: vi.fn(),
+      markItemDirty: vi.fn(),
+    }
+    mockSnapshotPusher = {
       flushPendingSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
     }
     syncManifest = vi.fn().mockResolvedValue({ added: [], success: true, fetchedManifest: true })
@@ -43,7 +44,8 @@ describe('ItemRecoveryService', () => {
       repoManager: mockRepoManager,
       docStore: mockDocStore,
       recoveryManager: mockRecoveryManager,
-      snapshotManager: mockSnapshotManager,
+      snapshotSchedule: mockSnapshotSchedule,
+      snapshotPusher: mockSnapshotPusher,
       syncManifest,
       itemOperations: mockItemOperations,
       becomeLeader,
@@ -103,9 +105,9 @@ describe('ItemRecoveryService', () => {
     await service.retryRecoveryItem('item-1' as ItemId)
 
     expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith('item-1')
-    expect(mockSnapshotManager.schedule.clearOversized).toHaveBeenCalledWith('item-1')
-    expect(mockSnapshotManager.schedule.markItemDirty).toHaveBeenCalledWith('item-1')
-    expect(mockSnapshotManager.flushPendingSnapshots).toHaveBeenCalled()
+    expect(mockSnapshotSchedule.clearOversized).toHaveBeenCalledWith('item-1')
+    expect(mockSnapshotSchedule.markItemDirty).toHaveBeenCalledWith('item-1')
+    expect(mockSnapshotPusher.flushPendingSnapshots).toHaveBeenCalled()
   })
 
   it('recreates an oversized item and pushes the old one as a tombstone', async () => {
@@ -113,8 +115,8 @@ describe('ItemRecoveryService', () => {
 
     expect(newItemId).toBe('item-new')
     expect(mockItemOperations.recreateOversizedItem).toHaveBeenCalledWith('item-old')
-    expect(mockSnapshotManager.schedule.clearOversized).toHaveBeenCalledWith('item-old')
-    expect(mockSnapshotManager.schedule.markItemDirty).not.toHaveBeenCalled()
-    expect(mockSnapshotManager.flushPendingSnapshots).toHaveBeenCalled()
+    expect(mockSnapshotSchedule.clearOversized).toHaveBeenCalledWith('item-old')
+    expect(mockSnapshotSchedule.markItemDirty).not.toHaveBeenCalled()
+    expect(mockSnapshotPusher.flushPendingSnapshots).toHaveBeenCalled()
   })
 })

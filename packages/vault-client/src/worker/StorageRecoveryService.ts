@@ -4,7 +4,9 @@ import { resetQuotaExceededStatus, registerQuotaReporter } from '../utils/storag
 import type { ClientEventHub } from './SyncEventHub'
 import type { ChangeOutbox } from './ChangeOutbox'
 import type { AutomergeDocStore } from './docStore'
-import type { SnapshotManager } from './SnapshotManager'
+import type { ItemSyncState } from './ItemSyncState'
+import type { SnapshotPusher } from './SnapshotPusher'
+import type { SnapshotSchedule } from './SnapshotSchedule'
 import type { ScopedMetadataStore } from './stores/syncMetadataStorage'
 import type { SyncOrchestrator } from './SyncOrchestrator'
 import type { RetrySaveResult } from './syncProtocol'
@@ -27,7 +29,9 @@ export interface StorageRecoveryServiceDeps {
   clientEventHub: ClientEventHub
   outbox: Pick<ChangeOutbox, 'markAll'>
   docStore: AutomergeDocStore
-  snapshotManager: SnapshotManager
+  itemSyncState: Pick<ItemSyncState, 'save'>
+  snapshotSchedule: Pick<SnapshotSchedule, 'getDirtyItemIds'>
+  snapshotPusher: Pick<SnapshotPusher, 'flushPendingSnapshots'>
   /** Any store in the sync metadata database, written to probe whether storage has room again */
   metadataStore: Pick<ScopedMetadataStore<unknown>, 'testStorageAvailable'>
   orchestrator: SyncOrchestrator
@@ -75,7 +79,7 @@ export class StorageRecoveryService {
         'Storage quota is still exceeded. Please free up more space on your device.',
       )
       const edited = Array.from(this.editedItems)
-      const dirtyIds = Array.from(new Set([...edited, ...this.deps.snapshotManager.schedule.getDirtyItemIds()]))
+      const dirtyIds = Array.from(new Set([...edited, ...this.deps.snapshotSchedule.getDirtyItemIds()]))
       for (const itemId of dirtyIds) {
         try {
           await this.deps.docStore.saveDocToStorage(itemId)
@@ -89,12 +93,12 @@ export class StorageRecoveryService {
       await rethrowQuota(this.deps.outbox.markAll(dirtyIds), 'Storage quota is still exceeded while saving changes.')
 
       await rethrowQuota(
-        this.deps.snapshotManager.state.save(),
+        this.deps.itemSyncState.save(),
         'Storage quota is still exceeded while saving sync records.',
       )
       if (this.deps.session.isOnline) {
         fireAndForget(
-          this.deps.snapshotManager.flushPendingSnapshots(),
+          this.deps.snapshotPusher.flushPendingSnapshots(),
           'StorageRecoveryService:flushPendingSnapshots',
         )
         this.deps.orchestrator.flush()

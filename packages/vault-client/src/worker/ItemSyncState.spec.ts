@@ -1,3 +1,4 @@
+import * as Automerge from '@automerge/automerge/slim'
 import { IDBFactory } from 'fake-indexeddb'
 import type { ItemId } from '@vault/shared'
 import { ItemSyncState } from './ItemSyncState'
@@ -459,6 +460,39 @@ describe('ItemSyncState', () => {
         expect(await stored()).toEqual([{ itemId: ITEM_1 }])
         expect(await db.getAll(SYNC_LOG_STORES.unconfirmedPulls)).toEqual([])
       })
+    })
+  })
+
+  describe('snapshot coverage (S1, log before snapshot)', () => {
+    const base = () => Automerge.change(Automerge.init<{ title?: string }>(), d => { d.title = 'base' })
+
+    it('covers a doc at its server heads', () => {
+      const state = createState()
+      const doc = base()
+      state.setServerHeads(ITEM_1, Automerge.getHeads(doc))
+
+      expect(state.isCovered(ITEM_1, doc)).toBe(true)
+    })
+
+    it('defers a doc with changes after its server heads', () => {
+      const state = createState()
+      const doc = base()
+      state.setServerHeads(ITEM_1, Automerge.getHeads(doc))
+
+      const edited = Automerge.change(doc, d => { d.title = 'edited' })
+
+      expect(state.isCovered(ITEM_1, edited)).toBe(false)
+    })
+
+    it('defers a doc with no known server heads, which is all unpushed', () => {
+      expect(createState().isCovered(ITEM_1, base())).toBe(false)
+    })
+
+    it('lets through a change too large for a row', () => {
+      const state = createState()
+      state.setSnapshotOnly(ITEM_1)
+
+      expect(state.isCovered(ITEM_1, base())).toBe(true)
     })
   })
 })
