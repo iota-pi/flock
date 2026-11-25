@@ -28,6 +28,7 @@ describe('SnapshotPusher', () => {
   let mockTracker: any
   let mockBuilder: any
   let mockPushToLog: any
+  let mockStoreDocs: any
   let mockOnSnapshotStored: any
   let mockApiClient: any
   let mockRecoveryManager: any
@@ -71,6 +72,7 @@ describe('SnapshotPusher', () => {
     }
 
     mockPushToLog = vi.fn().mockResolvedValue(undefined)
+    mockStoreDocs = vi.fn().mockResolvedValue(undefined)
     mockOnSnapshotStored = vi.fn()
 
     mockApiClient = {
@@ -101,6 +103,7 @@ describe('SnapshotPusher', () => {
       hasPendingMarks: vi.fn().mockResolvedValue(false),
       builder: mockBuilder as unknown as SnapshotBuilder,
       pushToLog: mockPushToLog,
+      storeDocs: mockStoreDocs,
       onSnapshotStored: mockOnSnapshotStored,
       apiClient: mockApiClient,
       recoveryManager: mockRecoveryManager,
@@ -144,6 +147,7 @@ describe('SnapshotPusher', () => {
       hasPendingMarks: vi.fn().mockResolvedValue(false),
       builder: mockBuilder as unknown as SnapshotBuilder,
       pushToLog: mockPushToLog,
+      storeDocs: mockStoreDocs,
       onSnapshotStored: mockOnSnapshotStored,
       apiClient: mockApiClient,
       recoveryManager: mockRecoveryManager,
@@ -209,6 +213,28 @@ describe('SnapshotPusher', () => {
     expectStored('item-1', 1, 2)
     expect(mockOnSnapshotStored).toHaveBeenCalledWith({ itemId: 'item-1', heads: ['head-1'] })
     expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith('item-1')
+  })
+
+  it('stores the docs before their snapshots are uploaded', async () => {
+    await push()
+
+    expect(mockStoreDocs).toHaveBeenCalledWith(['item-1'])
+    expect(mockStoreDocs.mock.invocationCallOrder[0])
+      .toBeLessThan(mockApiClient.putSnapshots.mock.invocationCallOrder[0])
+  })
+
+  // A snapshot of a doc that isn't stored would raise the base version past what a crash leaves
+  it('uploads nothing when storing the docs fails, counting no failure against the items', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockStoreDocs.mockRejectedValue(new DOMException('The disk is full', 'QuotaExceededError'))
+
+    await expect(push()).resolves.toEqual({ persisted: 0, total: 1, success: false })
+
+    expect(mockApiClient.putSnapshots).not.toHaveBeenCalled()
+    expect(mockTracker.clearDirty).not.toHaveBeenCalled()
+    expect(mockTracker.raiseBaseVersion).not.toHaveBeenCalled()
+    expect(mockTracker.retryNextPoll).toHaveBeenCalledTimes(1)
+    expect(pusher['consecutiveFailures']['count']('item-1' as ItemId)).toBe(0)
   })
 
   it('handles oversized item by quarantining and reporting a snapshot failure', async () => {
@@ -564,6 +590,7 @@ describe('SnapshotPusher', () => {
         hasPendingMarks: vi.fn().mockResolvedValue(false),
         builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec, noLogCoverage),
         pushToLog: mockPushToLog,
+        storeDocs: mockStoreDocs,
         onSnapshotStored: mockOnSnapshotStored,
         apiClient: mockApiClient,
         recoveryManager: mockRecoveryManager,
@@ -681,6 +708,7 @@ describe('SnapshotPusher', () => {
         hasPendingMarks: vi.fn().mockResolvedValue(false),
         builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec, noLogCoverage),
         pushToLog: mockPushToLog,
+        storeDocs: mockStoreDocs,
         onSnapshotStored: mockOnSnapshotStored,
         recoveryManager: mockRecoveryManager,
         apiClient: new SyncApiClient(),

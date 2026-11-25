@@ -76,7 +76,7 @@ export interface LogPushResult {
 
 export interface ChangeOutboxDeps {
   db: SyncLogDatabase
-  docStore: Pick<AutomergeDocStore, 'readChangesSince' | 'hasChangesSince' | 'hasDataInStorage'>
+  docStore: Pick<AutomergeDocStore, 'readChangesSince' | 'hasChangesSince' | 'hasDataInStorage' | 'flushToStorage'>
   keys: KeyProvider
   session: SyncSessionState
   /** Each item's server heads and whether only a snapshot can deliver it */
@@ -339,8 +339,9 @@ export class ChangeOutbox {
     }
 
     if (outgoing.changes.length === 0) {
-      // Server heads a failed save left unsaved would be lost in a crash, and the mark with them
-      if (!this.deps.itemSyncState.hasUnsaved(itemId, 'serverHeads')) {
+      // Server heads a failed save left unsaved would be lost in a crash, and the mark with them. So
+      // would changes a failed flush left out of storage (`recordAcknowledged`).
+      if (!this.deps.itemSyncState.hasUnsaved(itemId, 'serverHeads') && await this.isStored(itemId)) {
         await this.clearMark(itemId, tick)
       }
       return null
@@ -386,12 +387,27 @@ export class ChangeOutbox {
     }
   }
 
+  /** Writes the item's doc to storage if it isn't there yet, and returns whether it's stored */
+  private async isStored(itemId: ItemId): Promise<boolean> {
+    try {
+      await this.deps.docStore.flushToStorage([itemId])
+      return true
+    } catch (error) {
+      log.error(`Failed to store the doc of item ${itemId}; keeping its pending mark`, error)
+      return false
+    }
+  }
+
   /**
    * Records each item's new server heads and marks it dirty, so the leader uploads its snapshot, and
    * saves both in one transaction, before the marks clear: a crash between the two resends rather
-   * than forgets. If the save fails the marks stay, and the save is retried. The heads stay unsaved
-   * in memory, so the next push finds nothing to send but keeps the mark until they're saved
-   * (`preparePush`), and the item stays queued for its snapshot in this session.
+   * than forgets. The docs are stored first, since the push read them in memory, and once the marks
+   * clear and the log cursor passes the rows, nothing would bring the changes back to this device.
+   *
+   * If either write fails the marks stay, and the save is retried. The next push finds nothing to send
+   * but keeps the mark until the heads are saved and the doc stored (`preparePush`), and the item stays
+   * queued for its snapshot in this session. Should the device crash first, the log cursor hasn't
+   * passed the rows (`SyncLogPuller`), so it reads them back.
    */
   private async recordAcknowledged(pushes: PreparedPush[]): Promise<void> {
     if (pushes.length === 0) return
@@ -400,9 +416,10 @@ export class ChangeOutbox {
       this.deps.onAcknowledged(itemId)
     }
     try {
+      await this.deps.docStore.flushToStorage(pushes.map(push => push.itemId))
       await this.deps.itemSyncState.save()
     } catch (error) {
-      log.error('Failed to save server heads; keeping the pending marks', error)
+      log.error('Failed to store acknowledged docs or their server heads; keeping the pending marks', error)
       this.deps.itemSyncState.requestSave()
       return
     }

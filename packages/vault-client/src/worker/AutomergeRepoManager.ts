@@ -74,6 +74,8 @@ export interface AutomergeRepoManagerOptions {
   onDocChanged?: (itemId: ItemId) => void
   /** Tells the account's other tabs which items this tab sent them */
   bus?: RealtimeBus
+  /** How long the Repo waits after a doc changes to save it (Automerge's default otherwise) */
+  saveDebounceRate?: number
 }
 
 /** Owns the account's Repo and the storage it's built on, which it closes on stop */
@@ -109,6 +111,7 @@ export class AutomergeRepoManager {
     this.repo = new Repo({
       storage: this.storage,
       network: [this.broadcastAdapter],
+      saveDebounceRate: options?.saveDebounceRate,
     })
     this.changeListeners = new DocChangeListeners(this.repo, itemId => options?.onDocChanged?.(itemId))
   }

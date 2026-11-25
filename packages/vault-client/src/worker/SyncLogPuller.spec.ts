@@ -515,13 +515,26 @@ describe('SyncLogPuller', () => {
     it("doesn't store a doc again once a saved cursor covers it", async () => {
       await puller.process(page([entry(1)]))
       await puller.shutdown()
-      puller.recordOwnPushes([{ itemId: ITEM, seq: 2 }])
 
-      await puller.process(page([entry(2)]))
+      await puller.process(page([entry(2, { itemId: 'item-2' as ItemId })]))
       await puller.shutdown()
 
-      expect(docs.flushToStorage).toHaveBeenLastCalledWith([])
+      expect(docs.flushToStorage).toHaveBeenLastCalledWith(['item-2'])
       expect(stored.cursor).toBe(2)
+    })
+
+    // Its push read the changes from the doc in memory, and if they never reached storage, the row is
+    // what brings them back after a crash
+    it("doesn't save the cursor past its own row until that row's doc is stored", async () => {
+      puller.recordOwnPushes([{ itemId: ITEM, seq: 1 }])
+      docs.flushToStorage.mockRejectedValueOnce(new Error('QuotaExceededError'))
+      await puller.process(page([entry(1)]))
+      await puller.shutdown()
+
+      expect(puller.cursor).toBe(1)
+      expect(docs.flushToStorage).toHaveBeenLastCalledWith([ITEM])
+      expect(cursorStore.save).not.toHaveBeenCalled()
+      expect(stored.cursor).toBe(0)
     })
   })
 

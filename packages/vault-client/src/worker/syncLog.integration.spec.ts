@@ -5,6 +5,8 @@ import { FakeVaultServer } from './__test__/FakeVaultServer'
 import { createAccountKeys, Device, installLocalStorage } from './__test__/syncLogHarness'
 
 const DAY = 24 * 60 * 60 * 1000
+/** Past the puller's debounce on saving the log cursor */
+const LOG_CURSOR_SAVE_DELAY_MS = 1500
 
 function randomBytes(length: number): Uint8Array {
   const bytes = new Uint8Array(length)
@@ -462,6 +464,37 @@ describe('sync log', () => {
       await b.poll()
       expect((await b.read(itemId))?.title).toBe('second')
     })
+
+    it('keeps an acknowledged edit pending until its doc is stored', async () => {
+      const a = await startDevice('device-a')
+      const itemId = await a.create('item-1', { title: 'first' })
+      await a.sync()
+      const rows = server.rows.length
+
+      // The doc can't be stored (a full disk, say) while the edit is pushed and the cursor's save comes due
+      a.failDocWrites()
+      await a.edit(itemId, { title: 'second' })
+      await a.poll()
+      expect(server.rows).toHaveLength(rows + 1)
+      expect(await a.pending()).toEqual([itemId])
+      await new Promise(resolve => setTimeout(resolve, LOG_CURSOR_SAVE_DELAY_MS))
+      await a.crash()
+      await a.start()
+
+      // The mark stayed, and the cursor stayed before the device's own row, so it reads the row back
+      expect((await a.read(itemId))?.title).toBe('first')
+      expect(await a.pending()).toEqual([itemId])
+      expect(a.services.puller.cursor).toBeLessThan(server.head)
+      await a.sync()
+      expect((await a.read(itemId))?.title).toBe('second')
+      expect(await a.pending()).toEqual([])
+
+      // The snapshot it uploads holds the edit
+      server.expireLog()
+      const b = await startDevice('device-b')
+      await b.poll()
+      expect((await b.read(itemId))?.title).toBe('second')
+    })
   })
 
   describe('both outbound loops', () => {
@@ -652,6 +685,34 @@ describe('sync log', () => {
     await a.poll()
     expect(await a.pending()).toEqual([])
 
+    await b.manifestSync()
+    expect((await b.read(itemId))?.blob).toBeInstanceOf(Uint8Array)
+  })
+
+  // Its base version would otherwise say the device has what a crash would leave its doc without
+  it('uploads a snapshot only once its doc is stored', async () => {
+    const a = await startDevice('device-a')
+    const b = await startDevice('device-b')
+    const itemId = await a.create('item-1', { title: 'first' })
+    await a.sync()
+    await b.sync()
+    const version = server.items.get(itemId)!.version
+
+    const allowDocWrites = a.failDocWrites()
+    await a.services.docStore.changeDocument(itemId, draft => {
+      draft.blob = randomBytes(MAX_INCREMENTAL_MESSAGE_BYTES + 1024)
+    })
+    await a.services.changeOutbox.mark(itemId)
+    a.services.snapshotSchedule.markItemDirty(itemId)
+    await a.poll()
+    await a.uploadSnapshots()
+    expect(server.items.get(itemId)?.version).toBe(version)
+    expect(a.services.itemSyncState.getBaseVersion(itemId)).toBe(version)
+    expect(await a.pending()).toEqual([itemId])
+
+    allowDocWrites()
+    await a.uploadSnapshots()
+    expect(server.items.get(itemId)?.version).toBe(version + 1)
     await b.manifestSync()
     expect((await b.read(itemId))?.blob).toBeInstanceOf(Uint8Array)
   })

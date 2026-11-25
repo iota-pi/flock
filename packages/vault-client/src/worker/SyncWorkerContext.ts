@@ -116,6 +116,11 @@ export interface SyncWorkerContextConfig extends SyncSessionConfig {
   keys: KeyProvider
   /** Wraps the device storage key. Needed with `upgradeLocalEncryption`. */
   localKeys?: LocalKeyWrapper
+  /**
+   * How long the Repo waits after a doc changes to save it (Automerge's default otherwise). Tests
+   * lengthen it, so that a doc reaches storage only when something stores it.
+   */
+  repoSaveDebounceMs?: number
 }
 
 /** The components `initialize` builds once local storage is open */
@@ -236,6 +241,7 @@ export class SyncWorkerContext {
       onDocumentReceived: docId => this.notifyDocumentReceived(toVaultItemIdFromAutomergeId(docId)),
       // The leader's backstop for follower changes that arrive after their marks were cleared
       onDocChanged: itemId => signals.raise.docChanged(itemId),
+      saveDebounceRate: this.config.repoSaveDebounceMs,
     })
     const { repo } = repoManager
 
@@ -418,6 +424,7 @@ export class SyncWorkerContext {
       state: itemSyncState,
       builder: snapshotBuilder,
       pushToLog,
+      storeDocs: itemIds => docStore.flushToStorage(itemIds),
       onSnapshotStored: details => itemSyncState.confirmSnapshotOnly(details.itemId, details.heads),
       eventHub: clientEventHub,
       recoveryManager,
