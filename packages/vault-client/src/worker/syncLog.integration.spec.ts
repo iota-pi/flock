@@ -72,6 +72,30 @@ describe('sync log', () => {
     expect(server.rows.map(row => row.itemId)).toEqual([itemId])
   })
 
+  it('neither resends nor pulls as another device\'s a push whose poll aborted after the server stored it', async () => {
+    const a = await startDevice('device-a')
+    await a.poll()
+    await a.create('item-1', { title: 'first' })
+    await a.settle()
+    // As stealing leadership does, with the request already answered
+    const controller = new AbortController()
+    const pollLog = server.pollLog.bind(server)
+    vi.spyOn(server, 'pollLog').mockImplementationOnce(input => {
+      const output = pollLog(input)
+      controller.abort()
+      return output
+    })
+    const resolveQuarantines = vi.spyOn(a.services.recoveryManager, 'resolveQuarantines')
+
+    expect(await a.services.poller.executePoll(controller.signal)).toBe('no-poll')
+    expect(server.head).toBe(1)
+    expect(await a.pending()).toEqual([])
+
+    expect(await a.poll()).toBe('success')
+    expect(server.head).toBe(1)
+    expect(resolveQuarantines).not.toHaveBeenCalled()
+  })
+
   it('resends pulled changes at most once from a device that was also editing', async () => {
     const a = await startDevice('device-a')
     const b = await startDevice('device-b')
