@@ -10,7 +10,7 @@ import { SnapshotSchedule } from './SnapshotSchedule'
 import { SnapshotBuilder } from './SnapshotBuilder'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { SyncPoller } from './SyncPoller'
-import { LogExchange } from './LogExchange'
+import { createLogExchange } from './LogExchange'
 import { ManifestHydrator } from './ManifestHydrator'
 import { ManifestDemands } from './ManifestDemands'
 import { ManifestSyncManager } from './ManifestSyncManager'
@@ -390,7 +390,7 @@ export class SyncWorkerContext {
       },
     })
 
-    const logExchange = new LogExchange({ accountId, session, puller, apiClient: this.apiClient })
+    const logExchange = createLogExchange({ accountId, session, puller, apiClient: this.apiClient })
 
     const changeOutbox = new ChangeOutbox({
       db: syncLogDatabase,
@@ -398,7 +398,7 @@ export class SyncWorkerContext {
       keys,
       session,
       itemSyncState,
-      exchange: logExchange.exchange,
+      exchange: logExchange,
       // Without debouncing, so the item's full state is delivered
       requestSnapshot: itemId => snapshotSchedule.markItemDirty(itemId, 0),
       onMarked: () => {
@@ -409,7 +409,7 @@ export class SyncWorkerContext {
       onAcknowledged: itemId => snapshotSchedule.markItemDirty(itemId),
     })
 
-    const pushToLog = (itemIds: ItemId[], signal?: AbortSignal) => changeOutbox.pushItems(itemIds, signal)
+    const pushToLog = (itemIds: ItemId[], signal: AbortSignal) => changeOutbox.pushItems(itemIds, signal)
 
     const snapshotPusher = new SnapshotPusher({
       accountId,

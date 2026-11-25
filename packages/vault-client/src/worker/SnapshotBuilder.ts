@@ -53,9 +53,9 @@ export function toTombstoneSnapshot(snapshot: VaultSnapshotInput): VaultSnapshot
  */
 export async function buildAfterPush(
   builder: Pick<SnapshotBuilder, 'build'>,
-  pushToLog: (itemIds: ItemId[], signal?: AbortSignal) => Promise<void>,
+  pushToLog: (itemIds: ItemId[], signal: AbortSignal) => Promise<unknown>,
   itemId: ItemId,
-  signal?: AbortSignal,
+  signal: AbortSignal,
 ): Promise<BuildSnapshotResult> {
   const result = await builder.build(itemId, { signal })
   if (result.type !== 'deferred' || result.reason !== 'unpushed') return result
