@@ -317,8 +317,7 @@ export class SyncWorker implements SyncApi {
 
   /** Sends a subscribed item's state to the app and keeps the index in step with it */
   private handleItemChange(id: ItemId, doc: RepoDoc | null): void {
-    const { accountSettings, changeOutbox, docStore, indexManager } = this.context.services
-    changeOutbox.onDocChanged(id)
+    const { accountSettings, docStore, indexManager } = this.context.services
     if (accountSettings.isSettingsDoc(id)) {
       accountSettings.handleSettingsDoc(doc)
       return

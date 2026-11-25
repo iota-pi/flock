@@ -82,6 +82,8 @@ export interface AutomergeDocStoreOptions {
   repo: Repo
   /** Called when a find or create puts a new handle in place of an item's old one, so its listeners can move */
   onHandleReplaced?: (itemId: ItemId, handle: DocHandle<RepoDoc>) => void
+  /** Called with every handle a find, create or import gives this, so the engine can listen to its changes */
+  watchHandle?: (handle: DocHandle<RepoDoc>) => void
   storageAdapter: DocStorageChecker
   codec: DocCodec
   /** Called when an indexed item turns out to have no local data, which only the server can restore */
@@ -178,6 +180,15 @@ export class AutomergeDocStore implements ItemLockCoordinator {
   private async findHandleInternal(
     itemId: ItemId,
     options: Pick<ChangeDocumentOptions, 'knownToExist'> = {},
+  ): Promise<RepoDocHandle> {
+    const handle = await this.lookUpHandle(itemId, options)
+    if (handle) this.deps.watchHandle?.(handle)
+    return handle
+  }
+
+  private async lookUpHandle(
+    itemId: ItemId,
+    options: Pick<ChangeDocumentOptions, 'knownToExist'>,
   ): Promise<RepoDocHandle> {
     const { url, documentId } = this.resolveDocumentId(itemId)
 
@@ -304,7 +315,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
           )
         }
 
-        this.deps.onHandleReplaced?.(itemId, handle)
+        this.handleReplaced(itemId, handle)
         return handle
       })
     )
@@ -541,7 +552,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     const existing = this.getReadyHandle(documentId)
     if (existing) {
       this.applyMerge(existing, parsed ?? Automerge.load<RepoDoc>(binary))
-      this.deps.onHandleReplaced?.(itemId, existing)
+      this.handleReplaced(itemId, existing)
       return existing
     }
 
@@ -554,8 +565,13 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     const handle = this.deps.repo.import<RepoDoc>(binary, {
       docId: documentId,
     })
-    this.deps.onHandleReplaced?.(itemId, handle)
+    this.handleReplaced(itemId, handle)
     return handle
+  }
+
+  private handleReplaced(itemId: ItemId, handle: DocHandle<RepoDoc>): void {
+    this.deps.watchHandle?.(handle)
+    this.deps.onHandleReplaced?.(itemId, handle)
   }
 
   shutdown(): void {
