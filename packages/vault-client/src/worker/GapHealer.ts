@@ -19,6 +19,11 @@ export const MAX_PULL_RETRIES = 5
 
 const MISSING_CHANGES_KINDS: ReadonlySet<ManualRecoveryKind> = new Set(['missingChanges'])
 
+/** The wait before the next try, after the given number of tries */
+function gapHealDelay(tries: number): number {
+  return GAP_HEAL_DELAYS[Math.min(tries - 1, GAP_HEAL_DELAYS.length - 1)]
+}
+
 export type ParkReason = 'decryption' | 'missingKey' | 'missingDeps' | 'apply'
 
 /** A log entry that couldn't be applied yet. It keeps the row's ciphertext, so nothing is in the clear. */
@@ -41,8 +46,17 @@ interface HealingItem {
   since: number
   attempts: number
   nextAttemptAt: number
-  /** Whether the server's snapshot may hold what the item needs */
-  needsSnapshot: boolean
+  /**
+   * When the item next fetches the server's snapshot, which may hold what it needs. Undefined while
+   * a snapshot can't help (rows parked only for their keys or decryption).
+   *
+   * Kept apart from `nextAttemptAt`: a later row makes the item due at once, but the server's snapshot
+   * rarely changes between rows, since the author uploads one only every 15 min to 1 h. So the parked
+   * rows are applied again at once, and the snapshot is fetched again only on its own backoff.
+   */
+  snapshotDueAt?: number
+  /** Snapshot fetches since the item started waiting, for that backoff */
+  fetches: number
 }
 
 export interface GapHealerDeps {
@@ -78,7 +92,7 @@ export class GapHealer {
       const item = this.track(entry.itemId, entry.parkedAt)
       item.since = Math.min(item.since, entry.parkedAt)
       if (entry.reason === 'missingDeps' || entry.reason === 'apply') {
-        item.needsSnapshot = true
+        item.snapshotDueAt = 0
       }
     }
     this.reportHealing()
@@ -87,7 +101,7 @@ export class GapHealer {
   private track(itemId: ItemId, since = Date.now()): HealingItem {
     let item = this.items.get(itemId)
     if (!item) {
-      item = { since, attempts: 0, nextAttemptAt: 0, needsSnapshot: false }
+      item = { since, attempts: 0, nextAttemptAt: 0, fetches: 0 }
       this.items.set(itemId, item)
     }
     return item
@@ -110,7 +124,8 @@ export class GapHealer {
     await this.deps.db.put(SYNC_LOG_STORES.parked, parked)
     const item = this.track(entry.itemId)
     if (reason === 'missingDeps' || reason === 'apply') {
-      item.needsSnapshot = true
+      // The first such row fetches the snapshot at once. Later ones wait for its backoff.
+      item.snapshotDueAt ??= 0
       item.nextAttemptAt = 0
     }
     this.reportHealing()
@@ -119,31 +134,36 @@ export class GapHealer {
   /** Asks for an item's snapshot, for an indexed item with no local data */
   requestSnapshot(itemId: ItemId): void {
     const item = this.track(itemId)
-    item.needsSnapshot = true
+    item.snapshotDueAt = 0
     item.nextAttemptAt = 0
     this.reportHealing()
     this.deps.onWorkDue()
   }
 
-  /** A later entry for the item may be what it was waiting for */
+  /** A later entry for the item may be what it was waiting for. Its parked rows are applied again without a fetch. */
   onLogEntry(itemId: ItemId): void {
     const item = this.items.get(itemId)
     if (item) item.nextAttemptAt = 0
   }
 
-  /** A manifest sync may have merged what any item was waiting for */
+  /**
+   * A manifest sync may have merged what any item was waiting for. It fetched every snapshot newer
+   * than this device's itself, so the items apply their rows again without fetching.
+   */
   onManifestSynced(): void {
-    this.retryAll()
+    this.retryAll(false)
   }
 
+  /** A new key may open a parked row, or a snapshot that couldn't be read before */
   onKeyringUpdated(): void {
-    this.retryAll()
+    this.retryAll(true)
   }
 
-  private retryAll(): void {
+  private retryAll(refetchSnapshots: boolean): void {
     if (this.items.size === 0) return
     for (const item of this.items.values()) {
       item.nextAttemptAt = 0
+      if (refetchSnapshots && item.snapshotDueAt !== undefined) item.snapshotDueAt = 0
     }
     this.deps.onWorkDue()
   }
@@ -151,12 +171,20 @@ export class GapHealer {
   /** Works on every item that's due. Throws if storage fails, leaving the rest for the next poll. */
   async runDue(signal?: AbortSignal): Promise<void> {
     const now = Date.now()
-    const due = Array.from(this.items.entries()).filter(([, item]) => item.nextAttemptAt <= now)
+    const isSnapshotDue = (item: HealingItem) => item.snapshotDueAt !== undefined && item.snapshotDueAt <= now
+    const due = Array.from(this.items.entries()).filter(
+      ([, item]) => item.nextAttemptAt <= now || isSnapshotDue(item),
+    )
     if (due.length === 0) return
 
-    const needSnapshots = due.filter(([, item]) => item.needsSnapshot).map(([itemId]) => itemId)
+    const needSnapshots = due.filter(([, item]) => isSnapshotDue(item))
     if (needSnapshots.length > 0) {
-      await this.deps.fetchSnapshots(needSnapshots, signal)
+      // A failed request throws, leaving the snapshots due for the next poll (rule 4)
+      await this.deps.fetchSnapshots(needSnapshots.map(([itemId]) => itemId), signal)
+      for (const [, item] of needSnapshots) {
+        item.fetches += 1
+        item.snapshotDueAt = now + gapHealDelay(item.fetches)
+      }
     }
 
     const parked = await this.readParkedByItem()
@@ -255,7 +283,7 @@ export class GapHealer {
     }
 
     item.attempts += 1
-    item.nextAttemptAt = Date.now() + GAP_HEAL_DELAYS[Math.min(item.attempts - 1, GAP_HEAL_DELAYS.length - 1)]
+    item.nextAttemptAt = Date.now() + gapHealDelay(item.attempts)
     // A row that won't apply (say, to a doc in storage that won't load) is kept like a missing dependency,
     // since nothing is reset without the user, and gets the same day before the user is told
     if ((isMissingDeps || applyFailed) && Date.now() - item.since >= SYNC_TIMEOUTS.missingChangesQuarantine) {
