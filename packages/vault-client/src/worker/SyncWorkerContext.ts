@@ -442,7 +442,7 @@ export class SyncWorkerContext {
       accountId,
       dataVersion: this.domain.dataVersion ?? 0,
       raiseAccountDataVersion: () => this.apiClient.raiseDataVersion({ account: accountId }),
-      maxDeviceVersion: this.maxDeviceVersion(),
+      maxDeviceVersion: this.maxDeviceVersion(accountSettings),
     })
 
     const snapshotFormatUpgrade = this.legacy.upgradeSnapshotFormat
@@ -471,7 +471,8 @@ export class SyncWorkerContext {
       hydrator: manifestHydrator,
       storeItems,
       // Without a legacy source there is nothing to move: the main app's device gate keeps out the
-      // local layouts that held synced keys, and `AccountSettings.mutate` never writes them locally
+      // local layouts that held synced keys (a device with keys left is never recorded as migrated,
+      // see `maxDeviceVersion`), and `AccountSettings.mutate` never writes them locally
       migrateLegacySettings: this.legacy.legacySettings ? () => accountSettings.migrateLegacySettings() : undefined,
       fetchManifestEverySync: this.legacy.fetchManifestEverySync,
       onSyncedWithoutFailures: () => {
@@ -612,12 +613,20 @@ export class SyncWorkerContext {
    * Caps the recorded device level below the sealed level until this session's storage is sealed and
    * no plaintext stores are left, so a device on the quota fallback or the password-derived-key guard
    * isn't recorded as migrated. Caps it below the sync reset level until the reset has finished.
+   *
+   * With a legacy settings source, records no level at all while synced keys are left in local
+   * metadata. Moving them can fail without failing the sync, and the main app doesn't move them, so
+   * a device recorded as migrated with keys left would never sync them.
    */
-  private maxDeviceVersion(): (() => Promise<number>) | undefined {
+  private maxDeviceVersion(accountSettings: AccountSettings): (() => Promise<number>) | undefined {
     const { sealedDataVersion } = this.config
     const resetDataVersion = this.needsSyncReset ? this.legacy.syncResetDataVersion : undefined
-    if (sealedDataVersion === undefined && resetDataVersion === undefined) return undefined
+    const migratesLegacySettings = this.legacy.legacySettings !== undefined
+    if (sealedDataVersion === undefined && resetDataVersion === undefined && !migratesLegacySettings) return undefined
     return async () => {
+      if (migratesLegacySettings && await accountSettings.hasLocalSyncedKeys()) {
+        return 0
+      }
       const state = this.localStorageState
       if (sealedDataVersion !== undefined && !(state?.mode === 'sealed' && state.retired)) {
         return sealedDataVersion - 1

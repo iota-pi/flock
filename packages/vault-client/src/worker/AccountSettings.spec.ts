@@ -268,6 +268,23 @@ describe('AccountSettings', () => {
       expect(indexManager.metadata).toEqual({ prayerGoal: 7 })
     })
   })
+
+  describe('hasLocalSyncedKeys', () => {
+    it('reports synced keys left in local metadata until they are migrated', async () => {
+      const settings = createSettings({ local: { prayerGoal: 4, sortCriteria: [] } })
+      await expect(settings.hasLocalSyncedKeys()).resolves.toBe(true)
+
+      await settings.migrateLegacySettings()
+
+      await expect(settings.hasLocalSyncedKeys()).resolves.toBe(false)
+    })
+
+    it('ignores local-only keys', async () => {
+      const settings = createSettings({ local: { sortCriteria: [], updatedAt: 100 } })
+
+      await expect(settings.hasLocalSyncedKeys()).resolves.toBe(false)
+    })
+  })
 })
 
 describe('withSettingsDocPassthrough', () => {

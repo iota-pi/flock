@@ -180,6 +180,16 @@ export class AccountSettings {
     }
   }
 
+  /**
+   * Whether this device's local metadata still holds synced keys, which `migrateLegacySettings`
+   * hasn't moved into the settings document yet
+   */
+  async hasLocalSyncedKeys(): Promise<boolean> {
+    if (this.syncedKeys.size === 0) return false
+    const localMetadata = await this.deps.indexManager.getMetadata()
+    return Object.keys(pickKeys(localMetadata, this.syncedKeys)).length > 0
+  }
+
   private async writeSettings(changes: VaultMetadata): Promise<void> {
     const current = await this.readSettings()
     const changed = Object.entries(changes).filter(([key, value]) => !deepEqual(current[key], value))
