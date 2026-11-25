@@ -10,7 +10,7 @@ import type { FetchedItem, ItemId, ManifestEntry } from '@vault/shared'
 import type { SyncApiClient } from './SyncApiClient'
 import type { StoreItemsOptions } from './ItemOperations'
 import { checkAlive, isAbortError } from '../utils/abort'
-import { classifySyncError } from '../utils/errorClassifier'
+import { classifySyncError, isRequestFailure } from '../utils/errorClassifier'
 import { mapWithConcurrency } from '@vault/shared'
 import { SYNC_BATCH_SIZES, SYNC_TIMEOUTS } from '../shared/syncConfig'
 import type { SyncDomain } from './domain'
@@ -106,6 +106,10 @@ export class ManifestHydrator {
     return !this.deps.isShutdown()
   }
 
+  /**
+   * Fetches the items' snapshots and merges them in. Throws if a request fails as a whole (see
+   * `isRequestFailure`); items that can't be fetched or hydrated only set `hasFailures`.
+   */
   async fetchAndHydrateRemoteItems(
     params: FetchAndHydrateParams,
     signal?: AbortSignal,
@@ -141,6 +145,11 @@ export class ManifestHydrator {
         }
       } catch (error) {
         if (signal?.aborted || isAbortError(error)) {
+          throw error
+        }
+        // An outage, a rejected session or an outdated build fails the run, so the poll backs off
+        // (rule 4). Anything else counts against this batch's items, and the run goes on.
+        if (isRequestFailure(error)) {
           throw error
         }
         hasBatchFailures = true

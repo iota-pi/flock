@@ -1,3 +1,4 @@
+import { isClientOutdatedError } from '@vault/shared'
 import { getOnlineState } from './onlineStatus'
 import { isAbortError } from './abort'
 
@@ -295,4 +296,14 @@ export function classifySyncError(error: unknown): ClassifiedError {
 
 export function isAuthError(error: unknown): boolean {
   return classifySyncError(error).isAuth
+}
+
+/**
+ * Whether a request failed as a whole: the network or server is down, the session was rejected or
+ * this build is too old. Such an error says nothing about the items the request was for, so callers
+ * fail the run (and the poll backs off, rule 4) rather than counting it against those items.
+ */
+export function isRequestFailure(error: unknown): boolean {
+  const classified = classifySyncError(error)
+  return classified.isNetwork || classified.isServerError || classified.isAuth || isClientOutdatedError(error)
 }
