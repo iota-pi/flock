@@ -172,8 +172,8 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
 
   /**
    * Builds and uploads the items' snapshots: the one pipeline that both the snapshot phase and the
-   * rewrite phase run. The items are pushed to the log first, and each is built only through
-   * `buildAfterPush` (S1). Throws if a request fails (sync rule 4), and `SnapshotsRefusedError` if
+   * rewrite phase run. Each item is built only through `buildAfterPush`, which pushes it to the log
+   * first if it holds changes the log lacks (S1). Throws if a request fails (sync rule 4), and `SnapshotsRefusedError` if
    * the server turns an upload away for the quota; the items not yet settled then get no result.
    */
   async uploadItems(itemIds: ItemId[], options: UploadItemsOptions): Promise<SnapshotPushOutcome> {
@@ -182,9 +182,7 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
     let total = 0
     let success = true
 
-    // The poll has pushed pending marks already. This catches the items marked only for a snapshot.
-    await this.deps.pushToLog(itemIds, signal)
-
+    // The poll has pushed pending marks already, so an item holding changes the log lacks is rare: its build pushes it (S1)
     const accumulator = new SizeAwareBatchAccumulator<UploadableSnapshot>({ maxBatchBytes: this.maxPayloadBytes })
 
     const flushAccumulated = async (): Promise<void> => {

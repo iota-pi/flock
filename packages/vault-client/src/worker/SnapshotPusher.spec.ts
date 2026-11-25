@@ -157,29 +157,32 @@ describe('SnapshotPusher', () => {
     expect(mockTracker.retryNextPoll).not.toHaveBeenCalled()
   })
 
-  it('pushes dirty items to the log before it builds their snapshots', async () => {
+  it('builds a covered item without pushing it to the log', async () => {
+    await push()
+
+    expect(mockPushToLog).not.toHaveBeenCalled()
+    expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
+  })
+
+  it('pushes and rebuilds an item holding changes the log lacks', async () => {
     const order: string[] = []
     mockPushToLog.mockImplementation(async () => { order.push('log') })
     const built = await mockBuilder.build()
-    mockBuilder.build.mockImplementation(async () => {
-      order.push('build')
-      return built
-    })
+    mockBuilder.build.mockReset()
+    mockBuilder.build
+      .mockImplementationOnce(async () => {
+        order.push('build')
+        return { type: 'deferred', reason: 'unpushed' }
+      })
+      .mockImplementationOnce(async () => {
+        order.push('build')
+        return built
+      })
 
     await push()
 
     expect(mockPushToLog).toHaveBeenCalledWith(['item-1'], expect.any(AbortSignal))
-    expect(order).toEqual(['log', 'build'])
-  })
-
-  it('pushes again and rebuilds an item that changed after the first push', async () => {
-    const built = await mockBuilder.build()
-    mockBuilder.build.mockReset()
-    mockBuilder.build.mockResolvedValueOnce({ type: 'deferred', reason: 'unpushed' }).mockResolvedValueOnce(built)
-
-    await push()
-
-    expect(mockPushToLog).toHaveBeenCalledTimes(2)
+    expect(order).toEqual(['build', 'log', 'build'])
     expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
   })
 
@@ -428,13 +431,15 @@ describe('SnapshotPusher', () => {
     })
   })
 
-  it('throws when pushing to the log fails, before building anything', async () => {
+  it('throws when pushing an unpushed item to the log fails, uploading nothing', async () => {
     const error = new Error('Network disconnected')
+    mockBuilder.build.mockResolvedValue({ type: 'deferred', reason: 'unpushed' })
     mockPushToLog.mockRejectedValue(error)
 
     await expect(push()).rejects.toBe(error)
 
-    expect(mockBuilder.build).not.toHaveBeenCalled()
+    expect(mockBuilder.build).toHaveBeenCalledTimes(1)
+    expect(mockApiClient.putSnapshots).not.toHaveBeenCalled()
   })
 
   // So the poll pauses for auth, rather than the device retrying alone with an expired session

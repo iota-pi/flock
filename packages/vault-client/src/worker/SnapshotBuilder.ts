@@ -49,7 +49,7 @@ export function toTombstoneSnapshot(snapshot: VaultSnapshotInput): VaultSnapshot
 
 /**
  * Builds an item's snapshot, and if it holds changes the log doesn't have yet (S1), pushes them and
- * builds once more. Changes made since the push before the build land here.
+ * builds once more. Changes made since the poll's push land here.
  */
 export async function buildAfterPush(
   builder: Pick<SnapshotBuilder, 'build'>,
