@@ -672,11 +672,14 @@ describe('sync log', () => {
       await a.sync()
       server.expireLog(server.head - 1)
       server.clock = () => start + 28 * DAY + SYNC_TIMEOUTS.gapWait
-      const runPhase = vi.spyOn(b.services.manifestSyncManager, 'runPhase')
+      const fetchManifest = vi.spyOn(server, 'fetchManifest')
 
+      // The server's clock shows B is behind, so it drops the page, catches up and reads again at once
+      expect(await b.poll()).toBe('success')
+      expect(b.services.puller.hasImmediatePendingPulls()).toBe(true)
       expect(await b.poll()).toBe('success')
 
-      expect(runPhase.mock.calls.filter(([, minMode]) => minMode === 'now')).toHaveLength(1)
+      expect(fetchManifest).toHaveBeenCalledTimes(1)
       expect((await b.read(itemId))?.title).toBe('after the TTL')
       expect(b.services.puller.cursor).toBe(server.head)
     })
@@ -692,12 +695,12 @@ describe('sync log', () => {
       server.clock = () => start + SYNC_TIMEOUTS.gapWait
 
       const b = await startDevice('device-b')
-      const runPhase = vi.spyOn(b.services.manifestSyncManager, 'runPhase')
+      const fetchManifest = vi.spyOn(server, 'fetchManifest')
       expect(await b.poll()).toBe('success')
 
-      expect(runPhase.mock.calls.filter(([, minMode]) => minMode === 'now')).toHaveLength(1)
+      expect(fetchManifest).toHaveBeenCalledTimes(1)
       expect(b.services.puller.cursor).toBe(server.head)
-      expect(b.services.puller.pendingManifestSync).toBeUndefined()
+      expect(b.services.manifestSyncManager.getDueAt()).not.toBe(Date.now())
     })
 
     it('still waits on a fresh gap while catching up', async () => {
