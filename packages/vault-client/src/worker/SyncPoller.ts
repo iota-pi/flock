@@ -1,12 +1,10 @@
-import type { SyncLogMessage } from '@vault/shared'
-import type { ChangeOutbox, LogPushResult } from './ChangeOutbox'
+import type { ChangeOutbox } from './ChangeOutbox'
 import type { GapHealer } from './GapHealer'
+import type { LogExchange } from './LogExchange'
 import type { ManifestPhaseResult, ManifestStage } from './ManifestSyncManager'
-import type { SyncApiClient } from './SyncApiClient'
+import type { SnapshotPusher } from './SnapshotPusher'
 import type { SyncLogPuller } from './SyncLogPuller'
 import type { SyncSessionState } from './SyncSessionState'
-import { AsyncMutex } from '../utils/AsyncMutex'
-import { checkAlive } from '../utils/abort'
 import { classifySyncError } from '../utils/errorClassifier'
 import { createLogger } from '../utils/logger'
 
@@ -15,35 +13,22 @@ const log = createLogger('SyncPoller')
 export type PollOutcome = 'success' | 'failure' | 'auth-failure' | 'no-poll'
 
 export interface SyncPollerDeps {
-  accountId: string
-  session: SyncSessionState
-  puller: Pick<
-    SyncLogPuller,
-    | 'cursor'
-    | 'recordOwnPushes'
-    | 'demandCatchUpIfBehind'
-    | 'dropPageIfBehind'
-    | 'process'
-  >
-  /** Read from the finished services: the outbox pushes through this poller */
-  getOutbox: () => Pick<ChangeOutbox, 'pushPending'>
+  session: Pick<SyncSessionState, 'isOperational'>
+  puller: Pick<SyncLogPuller, 'demandCatchUpIfBehind'>
+  /** Reads the log, and carries the outbox's pushes */
+  exchange: Pick<LogExchange, 'exchange' | 'count'>
+  outbox: Pick<ChangeOutbox, 'pushPending'>
   healer: Pick<GapHealer, 'runDue'>
-  apiClient: Pick<SyncApiClient, 'pollLog'>
   /**
    * A manifest phase (`ManifestSyncManager.runPhase`): runs a manifest sync if one is demanded for
    * `stage`, asked for or due, and returns null if none ran. Throws if the manifest can't be fetched.
    */
   runManifestPhase: (stage: ManifestStage, signal: AbortSignal) => Promise<ManifestPhaseResult | null>
-  /** Uploads the snapshots that are due, throwing if a request fails. Read from the finished services. */
-  getSnapshots: () => { pushDue: (signal: AbortSignal) => Promise<unknown> }
+  /** Uploads the snapshots that are due, throwing if a request fails */
+  snapshots: Pick<SnapshotPusher, 'pushDue'>
 }
 
 export class SyncPoller {
-  /** Pushes come from polls and snapshot rewrites, and only one may read the log at a time */
-  private readonly exchangeMutex = new AsyncMutex()
-  /** Exchanges completed, so that a poll that pushed nothing still reads the log */
-  private exchanges = 0
-
   constructor(private readonly deps: SyncPollerDeps) {}
 
   private get isOperational(): boolean {
@@ -64,15 +49,16 @@ export class SyncPoller {
       this.deps.puller.demandCatchUpIfBehind(Date.now())
       await this.deps.runManifestPhase('beforeRead', signal)
 
-      const exchangesBefore = this.exchanges
-      await this.deps.getOutbox().pushPending(signal)
-      if (this.exchanges === exchangesBefore) {
-        await this.exchange([], async () => {}, signal)
+      const { exchange } = this.deps
+      const exchangesBefore = exchange.count
+      await this.deps.outbox.pushPending(signal)
+      if (exchange.count === exchangesBefore) {
+        await exchange.exchange([], async () => {}, signal)
       }
 
       await this.deps.runManifestPhase('afterRead', signal)
       await this.deps.healer.runDue(signal)
-      await this.deps.getSnapshots().pushDue(signal)
+      await this.deps.snapshots.pushDue(signal)
       return 'success'
     } catch (error) {
       const classified = classifySyncError(error)
@@ -88,31 +74,5 @@ export class SyncPoller {
       log.error('Polling failed', error)
       return 'failure'
     }
-  }
-
-  /**
-   * Sends `push` in one `pollLog` and reads the log. `onResults` runs before the entries are applied.
-   * A page the device can't read yet is dropped, and read again at once after catch-up's manifest sync.
-   */
-  readonly exchange = async (
-    push: SyncLogMessage[],
-    onResults: (results: LogPushResult[]) => Promise<void>,
-    signal?: AbortSignal,
-  ): Promise<void> => {
-    await this.exchangeMutex.runExclusive(async () => {
-      checkAlive(signal, () => this.isOperational)
-      const response = await this.deps.apiClient.pollLog(
-        { account: this.deps.accountId, push, after: this.deps.puller.cursor },
-        { signal },
-      )
-      checkAlive(signal, () => this.isOperational)
-
-      this.deps.puller.recordOwnPushes(response.pushResults)
-      await onResults(response.pushResults)
-      this.exchanges += 1
-
-      if (this.deps.puller.dropPageIfBehind(response)) return
-      await this.deps.puller.process(response)
-    })
   }
 }

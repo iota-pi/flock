@@ -1,5 +1,8 @@
 import { MAX_FETCH_RESPONSE_CHARS } from '@vault/shared'
-import { ManifestSyncManager, type ManifestDemand, type ManifestMode } from './ManifestSyncManager'
+import { ManifestDemands, type ManifestDemand } from './ManifestDemands'
+import { ManifestHydrator } from './ManifestHydrator'
+import { ManifestSyncManager, type ManifestMode } from './ManifestSyncManager'
+import { SyncSessionState } from './SyncSessionState'
 import { RecoveryManager } from './RecoveryManager'
 import { ClientEventHub } from './SyncEventHub'
 import { SyncApiClient } from './SyncApiClient'
@@ -64,6 +67,11 @@ beforeEach(() => {
   })
 })
 
+/** A manager with its own hydrator, which takes the hydrator's deps from the same object */
+function createManager(deps: any): ManifestSyncManager {
+  return new ManifestSyncManager({ ...deps, hydrator: new ManifestHydrator(deps) })
+}
+
 /** A sync at `mode`, as the poll's manifest phase runs one when asked for it */
 function sync(manager: ManifestSyncManager, mode: ManifestMode = 'due', signal = new AbortController().signal) {
   manager.request(mode)
@@ -74,7 +82,16 @@ describe('ManifestSyncManager', () => {
   let manifestSyncManager: ManifestSyncManager
   let storeItemsSpy: any
   let migrateLegacySettingsSpy: any
-  let depsObj: { accountId: string; docStore: any; indexManager: any; snapshotSchedule: any; snapshotPusher: any; itemSyncState: any }
+  let depsObj: {
+    accountId: string
+    session: SyncSessionState
+    demands: ManifestDemands
+    docStore: any
+    indexManager: any
+    snapshotSchedule: any
+    snapshotPusher: any
+    itemSyncState: any
+  }
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -113,7 +130,8 @@ describe('ManifestSyncManager', () => {
 
     depsObj = {
       accountId: 'acc-123',
-      session: { isLeader: true },
+      session: new SyncSessionState({ isLeader: true }),
+      demands: new ManifestDemands(),
       docStore: mockDocStore,
       indexManager: mockIndexManager,
       snapshotSchedule: mockSnapshotSchedule,
@@ -135,7 +153,7 @@ describe('ManifestSyncManager', () => {
       },
     } as any
 
-    manifestSyncManager = new ManifestSyncManager(depsObj as any)
+    manifestSyncManager = createManager(depsObj as any)
 
     // Default mock behaviors
     mockListItemIds.mockResolvedValue([])
@@ -153,12 +171,11 @@ describe('ManifestSyncManager', () => {
 
   describe('outside the leader', () => {
     it('never talks to the server', async () => {
-      const manager = new ManifestSyncManager({ ...depsObj, session: { isLeader: false } } as any)
+      const manager = createManager({ ...depsObj, session: new SyncSessionState() })
       manager.request('force')
 
       expect(await sync(manager, 'force')).toBeNull()
       expect(manager.getDueAt()).toBeUndefined()
-      await manager.fetchSnapshots(['item-1' as ItemId])
 
       expect(mockFetchManifest).not.toHaveBeenCalled()
       expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
@@ -234,7 +251,7 @@ describe('ManifestSyncManager', () => {
       mockGetLastManifestSyncTime.mockResolvedValue(Date.now())
       mockFetchManifest.mockResolvedValue({ manifest: [], serverTime: Date.now() })
       const onManifestProcessed = vi.fn().mockResolvedValue(undefined)
-      const manager = new ManifestSyncManager({ ...depsObj, onManifestProcessed } as any)
+      const manager = createManager({ ...depsObj, onManifestProcessed } as any)
 
       expect(await sync(manager, 'now')).toMatchObject({ fetchedManifest: true })
 
@@ -299,7 +316,7 @@ describe('ManifestSyncManager', () => {
     it('still counts as run when processing the manifest fails, which the next sync retries', async () => {
       mockFetchManifest.mockResolvedValue({ manifest: [], serverTime: Date.now() })
       const onManifestProcessed = vi.fn().mockRejectedValue(new Error('failed'))
-      const manager = new ManifestSyncManager({ ...depsObj, onManifestProcessed } as any)
+      const manager = createManager({ ...depsObj, onManifestProcessed } as any)
 
       expect(await sync(manager, 'now')).toMatchObject({ fetchedManifest: true })
     })
@@ -316,7 +333,7 @@ describe('ManifestSyncManager', () => {
 
       it('runs a demand before the read only if it must run then', async () => {
         const recovery = afterRead()
-        manifestSyncManager.demand(recovery)
+        depsObj.demands.demand(recovery)
         manifestSyncManager.request('now')
 
         expect(await manifestSyncManager.runPhase('beforeRead', signal())).toBeNull()
@@ -324,26 +341,26 @@ describe('ManifestSyncManager', () => {
 
         expect(await manifestSyncManager.runPhase('afterRead', signal())).toMatchObject({ fetchedManifest: true })
         expect(recovery.onFetched).toHaveBeenCalledTimes(1)
-        expect(manifestSyncManager.isDemanded(recovery)).toBe(false)
+        expect(depsObj.demands.isDemanded(recovery)).toBe(false)
       })
 
       it('runs inside the minimum gap, and is due now until met', async () => {
         const catchUp = beforeRead()
-        manifestSyncManager.demand(catchUp)
+        depsObj.demands.demand(catchUp)
         expect(manifestSyncManager.getDueAt(1234)).toBe(1234)
 
         expect(await manifestSyncManager.runPhase('beforeRead', signal())).toMatchObject({ fetchedManifest: true })
 
         expect(catchUp.onFetched).toHaveBeenCalledTimes(1)
-        expect(manifestSyncManager.isDemanded(catchUp)).toBe(false)
+        expect(depsObj.demands.isDemanded(catchUp)).toBe(false)
       })
 
       it('meets every demand and request with one sync, so nothing runs after the read', async () => {
         const catchUp = beforeRead()
         const recovery = afterRead()
-        manifestSyncManager.demand(recovery)
-        manifestSyncManager.demand(catchUp)
-        manifestSyncManager.demand(catchUp)
+        depsObj.demands.demand(recovery)
+        depsObj.demands.demand(catchUp)
+        depsObj.demands.demand(catchUp)
         manifestSyncManager.request('now')
 
         await manifestSyncManager.runPhase('beforeRead', signal())
@@ -357,13 +374,13 @@ describe('ManifestSyncManager', () => {
       // Rule 4: a recovery request stays until a sync fetches the manifest
       it('stays when the manifest cannot be fetched', async () => {
         const recovery = afterRead()
-        manifestSyncManager.demand(recovery)
+        depsObj.demands.demand(recovery)
         mockFetchManifest.mockRejectedValueOnce(new TypeError('Failed to fetch'))
 
         await expect(manifestSyncManager.runPhase('afterRead', signal())).rejects.toThrow('Failed to fetch')
 
         expect(recovery.onFetched).not.toHaveBeenCalled()
-        expect(manifestSyncManager.isDemanded(recovery)).toBe(true)
+        expect(depsObj.demands.isDemanded(recovery)).toBe(true)
         await manifestSyncManager.runPhase('afterRead', signal())
         expect(recovery.onFetched).toHaveBeenCalledTimes(1)
       })
@@ -371,19 +388,19 @@ describe('ManifestSyncManager', () => {
       it('is not met by a demand placed while a sync runs', async () => {
         const recovery = afterRead()
         mockFetchManifest.mockImplementationOnce(async () => {
-          manifestSyncManager.demand(recovery)
+          depsObj.demands.demand(recovery)
           return { manifest: [], serverTime: Date.now() }
         })
         manifestSyncManager.request('now')
 
         await manifestSyncManager.runPhase('afterRead', signal())
 
-        expect(manifestSyncManager.isDemanded(recovery)).toBe(true)
+        expect(depsObj.demands.isDemanded(recovery)).toBe(true)
       })
 
       it('fails the phase outside the leader, so the poll cannot report success without it', async () => {
-        const manager = new ManifestSyncManager({ ...depsObj, session: { isLeader: false } } as any)
-        manager.demand(beforeRead())
+        const manager = createManager({ ...depsObj, session: new SyncSessionState() })
+        depsObj.demands.demand(beforeRead())
 
         await expect(manager.runPhase('beforeRead', signal())).rejects.toThrow('Catching up')
         expect(mockFetchManifest).not.toHaveBeenCalled()
@@ -446,7 +463,7 @@ describe('ManifestSyncManager', () => {
       mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
       mockHydrateAutomergeDocumentBinary.mockResolvedValue({ hasLocalChanges: false, incomingHeads: ['head'] })
 
-      await manifestSyncManager.fetchSnapshots(['item-1' as ItemId])
+      await new ManifestHydrator(depsObj as any).fetchSnapshots(['item-1' as ItemId])
 
       expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-1', new Uint8Array([1, 2, 3]), { knownToExist: true })
       expect(depsObj.itemSyncState.importBaseVersions).toHaveBeenCalledWith([['item-1', 3]])
@@ -529,7 +546,7 @@ describe('ManifestSyncManager', () => {
 
       mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
       const decodeLegacyItem = vi.fn().mockResolvedValue({ type: 'person', name: 'Alice' })
-      const manager = new ManifestSyncManager({ ...depsObj, decodeLegacyItem } as any)
+      const manager = createManager({ ...depsObj, decodeLegacyItem } as any)
 
       const result = await sync(manager)
 
@@ -570,7 +587,7 @@ describe('ManifestSyncManager', () => {
       })
       const onMigrationRequired = vi.fn()
       const onSyncedWithoutFailures = vi.fn()
-      const manager = new ManifestSyncManager({ ...depsObj, onMigrationRequired, onSyncedWithoutFailures } as any)
+      const manager = createManager({ ...depsObj, onMigrationRequired, onSyncedWithoutFailures } as any)
 
       const result = await sync(manager)
 
@@ -720,7 +737,7 @@ describe('ManifestSyncManager', () => {
     })
 
     it('does nothing without a migration hook', async () => {
-      const manager = new ManifestSyncManager({ ...depsObj, migrateLegacySettings: undefined } as any)
+      const manager = createManager({ ...depsObj, migrateLegacySettings: undefined } as any)
 
       await expect(sync(manager)).resolves.toMatchObject({ added: [], success: true })
     })
@@ -743,7 +760,7 @@ describe('ManifestSyncManager', () => {
       mockListItemIds.mockResolvedValue(['item-1' as ItemId])
       mockGetLastManifestSyncTime.mockResolvedValue(Date.now() - 1000)
       mockFetchManifest.mockResolvedValue({ manifest: [], serverTime: Date.now() })
-      const manager = new ManifestSyncManager({ ...depsObj, fetchManifestEverySync: true } as any)
+      const manager = createManager({ ...depsObj, fetchManifestEverySync: true } as any)
 
       await sync(manager)
 
@@ -754,7 +771,7 @@ describe('ManifestSyncManager', () => {
   describe('onSyncedWithoutFailures', () => {
     it('is called after a sync in which every item hydrated', async () => {
       const onSyncedWithoutFailures = vi.fn()
-      const manager = new ManifestSyncManager({ ...depsObj, onSyncedWithoutFailures } as any)
+      const manager = createManager({ ...depsObj, onSyncedWithoutFailures } as any)
       mockFetchManifest.mockResolvedValue({ manifest: [], serverTime: Date.now() })
       mockListItemIds.mockResolvedValue([])
 
@@ -764,7 +781,7 @@ describe('ManifestSyncManager', () => {
 
     it('is called when the sync is skipped because a clean sync ran recently', async () => {
       const onSyncedWithoutFailures = vi.fn()
-      const manager = new ManifestSyncManager({ ...depsObj, onSyncedWithoutFailures } as any)
+      const manager = createManager({ ...depsObj, onSyncedWithoutFailures } as any)
       mockListItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(Date.now() - 1000)
 
@@ -777,7 +794,7 @@ describe('ManifestSyncManager', () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
       const onSyncedWithoutFailures = vi.fn()
-      const manager = new ManifestSyncManager({ ...depsObj, onSyncedWithoutFailures } as any)
+      const manager = createManager({ ...depsObj, onSyncedWithoutFailures } as any)
       mockListItemIds.mockResolvedValue([])
       mockFetchManifest.mockResolvedValue({
         manifest: [{ itemId: 'item-1', modifiedAt: 100 }],
@@ -862,7 +879,7 @@ describe('ManifestSyncManager', () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const onDecryptionFailure = vi.fn()
 
-      const manager = new ManifestSyncManager({
+      const manager = createManager({
         ...(depsObj as any),
         storeItems: storeItemsSpy,
         onDecryptionFailure,
@@ -1154,7 +1171,7 @@ describe('ManifestSyncManager', () => {
     beforeEach(() => {
       onSnapshotCovered = vi.fn()
       depsObj.docStore.findHandle = vi.fn().mockResolvedValue({ isReady: () => true, doc: () => localDoc })
-      manifestSyncManager = new ManifestSyncManager({ ...depsObj, onSnapshotCovered } as any)
+      manifestSyncManager = createManager({ ...depsObj, onSnapshotCovered } as any)
       mockListItemIds.mockResolvedValue(['item-1'])
       depsObj.itemSyncState.trackedItems.mockReturnValue([['item-1', 100]])
       mockFetchSnapshotsByIds.mockResolvedValue({ items: [], serverTime: Date.now() })
@@ -1672,7 +1689,7 @@ describe('ManifestSyncManager', () => {
         serverTime: 500,
       })
       const decodeLegacyItem = vi.fn().mockResolvedValue({ id: 'item-legacy-tombstone', name: 'Zombie' })
-      const manager = new ManifestSyncManager({ ...depsObj, decodeLegacyItem } as any)
+      const manager = createManager({ ...depsObj, decodeLegacyItem } as any)
 
       // Force item into missingIds by testing hydration directly or when pulled
       // In normal flow, tombstoneSet skips download. But if download happens:
@@ -1741,8 +1758,8 @@ describe('ManifestSyncManager', () => {
         expect(mockFetchManifest).not.toHaveBeenCalled()
       })
 
-      it('returns early without work when manager is shut down', async () => {
-        manifestSyncManager.shutdown()
+      it('returns early without work once the session is shutting down', async () => {
+        depsObj.session.markShutdown()
 
         expect(await sync(manifestSyncManager, 'force')).toBeNull()
 
@@ -1770,9 +1787,23 @@ describe('ManifestSyncManager', () => {
         await expect(syncPromise).rejects.toThrow()
       })
 
-      it('aborts in-flight sync when abort() is called on the manager', async () => {
+      it('stops before fetching snapshots when the poll is aborted after the manifest arrives', async () => {
+        const controller = new AbortController()
         mockFetchManifest.mockImplementation(async () => {
-          manifestSyncManager.abort()
+          controller.abort()
+          return {
+            manifest: [{ itemId: 'item-remote-1', modifiedAt: 1000 }],
+            serverTime: 1000,
+          }
+        })
+
+        await expect(sync(manifestSyncManager, 'force', controller.signal)).rejects.toThrow()
+        expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
+      })
+
+      it('stops before fetching snapshots when the session shuts down during the manifest fetch', async () => {
+        mockFetchManifest.mockImplementation(async () => {
+          depsObj.session.markShutdown()
           return {
             manifest: [{ itemId: 'item-remote-1', modifiedAt: 1000 }],
             serverTime: 1000,
@@ -1781,20 +1812,6 @@ describe('ManifestSyncManager', () => {
 
         await expect(sync(manifestSyncManager, 'force')).rejects.toThrow()
         expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
-      })
-
-      it('cancels the in-flight manifest fetch of a background sync on abort()', async () => {
-        let fetchSignal: AbortSignal | undefined
-        mockFetchManifest.mockImplementation((_input: any, options?: { signal?: AbortSignal }) => {
-          fetchSignal = options?.signal
-          return new Promise(() => {})
-        })
-
-        sync(manifestSyncManager, 'force').catch(() => {})
-        await vi.waitFor(() => expect(mockFetchManifest).toHaveBeenCalled())
-        manifestSyncManager.abort()
-
-        expect(fetchSignal?.aborted).toBe(true)
       })
     })
   })

@@ -582,7 +582,7 @@ describe('sync log', () => {
       const later = server.clock() + SYNC_TIMEOUTS.gapWait
       server.clock = () => later
       const heal = vi.spyOn(b.services.gapHealer, 'runDue')
-      vi.spyOn(b.services.manifestSyncManager, 'fetchSnapshots').mockRejectedValueOnce(new Error('IndexedDB read failed'))
+      vi.spyOn(b.services.manifestHydrator, 'fetchSnapshots').mockRejectedValueOnce(new Error('IndexedDB read failed'))
 
       expect(await b.poll()).toBe('failure')
       expect(heal).toHaveBeenCalled()

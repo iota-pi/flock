@@ -1,5 +1,6 @@
 import type { Mock } from 'vitest'
 import type { ItemId, SyncLogMessage } from '@vault/shared'
+import { LogExchange, type LogExchangeDeps } from './LogExchange'
 import { SyncPoller, type SyncPollerDeps } from './SyncPoller'
 import { SyncSessionState } from './SyncSessionState'
 import { AuthError } from './SyncApiClient'
@@ -27,6 +28,7 @@ describe('SyncPoller', () => {
   let apiClient: { pollLog: AnyMock }
   let runManifestPhase: AnyMock
   let snapshots: { pushDue: AnyMock }
+  let exchange: LogExchange
   let poller: SyncPoller
 
   beforeEach(() => {
@@ -43,15 +45,20 @@ describe('SyncPoller', () => {
     apiClient = { pollLog: vi.fn().mockResolvedValue(response()) }
     runManifestPhase = vi.fn().mockResolvedValue(null)
     snapshots = { pushDue: vi.fn().mockResolvedValue({ persisted: 0, total: 0, success: true }) }
-    poller = new SyncPoller({
+    exchange = new LogExchange({
       accountId: 'account-1',
       session,
-      puller: puller as unknown as SyncPollerDeps['puller'],
-      getOutbox: () => outbox,
-      healer,
+      puller: puller as unknown as LogExchangeDeps['puller'],
       apiClient,
+    })
+    poller = new SyncPoller({
+      session,
+      puller: puller as unknown as SyncPollerDeps['puller'],
+      exchange,
+      outbox,
+      healer,
       runManifestPhase,
-      getSnapshots: () => snapshots,
+      snapshots,
     })
   })
 
@@ -126,45 +133,12 @@ describe('SyncPoller', () => {
   })
 
   it('reads the log only once when a push already did', async () => {
-    outbox.pushPending.mockImplementation(() => poller.exchange([MESSAGE], async () => {}))
+    outbox.pushPending.mockImplementation(() => exchange.exchange([MESSAGE], async () => {}))
 
     await poller.executePoll()
 
     expect(apiClient.pollLog).toHaveBeenCalledTimes(1)
     expect(puller.process).toHaveBeenCalledTimes(1)
-  })
-
-  it('records acknowledgements before applying entries', async () => {
-    const order: string[] = []
-    const pushResults = [{ itemId: ITEM, seq: 8 }]
-    apiClient.pollLog.mockResolvedValue(response({ pushResults }))
-    puller.process.mockImplementation(async () => { order.push('process') })
-
-    await poller.exchange([MESSAGE], async results => {
-      order.push(`acknowledged ${results.length}`)
-    })
-
-    expect(puller.recordOwnPushes).toHaveBeenCalledWith(pushResults)
-    expect(order).toEqual(['acknowledged 1', 'process'])
-  })
-
-  it('runs one exchange at a time, so that each reads from the cursor the last one left', async () => {
-    let active = 0
-    let mostActive = 0
-    apiClient.pollLog.mockImplementation(async () => {
-      active += 1
-      mostActive = Math.max(mostActive, active)
-      await new Promise(resolve => setTimeout(resolve, 1))
-      active -= 1
-      return response()
-    })
-
-    await Promise.all([
-      poller.exchange([], async () => {}),
-      poller.exchange([], async () => {}),
-    ])
-
-    expect(mostActive).toBe(1)
   })
 
   describe('rule 4: a poll reports failure if anything threw', () => {

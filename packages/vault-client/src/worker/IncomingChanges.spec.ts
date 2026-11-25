@@ -30,10 +30,9 @@ describe('IncomingChanges', () => {
     }
     incoming = new IncomingChanges({
       docStore: docStore as unknown as IncomingChangesDeps['docStore'],
-      outbox,
+      marks: outbox,
       itemSyncState,
       onItemApplied: vi.fn(),
-      onChangesAdded: vi.fn(),
     })
   })
 
@@ -63,5 +62,12 @@ describe('IncomingChanges', () => {
 
     expect(outbox.isPending).toHaveBeenCalledWith(ITEM)
     expect(itemSyncState.setServerHeads).not.toHaveBeenCalled()
+  })
+
+  it('hands over the items whose docs gained changes once', async () => {
+    await incoming.apply(ITEM, new Uint8Array(), new Set())
+
+    expect(incoming.takeAddedChanges()).toEqual([ITEM])
+    expect(incoming.takeAddedChanges()).toEqual([])
   })
 })

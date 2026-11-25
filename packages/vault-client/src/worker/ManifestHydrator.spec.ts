@@ -71,9 +71,51 @@ describe('ManifestHydrator', () => {
       snapshotSchedule: mockSnapshotSchedule,
       keys,
       storeItems: storeItemsSpy,
-      isShutdown: () => false,
+      session: { isLeader: true, isShutdown: false },
       onDecryptionFailure: onDecryptionFailureSpy,
       onItemSnapshotHydrated: onItemSnapshotHydratedSpy,
+    })
+  })
+
+  describe('fetchSnapshots', () => {
+    function createHydrator(session: { isLeader: boolean, isShutdown: boolean }) {
+      return new ManifestHydrator({
+        accountId: 'acc-test',
+        apiClient: mockApiClient,
+        docStore: mockDocStore,
+        indexManager: mockIndexManager,
+        itemSyncState: mockItemSyncState,
+        snapshotSchedule: mockSnapshotSchedule,
+        keys,
+        storeItems: storeItemsSpy,
+        session,
+      })
+    }
+
+    beforeEach(() => {
+      mockIndexManager.listItemIds = vi.fn().mockResolvedValue(['item-known'])
+      mockIndexManager.listTombstoneIds = vi.fn().mockResolvedValue([])
+      mockApiClient.fetchSnapshotsByIds.mockResolvedValue({ items: [] })
+    })
+
+    it('fetches the items\' snapshots', async () => {
+      const signal = new AbortController().signal
+
+      await hydrator.fetchSnapshots(['item-known' as ItemId], signal)
+
+      expect(mockApiClient.fetchSnapshotsByIds).toHaveBeenCalledWith(
+        { account: 'acc-test', itemIds: ['item-known'] },
+        { signal },
+      )
+    })
+
+    it.each([
+      ['outside the leader', { isLeader: false, isShutdown: false }],
+      ['once the session is shutting down', { isLeader: true, isShutdown: true }],
+    ])('never talks to the server %s', async (_name, session) => {
+      await createHydrator(session).fetchSnapshots(['item-known' as ItemId])
+
+      expect(mockApiClient.fetchSnapshotsByIds).not.toHaveBeenCalled()
     })
   })
 
@@ -234,7 +276,7 @@ describe('ManifestHydrator', () => {
         snapshotSchedule: mockSnapshotSchedule,
         keys,
         storeItems: storeItemsSpy,
-        isShutdown: () => false,
+        session: { isLeader: true, isShutdown: false },
         onDecryptionFailure: onDecryptionFailureSpy,
         decodeLegacyItem,
       })
@@ -295,7 +337,7 @@ describe('ManifestHydrator', () => {
         snapshotSchedule: mockSnapshotSchedule,
         keys,
         storeItems: storeItemsSpy,
-        isShutdown: () => false,
+        session: { isLeader: true, isShutdown: false },
         onKeyVersionMissing,
         decodeLegacyItem,
       })
@@ -335,7 +377,7 @@ describe('ManifestHydrator', () => {
         snapshotSchedule: mockSnapshotSchedule,
         keys,
         storeItems: storeItemsSpy,
-        isShutdown: () => false,
+        session: { isLeader: true, isShutdown: false },
         onDecryptionFailure: onDecryptionFailureSpy,
         onMigrationRequired,
       })
@@ -520,7 +562,7 @@ describe('ManifestHydrator', () => {
           snapshotSchedule: mockSnapshotSchedule,
           keys,
           storeItems: storeItemsSpy,
-          isShutdown: () => false,
+          session: { isLeader: true, isShutdown: false },
           onRepeatedHydrationError,
         })
         mockApiClient.fetchSnapshotsByIds.mockResolvedValue({
@@ -648,7 +690,7 @@ describe('ManifestHydrator', () => {
         snapshotSchedule: mockSnapshotSchedule,
         keys,
         storeItems: storeItemsSpy,
-        isShutdown: () => false,
+        session: { isLeader: true, isShutdown: false },
         hydrationConcurrency: concurrencyLimit,
       })
 

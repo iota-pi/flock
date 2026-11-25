@@ -9,7 +9,7 @@ import type { ItemSyncState } from './ItemSyncState'
 import type { SyncSessionState } from './SyncSessionState'
 import type { LogCursorStore } from './stores/LogCursorStore'
 import type { LogPushResult } from './ChangeOutbox'
-import type { ManifestDemand, ManifestSyncManager } from './ManifestSyncManager'
+import type { ManifestDemand, ManifestDemands } from './ManifestDemands'
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
 import { AsyncMutex } from '../utils/AsyncMutex'
 import { untilAborted } from '../utils/abort'
@@ -46,10 +46,11 @@ export interface SyncLogPullerDeps {
   docs: Pick<AutomergeDocStore, 'flushToStorage'>
   keys: KeyProvider
   session: SyncSessionState
-  incoming: Pick<IncomingChanges, 'apply' | 'readPending'>
+  /** Applies rows, and records which docs gained changes for snapshot coverage */
+  incoming: Pick<IncomingChanges, 'apply' | 'readPending' | 'takeAddedChanges'>
   healer: Pick<GapHealer, 'park' | 'onLogEntry'>
   /** Runs the manifest syncs catching up and recovering lost rows need, which this places as demands */
-  manifest: Pick<ManifestSyncManager, 'demand' | 'isDemanded'>
+  manifest: Pick<ManifestDemands, 'demand' | 'isDemanded'>
   /** Records pulled changes for snapshot coverage's S2, which has to be stored before the cursor moves past their rows */
   itemSyncState: Pick<ItemSyncState, 'recordPulledChanges' | 'save'>
   /** Tells the account's other tabs which items were pulled */
@@ -76,7 +77,6 @@ export class SyncLogPuller {
   /** Where reading stopped, and whether it's catching up (`logPullState.ts`) */
   private state: LogPullState = INITIAL_LOG_PULL_STATE
   private readonly ownSeqs = new BoundedSet<number>(OWN_PUSH_CACHE_MAX)
-  private readonly addedChanges = new Set<ItemId>()
   /** Items log rows were applied to that may not have reached storage under a saved cursor yet */
   private readonly unflushedItems = new Set<ItemId>()
   /** Saves run one at a time, so a slow flush can't let an older cursor overwrite a newer one */
@@ -284,9 +284,8 @@ export class SyncLogPuller {
     } finally {
       // Sets `pulledAt` before the cursor can be saved past these rows, and `save` stores it first. If
       // the page failed, that error is the one thrown, and the next save stores the records.
-      recording = this.deps.itemSyncState.recordPulledChanges(Array.from(this.addedChanges))
+      recording = this.deps.itemSyncState.recordPulledChanges(this.deps.incoming.takeAddedChanges())
       recording.catch(() => {})
-      this.addedChanges.clear()
       if (this.position.cursor !== start.cursor || this.position.lastPullAt !== start.lastPullAt) {
         this.saveDebounced()
       }
@@ -298,11 +297,6 @@ export class SyncLogPuller {
     }
 
     await recording
-  }
-
-  /** Records that changes the doc lacked were applied, for snapshot coverage */
-  onChangesAdded(itemId: ItemId): void {
-    this.addedChanges.add(itemId)
   }
 
   /** Decides about a missing seq before `entry`, and returns whether the cursor moved past it */

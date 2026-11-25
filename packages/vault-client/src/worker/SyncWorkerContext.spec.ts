@@ -196,7 +196,6 @@ beforeEach(() => {
   })
   spyOnExports(manifestSyncManagerModule, {
     ManifestSyncManager: class MockManifestSyncManager {
-      shutdown = vi.fn()
       runPhase = vi.fn().mockResolvedValue(null)
     },
   })
@@ -382,7 +381,7 @@ describe('SyncWorkerContext', () => {
     const orchestratorDeps = depsOf<SyncOrchestratorDeps>(context.services.orchestrator)
     const pollerDeps = depsOf<SyncPollerDeps>(context.services.poller)
 
-    expect(pollerDeps.getSnapshots()).toBe(context.services.snapshotPusher)
+    expect(pollerDeps.snapshots).toBe(context.services.snapshotPusher)
     expect(pusherDeps.schedule).toBe(context.services.snapshotSchedule)
 
     scheduleDeps.onDueChanged!()
@@ -1193,7 +1192,6 @@ describe('SyncWorkerContext', () => {
       'SnapshotPusher',
       'ChangeOutbox',
       'SyncLogPuller',
-      'ManifestSyncManager',
       'SyncOrchestrator',
       'ItemReencryptor',
       'SyncProgressTracker',

@@ -1,7 +1,8 @@
 import type { Mock } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 import { MAX_INCREMENTAL_MESSAGE_BYTES, type ItemId } from '@vault/shared'
-import { ChangeOutbox, type ChangeOutboxDeps, type LogExchange, type PendingMark } from './ChangeOutbox'
+import { ChangeOutbox, type ChangeOutboxDeps, type PendingMark } from './ChangeOutbox'
+import type { LogExchange } from './LogExchange'
 import { ItemSyncState } from './ItemSyncState'
 import { SyncLogDatabase } from './stores/SyncLogDatabase'
 import { SyncSessionState } from './SyncSessionState'
@@ -22,7 +23,7 @@ describe('ChangeOutbox', () => {
   let session: SyncSessionState
   let itemSyncState: ItemSyncState
   let docStore: { [K in keyof ChangeOutboxDeps['docStore']]: AnyMock }
-  let exchange: Mock<LogExchange>
+  let exchange: Mock<LogExchange['exchange']>
   let encryptBytes: AnyMock
   let requestSnapshot: AnyMock
   let onMarked: AnyMock
@@ -31,7 +32,7 @@ describe('ChangeOutbox', () => {
   let outbox: ChangeOutbox
 
   /** The server acknowledges every row */
-  const acknowledge: LogExchange = async (push, onResults) => {
+  const acknowledge: LogExchange['exchange'] = async (push, onResults) => {
     await onResults(push.map((message, index) => ({ itemId: message.itemId, seq: index + 1 })))
   }
 
@@ -399,7 +400,7 @@ describe('ChangeOutbox', () => {
     const refused = Object.assign(new Error('Invalid input'), { data: { code: 'BAD_REQUEST', httpStatus: 400 } })
 
     /** The server refuses any request carrying ITEM's rows, and acknowledges the rest */
-    const refuseItem: LogExchange = async (push, onResults) => {
+    const refuseItem: LogExchange['exchange'] = async (push, onResults) => {
       if (push.some(message => message.itemId === ITEM)) throw refused
       await acknowledge(push, onResults)
     }

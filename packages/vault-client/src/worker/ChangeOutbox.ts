@@ -3,6 +3,7 @@ import { MAX_INCREMENTAL_MESSAGE_BYTES, type ItemId, type SyncLogMessage } from 
 import type { KeyProvider } from '../keys/Keyring'
 import type { AutomergeDocStore } from './docStore'
 import type { ItemSyncState } from './ItemSyncState'
+import type { LogExchange } from './LogExchange'
 import type { SyncLogDatabase } from './stores/SyncLogDatabase'
 import type { SyncSessionState } from './SyncSessionState'
 import { SYNC_LOG_STORES } from '../shared/syncLogStorage'
@@ -57,20 +58,21 @@ interface PreparedPush {
   messages: SyncLogMessage[]
 }
 
+/** Reads which items have pending marks */
+export type PendingMarkReader = Pick<ChangeOutbox, 'isPending' | 'listPending'>
+
+/** Reads pending marks straight from the outbox store, for a component built before the outbox */
+export function readPendingMarks(db: Pick<SyncLogDatabase, 'get' | 'getAll'>): PendingMarkReader {
+  return {
+    isPending: async itemId => await db.get<PendingMark>(SYNC_LOG_STORES.outbox, itemId) !== undefined,
+    listPending: async () => (await db.getAll<PendingMark>(SYNC_LOG_STORES.outbox)).map(mark => mark.itemId),
+  }
+}
+
 export interface LogPushResult {
   itemId: ItemId
   seq: number
 }
-
-/**
- * Sends messages in one `pollLog` and handles the log it reads. `onResults` runs before the entries
- * are applied, so a pull sees the state the acknowledgement leaves.
- */
-export type LogExchange = (
-  push: SyncLogMessage[],
-  onResults: (results: LogPushResult[]) => Promise<void>,
-  signal?: AbortSignal,
-) => Promise<void>
 
 export interface ChangeOutboxDeps {
   db: SyncLogDatabase
@@ -82,7 +84,8 @@ export interface ChangeOutboxDeps {
     ItemSyncState,
     'getServerHeads' | 'setServerHeads' | 'isSnapshotOnly' | 'setSnapshotOnly' | 'save' | 'requestSave' | 'hasUnsaved'
   >
-  exchange: LogExchange
+  /** Sends messages in one `pollLog` and handles the log it reads (see LogExchange) */
+  exchange: LogExchange['exchange']
   /** Asks for an item's snapshot now, which delivers what the log can't */
   requestSnapshot: (itemId: ItemId) => void
   /**

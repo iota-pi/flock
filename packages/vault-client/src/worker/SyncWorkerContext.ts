@@ -10,10 +10,13 @@ import { SnapshotSchedule } from './SnapshotSchedule'
 import { SnapshotBuilder } from './SnapshotBuilder'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { SyncPoller } from './SyncPoller'
+import { LogExchange } from './LogExchange'
+import { ManifestHydrator } from './ManifestHydrator'
+import { ManifestDemands } from './ManifestDemands'
 import { ManifestSyncManager } from './ManifestSyncManager'
 import { ItemOperations } from './ItemOperations'
 import { INBOUND_MESSAGE_RESOLVABLE_KINDS, RecoveryManager } from './RecoveryManager'
-import { ChangeOutbox } from './ChangeOutbox'
+import { ChangeOutbox, readPendingMarks } from './ChangeOutbox'
 import { GapHealer } from './GapHealer'
 import { IncomingChanges } from './IncomingChanges'
 import { ItemSyncState } from './ItemSyncState'
@@ -26,7 +29,7 @@ import { hasFinishedSyncReset, resetSyncState } from './syncReset'
 import { LastSyncedStore } from './stores/LastSyncedStore'
 import { AutomergeRepoManager } from './AutomergeRepoManager'
 import { toVaultItemIdFromAutomergeId, isIndexDocument } from './utils/automerge'
-import type { ItemId } from '@vault/shared'
+import { settingsDocId, type ItemId } from '@vault/shared'
 import { ServiceLifecycleManager, type ServiceRegistration } from './ServiceLifecycleManager'
 import type { SyncApiClient } from './SyncApiClient'
 import { StorageRecoveryService } from './StorageRecoveryService'
@@ -38,6 +41,7 @@ import { fireAndForget } from '../utils/fireAndForget'
 import { RealtimeBus } from './RealtimeBus'
 import { ForegroundTracker } from './ForegroundTracker'
 import { SyncSessionState } from './SyncSessionState'
+import { SyncSignals } from './SyncSignals'
 import { DEFAULT_SYNC_DOMAIN, type SyncDomain } from './domain'
 import { AccountSettings, withSettingsDocPassthrough } from './AccountSettings'
 import { getVaultStorageNames } from '../shared/storageNames'
@@ -154,6 +158,8 @@ export interface SyncWorkerServices {
   snapshotSchedule: SnapshotSchedule
   snapshotPusher: SnapshotPusher
   orchestrator: SyncOrchestrator
+  manifestDemands: ManifestDemands
+  manifestHydrator: ManifestHydrator
   manifestSyncManager: ManifestSyncManager
   itemOperations: ItemOperations
   storageRecoveryService: StorageRecoveryService
@@ -223,17 +229,22 @@ export class SyncWorkerContext {
     this.registerLifecycleServices(services)
   }
 
+  /**
+   * Builds the components in the order data flows through them, so each takes the ones it calls. The
+   * events that point back up that order go through `signals`, bound once every component exists.
+   */
   private createServices(local: LocalStorage): SyncWorkerServices {
     const { accountId, keys, clientEventHub } = this.config
     const { session } = this
+    const signals = new SyncSignals()
     const realtimeBus = new RealtimeBus(accountId)
     const foregroundTracker = new ForegroundTracker({
       bus: realtimeBus,
       isVisible: this.isVisible,
-      onPeerReturned: () => this._services?.orchestrator.onForeground(),
-      onActivity: () => this._services?.orchestrator.onActivity(),
-      isLeader: () => this.session.isLeader,
-      onLeaderAway: () => this._services?.orchestrator.followVisibleTab(),
+      onPeerReturned: () => signals.raise.foreground(),
+      onActivity: () => signals.raise.activity(),
+      isLeader: () => session.isLeader,
+      onLeaderAway: () => signals.raise.leaderAway(),
     })
     const cipherOptions = local.cipher ? { cipher: local.cipher } : undefined
     const indexStore = new IndexStore(accountId, cipherOptions)
@@ -245,11 +256,10 @@ export class SyncWorkerContext {
       onKeyVersionMissing: this.emitKeyVersionMissing,
       onDocumentReceived: docId => this.notifyDocumentReceived(toVaultItemIdFromAutomergeId(docId)),
       // The leader's backstop for follower changes that arrive after their marks were cleared
-      onDocChanged: itemId => this._services?.changeOutbox.onDocChanged(itemId),
+      onDocChanged: itemId => signals.raise.docChanged(itemId),
     })
     const { repo } = repoManager
 
-    // Components created later are read from the finished services
     const docStore = new AutomergeDocStore({
       repo,
       onHandleReplaced: this.config.onDocHandleReplaced,
@@ -257,19 +267,19 @@ export class SyncWorkerContext {
       storageAdapter: repoManager.storage,
       codec: this.domain.codec,
       isLocallyUnreadable: documentId => this.unreadableDocuments.has(documentId),
-      onLocalDataMissing: itemId => this._services?.gapHealer.requestSnapshot(itemId),
+      onLocalDataMissing: itemId => signals.raise.localDataMissing(itemId),
     })
 
+    const settingsId = settingsDocId(accountId)
     const indexManager = new AutomergeIndexManager({
       accountId,
       indexStore,
       bus: realtimeBus,
       onIndexUpdated: itemIds => {
         this.config.onIndexUpdated?.(itemIds)
-        const settingsId = this._services?.accountSettings.docId
         clientEventHub.emit({ type: 'indexUpdated', itemIds: itemIds.filter(id => id !== settingsId) })
       },
-      onMetadataUpdated: metadata => this._services?.accountSettings.handleLocalMetadata(metadata),
+      onMetadataUpdated: metadata => signals.raise.metadataUpdated(metadata),
     })
 
     const recoveryManager = new RecoveryManager({ accountId, eventHub: clientEventHub })
@@ -280,114 +290,17 @@ export class SyncWorkerContext {
       countUnpushedChanges: () => this.countUnpushedChanges(),
     })
 
-    const changeOutbox = new ChangeOutbox({
-      db: syncLogDatabase,
-      docStore,
-      keys,
-      session,
-      itemSyncState,
-      exchange: (push, onResults, signal) => this.services.poller.exchange(push, onResults, signal),
-      requestSnapshot: itemId => this.requestSnapshot([itemId]),
-      onMarked: () => {
-        this._services?.orchestrator.flush()
-        syncProgress.scheduleRecount()
-      },
-      // The leader's acknowledgement is the one place an edit makes its item dirty
-      onAcknowledged: itemId => this._services?.snapshotSchedule.markItemDirty(itemId),
-    })
-
-    const incoming = new IncomingChanges({
-      docStore,
-      outbox: changeOutbox,
-      itemSyncState,
-      onItemApplied: itemId => this.notifyDocumentReceived(itemId),
-      onChangesAdded: itemId => this.services.puller.onChangesAdded(itemId),
-    })
-
-    const gapHealer = new GapHealer({
-      db: syncLogDatabase,
-      keys,
-      docStore,
-      indexManager,
-      incoming,
-      recoveryManager,
-      fetchSnapshots: (itemIds, signal) => this.services.manifestSyncManager.fetchSnapshots(itemIds, signal),
-      onWorkDue: () => this._services?.orchestrator.flush(),
-      onKeyVersionMissing: this.emitKeyVersionMissing,
-      onHealingChange: isHealing => this.statusManager.setDegradedPull(isHealing),
-    })
-
-    const puller = new SyncLogPuller({
-      cursorStore: new LogCursorStore(accountId),
-      docs: docStore,
-      keys,
-      session,
-      incoming,
-      healer: gapHealer,
-      manifest: {
-        demand: demand => this.services.manifestSyncManager.demand(demand),
-        isDemanded: demand => this.services.manifestSyncManager.isDemanded(demand),
-      },
-      itemSyncState,
-      bus: realtimeBus,
-      onKeyVersionMissing: this.emitKeyVersionMissing,
-      onRemoteChangesApplied: itemIds => {
-        // Someone is using another device, so poll at the active rate while a tab is visible
-        foregroundTracker.noteActivity()
-        fireAndForget(
-          recoveryManager.resolveQuarantines(itemIds, INBOUND_MESSAGE_RESOLVABLE_KINDS),
-          'SyncWorkerContext:resolveQuarantines',
-        )
-      },
-      // At start and on promotion, so this is the one place the item records load
-      onLoad: async () => {
-        await Promise.all([this.services.snapshotSchedule.load(), gapHealer.load()])
-      },
-    })
-
-    const poller = new SyncPoller({
-      accountId,
-      session,
-      puller,
-      getOutbox: () => changeOutbox,
-      healer: gapHealer,
-      apiClient: this.apiClient,
-      runManifestPhase: (stage, signal) => this.services.manifestSyncManager.runPhase(stage, signal),
-      getSnapshots: () => this.services.snapshotPusher,
-    })
-
-    const snapshotBuilder = new SnapshotBuilder(repo, keys, this.domain.codec, itemSyncState)
-
-    const pushToLog = (itemIds: ItemId[], signal?: AbortSignal) => changeOutbox.pushItems(itemIds, signal)
-
     const snapshotSchedule = new SnapshotSchedule({
       state: itemSyncState,
       recoveryManager,
       session,
-      onDueChanged: () => this._services?.orchestrator.onSnapshotDue(),
+      onDueChanged: () => signals.raise.snapshotDue(),
     })
 
-    const snapshotPusher = new SnapshotPusher({
-      accountId,
-      session,
-      schedule: snapshotSchedule,
-      state: itemSyncState,
-      builder: snapshotBuilder,
-      pushToLog,
-      onSnapshotStored: details => itemSyncState.confirmSnapshotOnly(details.itemId, details.heads),
-      eventHub: clientEventHub,
-      recoveryManager,
-      apiClient: this.apiClient,
-      runPollNow: () => this.services.orchestrator.pollNow(),
-      isCaughtUp: () => puller.isCaughtUp,
-      hasPendingMarks: async () => (await changeOutbox.listPending()).length > 0,
-    })
+    const snapshotBuilder = new SnapshotBuilder(repo, keys, this.domain.codec, itemSyncState)
 
     // Only the mark: the leader's push acknowledgement marks the item dirty for its snapshot
-    const markDocumentDirty = (id: ItemId) => {
-      fireAndForget(changeOutbox.mark(id), 'SyncWorkerContext:markPending')
-      this._services?.storageRecoveryService.recordEdit(id)
-    }
+    const markDocumentDirty = (itemId: ItemId) => signals.raise.edited(itemId)
 
     const itemOperations = new ItemOperations({
       accountId,
@@ -413,6 +326,123 @@ export class SyncWorkerContext {
       withAuth: request => this.apiClient.executeWithAuth(request),
     })
 
+    const storeItems: ItemOperations['storeItems'] = (items, options) => itemOperations.storeItems(items, options)
+
+    const manifestHydrator = new ManifestHydrator({
+      accountId,
+      session,
+      apiClient: this.apiClient,
+      docStore,
+      indexManager,
+      itemSyncState,
+      snapshotSchedule,
+      keys,
+      storeItems,
+      onKeyVersionMissing: this.emitKeyVersionMissing,
+      decodeLegacyItem: this.domain.decodeLegacyItem,
+      onMigrationRequired: () => clientEventHub.emit({ type: 'migrationRequired', reason: 'account' }),
+      onDecryptionFailure: (itemId, error, serverVersion) => {
+        fireAndForget(
+          recoveryManager.reportDecryptionFailure(itemId, 'snapshotDecryption', error, { serverVersion }),
+          'SyncWorkerContext:reportDecryptionFailure',
+        )
+      },
+      // Quarantined with the version that failed, so manifest sync skips it until the server has a newer one
+      // The hydrator logs the error, which can quote decrypted content, so it isn't stored
+      onRepeatedHydrationError: (itemId, _error, serverVersion) => {
+        fireAndForget(
+          recoveryManager.quarantine(itemId, 'unknown', { code: 'hydrationFailed' }, { serverVersion }),
+          'SyncWorkerContext:quarantineRepeatedHydrationError',
+        )
+      },
+      onItemSnapshotHydrated: (itemId, heads) => itemSyncState.setServerHeads(itemId, heads),
+      onLocalChangesFound: itemId => signals.raise.localChangesFound(itemId),
+    })
+
+    const incoming = new IncomingChanges({
+      docStore,
+      marks: readPendingMarks(syncLogDatabase),
+      itemSyncState,
+      onItemApplied: itemId => this.notifyDocumentReceived(itemId),
+    })
+
+    const gapHealer = new GapHealer({
+      db: syncLogDatabase,
+      keys,
+      docStore,
+      indexManager,
+      incoming,
+      recoveryManager,
+      fetchSnapshots: (itemIds, signal) => manifestHydrator.fetchSnapshots(itemIds, signal),
+      onWorkDue: () => signals.raise.workDue(),
+      onKeyVersionMissing: this.emitKeyVersionMissing,
+      onHealingChange: isHealing => this.statusManager.setDegradedPull(isHealing),
+    })
+
+    const manifestDemands = new ManifestDemands()
+
+    const puller = new SyncLogPuller({
+      cursorStore: new LogCursorStore(accountId),
+      docs: docStore,
+      keys,
+      session,
+      incoming,
+      healer: gapHealer,
+      manifest: manifestDemands,
+      itemSyncState,
+      bus: realtimeBus,
+      onKeyVersionMissing: this.emitKeyVersionMissing,
+      onRemoteChangesApplied: itemIds => {
+        // Someone is using another device, so poll at the active rate while a tab is visible
+        foregroundTracker.noteActivity()
+        fireAndForget(
+          recoveryManager.resolveQuarantines(itemIds, INBOUND_MESSAGE_RESOLVABLE_KINDS),
+          'SyncWorkerContext:resolveQuarantines',
+        )
+      },
+      // At start and on promotion, so this is the one place the item records load
+      onLoad: async () => {
+        await Promise.all([snapshotSchedule.load(), gapHealer.load()])
+      },
+    })
+
+    const logExchange = new LogExchange({ accountId, session, puller, apiClient: this.apiClient })
+
+    const changeOutbox = new ChangeOutbox({
+      db: syncLogDatabase,
+      docStore,
+      keys,
+      session,
+      itemSyncState,
+      exchange: logExchange.exchange,
+      // Without debouncing, so the item's full state is delivered
+      requestSnapshot: itemId => snapshotSchedule.markItemDirty(itemId, 0),
+      onMarked: () => {
+        signals.raise.workDue()
+        syncProgress.scheduleRecount()
+      },
+      // The leader's acknowledgement is the one place an edit makes its item dirty
+      onAcknowledged: itemId => snapshotSchedule.markItemDirty(itemId),
+    })
+
+    const pushToLog = (itemIds: ItemId[], signal?: AbortSignal) => changeOutbox.pushItems(itemIds, signal)
+
+    const snapshotPusher = new SnapshotPusher({
+      accountId,
+      session,
+      schedule: snapshotSchedule,
+      state: itemSyncState,
+      builder: snapshotBuilder,
+      pushToLog,
+      onSnapshotStored: details => itemSyncState.confirmSnapshotOnly(details.itemId, details.heads),
+      eventHub: clientEventHub,
+      recoveryManager,
+      apiClient: this.apiClient,
+      runPollNow: () => signals.raise.pollNow(),
+      isCaughtUp: () => puller.isCaughtUp,
+      hasPendingMarks: async () => (await changeOutbox.listPending()).length > 0,
+    })
+
     const itemReencryptor = new ItemReencryptor({
       accountId,
       builder: snapshotBuilder,
@@ -421,7 +451,7 @@ export class SyncWorkerContext {
       recoveryManager,
       session,
       recorder: snapshotPusher,
-      claimLeader: () => fireAndForget(this.services.orchestrator.claimLeader(), 'SyncWorkerContext:claimLeader'),
+      claimLeader: () => signals.raise.claimLeader(),
       catchUp: puller,
       pushToLog,
       onStage: stage => this.clientEventHub.emit({ type: 'reencryptStage', stage }),
@@ -456,42 +486,35 @@ export class SyncWorkerContext {
       keys,
       recoveryManager,
       apiClient: this.apiClient,
-      onKeyVersionMissing: this.emitKeyVersionMissing,
-      storeItems: (items, options) => itemOperations.storeItems(items, options),
-      decodeLegacyItem: this.domain.decodeLegacyItem,
+      demands: manifestDemands,
+      hydrator: manifestHydrator,
+      storeItems,
       migrateLegacySettings: () => accountSettings.migrateLegacySettings(),
-      onMigrationRequired: () => clientEventHub.emit({ type: 'migrationRequired', reason: 'account' }),
       fetchManifestEverySync: this.config.fetchManifestEverySync,
       onSyncedWithoutFailures: () => {
         snapshotFormatUpgrade?.onSyncedWithoutFailures()
         fireAndForget(dataVersionTracker.onSyncedWithoutFailures(), 'SyncWorkerContext:recordDeviceDataVersion')
       },
-      onDecryptionFailure: (itemId, error, serverVersion) => {
-        fireAndForget(
-          recoveryManager.reportDecryptionFailure(itemId, 'snapshotDecryption', error, { serverVersion }),
-          'SyncWorkerContext:reportDecryptionFailure',
-        )
-      },
-      // Quarantined with the version that failed, so manifest sync skips it until the server has a newer one
-      // The hydrator logs the error, which can quote decrypted content, so it isn't stored
-      onRepeatedHydrationError: (itemId, _error, serverVersion) => {
-        fireAndForget(
-          recoveryManager.quarantine(itemId, 'unknown', { code: 'hydrationFailed' }, { serverVersion }),
-          'SyncWorkerContext:quarantineRepeatedHydrationError',
-        )
-      },
-      onItemSnapshotHydrated: (itemId, heads) => itemSyncState.setServerHeads(itemId, heads),
       // Server heads may already be past a snapshot the doc holds
       onSnapshotCovered: (itemId, heads) => {
         if (!itemSyncState.hasServerHeads(itemId)) itemSyncState.setServerHeads(itemId, heads)
       },
-      onLocalChangesFound: itemId => fireAndForget(changeOutbox.mark(itemId), 'SyncWorkerContext:markPending'),
       onManifestProcessed: async () => {
         // A sync that began before this tab stopped leading can still finish here
         if (!session.isLeader) return
         gapHealer.onManifestSynced()
       },
       itemSyncState,
+    })
+
+    const poller = new SyncPoller({
+      session,
+      puller,
+      exchange: logExchange,
+      outbox: changeOutbox,
+      healer: gapHealer,
+      runManifestPhase: (stage, signal) => manifestSyncManager.runPhase(stage, signal),
+      snapshots: snapshotPusher,
     })
 
     const orchestrator = new SyncOrchestrator({
@@ -543,6 +566,24 @@ export class SyncWorkerContext {
       onLocalCopyDiscarded: documentId => this.unreadableDocuments.delete(documentId),
     })
 
+    signals.bind({
+      workDue: () => orchestrator.flush(),
+      snapshotDue: () => orchestrator.onSnapshotDue(),
+      pollNow: () => orchestrator.pollNow(),
+      foreground: () => orchestrator.onForeground(),
+      activity: () => orchestrator.onActivity(),
+      leaderAway: () => orchestrator.followVisibleTab(),
+      claimLeader: () => fireAndForget(orchestrator.claimLeader(), 'SyncWorkerContext:claimLeader'),
+      docChanged: itemId => changeOutbox.onDocChanged(itemId),
+      edited: itemId => {
+        fireAndForget(changeOutbox.mark(itemId), 'SyncWorkerContext:markPending')
+        storageRecoveryService.recordEdit(itemId)
+      },
+      localChangesFound: itemId => fireAndForget(changeOutbox.mark(itemId), 'SyncWorkerContext:markPending'),
+      localDataMissing: itemId => gapHealer.requestSnapshot(itemId),
+      metadataUpdated: metadata => accountSettings.handleLocalMetadata(metadata),
+    })
+
     return {
       realtimeBus,
       foregroundTracker,
@@ -561,6 +602,8 @@ export class SyncWorkerContext {
       snapshotSchedule,
       snapshotPusher,
       orchestrator,
+      manifestDemands,
+      manifestHydrator,
       manifestSyncManager,
       itemOperations,
       storageRecoveryService,
@@ -609,8 +652,7 @@ export class SyncWorkerContext {
   private registerLifecycleServices(services: SyncWorkerServices): void {
     const {
       realtimeBus, foregroundTracker, repoManager, syncLogDatabase, storageRecoveryService, indexManager, recoveryManager,
-      docStore, snapshotSchedule, snapshotPusher, itemSyncState, changeOutbox, puller, manifestSyncManager,
-      orchestrator, itemReencryptor, snapshotFormatUpgrade, syncProgress,
+      docStore, snapshotSchedule, snapshotPusher, itemSyncState, changeOutbox, puller, orchestrator, itemReencryptor, snapshotFormatUpgrade, syncProgress,
     } = services
 
     // Teardown runs in LIFO order (reverse registration order).
@@ -652,7 +694,6 @@ export class SyncWorkerContext {
         onStart: () => puller.loadState(),
         onStop: options => puller.shutdown(options),
       },
-      { name: 'ManifestSyncManager', onStop: () => manifestSyncManager.shutdown() },
       {
         name: 'SyncOrchestrator',
         onStart: () => orchestrator.start(),
@@ -677,13 +718,8 @@ export class SyncWorkerContext {
   /** Marks items for a snapshot without debouncing, so their full state is delivered */
   private requestSnapshot(itemIds: ItemId[]): void {
     for (const itemId of itemIds) {
-      this._services?.snapshotSchedule.markItemDirty(itemId, 0)
+      this.services.snapshotSchedule.markItemDirty(itemId, 0)
     }
-  }
-
-  /** Marks an item for a snapshot that catches the server up with this device */
-  private requestUpstreamSnapshot(itemId: ItemId): void {
-    this._services?.snapshotSchedule.markItemDirty(itemId, SYNC_TIMEOUTS.upstreamSnapshotDebounce)
   }
 
   /**

@@ -219,7 +219,7 @@ describe('sync model', () => {
       const fetchManifest = vi.spyOn(w.server, 'fetchManifest').mockImplementation(() => {
         throw new Error('manifest unavailable')
       })
-      const recoveryDue = () => b.services.manifestSyncManager.isDemanded(b.services.puller.recoveryDemand)
+      const recoveryDue = () => b.services.manifestDemands.isDemanded(b.services.puller.recoveryDemand)
       expect(await b.poll()).toBe('failure')
       expect(recoveryDue()).toBe(true)
       expect(await b.poll()).toBe('failure')
