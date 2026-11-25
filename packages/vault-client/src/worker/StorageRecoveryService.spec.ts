@@ -8,7 +8,6 @@ describe('StorageRecoveryService', () => {
   let clientEventHub: ClientEventHub
   let mockOutbox: any
   let mockDocStore: any
-  let mockSnapshotSchedule: any
   let mockSnapshotPusher: any
   let mockItemSyncState: any
   let mockMetadataStore: any
@@ -26,12 +25,10 @@ describe('StorageRecoveryService', () => {
     }
     mockItemSyncState = {
       save: vi.fn().mockResolvedValue(undefined),
+      listDirty: vi.fn().mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId]),
     }
     mockSnapshotPusher = {
       flushPendingSnapshots: vi.fn().mockResolvedValue({ persisted: 1, total: 1 }),
-    }
-    mockSnapshotSchedule = {
-      getDirtyItemIds: vi.fn().mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId]),
     }
     mockMetadataStore = {
       testStorageAvailable: vi.fn().mockResolvedValue(undefined),
@@ -47,7 +44,6 @@ describe('StorageRecoveryService', () => {
       outbox: mockOutbox,
       docStore: mockDocStore,
       itemSyncState: mockItemSyncState,
-      snapshotSchedule: mockSnapshotSchedule,
       snapshotPusher: mockSnapshotPusher,
       metadataStore: mockMetadataStore,
       orchestrator: mockOrchestrator,
@@ -110,7 +106,7 @@ describe('StorageRecoveryService', () => {
     })
 
     it("saves the docs of this tab's edits, which aren't queued for a snapshot, until a retry succeeds", async () => {
-      mockSnapshotSchedule.getDirtyItemIds.mockReturnValue([])
+      mockItemSyncState.listDirty.mockReturnValue([])
       service.recordEdit('edited' as ItemId)
       mockMetadataStore.testStorageAvailable.mockRejectedValueOnce(new DOMException('Quota exceeded', 'QuotaExceededError'))
 

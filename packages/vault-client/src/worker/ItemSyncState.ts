@@ -38,7 +38,9 @@ export interface ItemSyncStateDeps {
  * What this device knows of each item's copy on the server, kept in each item's sync record: its
  * server heads, its base version, whether it owes the server a snapshot (`dirty`), whether only a
  * snapshot can deliver its changes (`snapshotOnly`), and when it first pulled changes no snapshot has
- * confirmed (`pulledAt`).
+ * confirmed (`pulledAt`). It also holds the session's queue of items owing a snapshot, with a tick for
+ * each, which the stored `dirty` flag follows (`markDirty`, `clearDirty`). `SnapshotSchedule` decides
+ * only when their uploads are due.
  *
  * Every tab holds a copy, but they don't all know the same: only the leader records server heads,
  * marks items dirty (as it records an acknowledged push), uploads and pulls, and a tab that has just
@@ -56,6 +58,13 @@ export class ItemSyncState {
   private saving = new Map<ItemId, Set<ItemSyncField>>()
   /** Items whose legacy unconfirmed pull was folded in, to delete from the old store once saved */
   private readonly migratingPulls = new Set<ItemId>()
+  /**
+   * The items queued for a snapshot, each with the tick of its latest marking. Only the leader queues
+   * items. It's kept for the session only, apart from the records, so loads and saves never touch it:
+   * the stored `dirty` flag carries the queue across sessions and leaders (`queueFlagged`).
+   */
+  private readonly dirtyTicks = new Map<ItemId, number>()
+  private lastDirtyTick = 0
   private stopped = false
 
   private readonly loadGuard = new SingleFlightGuard<void>()
@@ -215,11 +224,37 @@ export class ItemSyncState {
   }
 
   /**
-   * Sets or clears the item's dirty flag. Only the leader writes it: it sets the flag as it records the
-   * acknowledgement of a push, in the same save as the item's server heads, and clears it once the
-   * snapshot is stored. It's written every time, since this tab's copy may be stale.
+   * Queues the item for a snapshot and sets its dirty flag. Only the leader marks items: as it records
+   * the acknowledgement of a push (in the same save as the item's server heads), and when sync finds
+   * the server lacks what the item holds. Each marking moves the item's tick, so an edit made while an
+   * upload is in flight keeps it dirty.
    */
-  setDirty(itemId: ItemId, dirty: boolean): void {
+  markDirty(itemId: ItemId): void {
+    if (this.stopped) return
+    this.queue(itemId)
+    this.writeDirtyFlag(itemId, true)
+  }
+
+  /**
+   * Takes the item out of the queue and clears its flag, if it's queued and, given a tick, that tick
+   * hasn't moved since. Returns whether it did. Only the leader clears dirty items: an upload, an
+   * oversized or failed item's quarantine, or a manifest delete.
+   */
+  clearDirty(itemId: ItemId, tick?: number): boolean {
+    const current = this.dirtyTicks.get(itemId)
+    if (current === undefined || (tick !== undefined && current !== tick)) return false
+    this.dirtyTicks.delete(itemId)
+    this.writeDirtyFlag(itemId, false)
+    return true
+  }
+
+  private queue(itemId: ItemId): void {
+    this.lastDirtyTick += 1
+    this.dirtyTicks.set(itemId, this.lastDirtyTick)
+  }
+
+  /** Written every time, since this tab's copy may be stale */
+  private writeDirtyFlag(itemId: ItemId, dirty: boolean): void {
     if (this.stopped) return
     const entry = this.entry(itemId)
     if (dirty) {
@@ -231,13 +266,50 @@ export class ItemSyncState {
   }
 
   /**
-   * Items the startup and promotion audit should queue for a snapshot: those flagged dirty, and those
-   * only a snapshot can deliver, which a dirty flag always goes with but which can't hurt to check
+   * The startup and promotion audit, once the records have loaded: queues every item they flag that
+   * isn't queued already or in `skip` (the quarantined items). Those flagged only `snapshotOnly`, which
+   * a dirty flag should have gone with, get their flag. Returns how many it queued.
    */
-  listFlagged(): Array<{ itemId: ItemId; dirty: boolean }> {
+  queueFlagged(skip: ReadonlySet<ItemId>): number {
+    if (this.stopped) return 0
+    let count = 0
+    for (const [itemId, { dirty, snapshotOnly }] of this.items) {
+      if (!(dirty || snapshotOnly) || skip.has(itemId) || this.dirtyTicks.has(itemId)) continue
+      this.queue(itemId)
+      if (!dirty) this.writeDirtyFlag(itemId, true)
+      count += 1
+    }
+    return count
+  }
+
+  /** The tick of the item's latest marking, or undefined if it isn't queued */
+  getDirtyTick(itemId: ItemId): number | undefined {
+    return this.dirtyTicks.get(itemId)
+  }
+
+  /** Whether the item is queued for a snapshot this session. A follower queues none. */
+  isDirty(itemId: ItemId): boolean {
+    return this.dirtyTicks.has(itemId)
+  }
+
+  get dirtyCount(): number {
+    return this.dirtyTicks.size
+  }
+
+  /** The items queued for a snapshot, in the order they were first queued */
+  listDirty(): ItemId[] {
+    return Array.from(this.dirtyTicks.keys())
+  }
+
+  /**
+   * Items whose records say they owe the server a snapshot: those flagged dirty, and those only a
+   * snapshot can deliver, which a dirty flag always goes with but which can't hurt to check. Unlike the
+   * queue, every tab knows these, so followers count them as unsynced.
+   */
+  listFlagged(): ItemId[] {
     return Array.from(this.items)
       .filter(([, { dirty, snapshotOnly }]) => dirty || snapshotOnly)
-      .map(([itemId, { dirty }]) => ({ itemId, dirty: dirty === true }))
+      .map(([itemId]) => itemId)
   }
 
   /** Whether only a snapshot can deliver the item's changes, so `isCovered` lets it through */
@@ -400,6 +472,7 @@ export class ItemSyncState {
     this.items.clear()
     this.unsaved.clear()
     this.migratingPulls.clear()
+    this.dirtyTicks.clear()
     this.loadGuard.clear()
   }
 }

@@ -144,7 +144,6 @@ beforeEach(() => {
       constructor(readonly deps: unknown) {}
       nextDueAt: number | undefined = undefined
       markItemDirty = vi.fn()
-      getDirtyItemIds = vi.fn().mockReturnValue([])
       load = vi.fn().mockResolvedValue(undefined)
       shutdown = vi.fn().mockResolvedValue(undefined)
       onLeaderChange = vi.fn()
@@ -465,7 +464,7 @@ describe('SyncWorkerContext', () => {
     })
 
     it('saves dirty documents, marks them pending, saves their records, and emits quotaResolved on success', async () => {
-      vi.spyOn(context.services.snapshotSchedule, 'getDirtyItemIds').mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId])
+      vi.spyOn(context.services.itemSyncState, 'listDirty').mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId])
       const saveDocSpy = vi.spyOn(context.services.docStore, 'saveDocToStorage').mockResolvedValue(true)
       const saveRecordsSpy = vi.spyOn(context.services.itemSyncState, 'save').mockResolvedValue(undefined)
       const emitSpy = vi.spyOn(context.clientEventHub, 'emit')
@@ -496,7 +495,7 @@ describe('SyncWorkerContext', () => {
       )
       vi.spyOn(context.services.itemSyncState, 'load').mockResolvedValue(undefined)
       vi.spyOn(context.services.itemSyncState, 'listFlagged').mockReturnValue(
-        (options.dirty ?? []).map(itemId => ({ itemId: itemId as ItemId, dirty: true })),
+        (options.dirty ?? []) as ItemId[],
       )
       vi.spyOn(context.services.recoveryManager, 'listRecoveryItems').mockResolvedValue(
         (options.quarantined ?? []).map(itemId => ({

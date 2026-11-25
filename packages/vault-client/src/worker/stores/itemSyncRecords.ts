@@ -13,7 +13,7 @@ export interface ItemSyncRecord {
   serverHeads?: string[]
   /** The server version of the latest snapshot this device uploaded or merged (sync rule 8) */
   baseVersion?: number
-  /** Set while the item owes the server a snapshot (see SnapshotSchedule) */
+  /** Set while the item owes the server a snapshot (see ItemSyncState.markDirty) */
   dirty?: true
   /** Set while only a snapshot can deliver the item's changes, which the log refused or can't hold */
   snapshotOnly?: true

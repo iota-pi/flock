@@ -77,7 +77,7 @@ describe('ItemSyncState', () => {
         // Fake timers would hold up fake-indexeddb's transactions
         const update = vi.spyOn(db, 'update').mockResolvedValue(undefined)
         for (let elapsed = 0; elapsed < SYNC_TIMEOUTS.itemSyncSaveMaxWait; elapsed += SYNC_TIMEOUTS.itemSyncSave / 2) {
-          state.setDirty(ITEM_1, true)
+          state.markDirty(ITEM_1)
           await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.itemSyncSave / 2)
         }
         expect(update).toHaveBeenCalled()
@@ -88,7 +88,7 @@ describe('ItemSyncState', () => {
 
     it('saves at once when a pending save is flushed', async () => {
       const state = createState()
-      state.setDirty(ITEM_1, true)
+      state.markDirty(ITEM_1)
 
       state.flushPendingSave()
       await vi.waitFor(async () => expect(await stored()).toEqual([{ itemId: ITEM_1, dirty: true }]))
@@ -101,7 +101,7 @@ describe('ItemSyncState', () => {
       state.setServerHeads(ITEM_1, ['a'])
 
       await expect(state.save()).rejects.toBe(quota)
-      state.setDirty(ITEM_1, true)
+      state.markDirty(ITEM_1)
       await state.save()
 
       expect(await stored()).toEqual([{ itemId: ITEM_1, serverHeads: ['a'], dirty: true }])
@@ -124,7 +124,7 @@ describe('ItemSyncState', () => {
       await state.shutdown()
       const update = vi.spyOn(db, 'update')
 
-      state.setDirty(ITEM_1, true)
+      state.markDirty(ITEM_1)
       state.setServerHeads(ITEM_1, ['a'])
       await state.save()
 
@@ -155,7 +155,7 @@ describe('ItemSyncState', () => {
       leader.setServerHeads(ITEM_1, ['new'])
       leader.setSnapshotOnly(ITEM_1)
       await leader.save()
-      follower.setDirty(ITEM_1, true)
+      follower.markDirty(ITEM_1)
       await follower.save()
 
       expect(follower.getServerHeads(ITEM_1)).toEqual(['old'])
@@ -166,12 +166,13 @@ describe('ItemSyncState', () => {
       const oldLeader = createState()
       const newLeader = createState()
       oldLeader.setServerHeads(ITEM_1, ['from the old leader'])
-      oldLeader.setDirty(ITEM_1, true)
+      oldLeader.markDirty(ITEM_1)
       await oldLeader.save()
       await newLeader.load()
+      newLeader.queueFlagged(new Set())
 
       // The new leader uploads the item's snapshot, and then the old one saves a late change
-      newLeader.setDirty(ITEM_1, false)
+      newLeader.clearDirty(ITEM_1)
       newLeader.raiseBaseVersion(ITEM_1, 4)
       newLeader.setServerHeads(ITEM_1, ['from the new leader'])
       await newLeader.save()
@@ -195,8 +196,9 @@ describe('ItemSyncState', () => {
       await db.put(SYNC_LOG_STORES.items, { itemId: ITEM_1, dirty: true }, { itemId: ITEM_2, dirty: true })
       const state = createState()
       await state.load()
+      state.queueFlagged(new Set())
 
-      state.setDirty(ITEM_1, false)
+      state.clearDirty(ITEM_1)
       state.setServerHeads(ITEM_2, ['a'])
       await state.save()
 
@@ -209,7 +211,8 @@ describe('ItemSyncState', () => {
       await db.put(SYNC_LOG_STORES.items, { itemId: ITEM_1, serverHeads: ['stored'], dirty: true })
       const state = createState()
       state.setServerHeads(ITEM_1, ['newer'])
-      state.setDirty(ITEM_1, false)
+      state.markDirty(ITEM_1)
+      state.clearDirty(ITEM_1)
 
       await state.load()
 
@@ -219,7 +222,7 @@ describe('ItemSyncState', () => {
 
     it('keeps the fields a save in flight is writing, and the save writes them as they were', async () => {
       const state = createState()
-      state.setDirty(ITEM_1, true)
+      state.markDirty(ITEM_1)
       state.setServerHeads(ITEM_1, ['mine'])
       const update = db.update.bind(db)
       let release!: () => void
@@ -235,7 +238,7 @@ describe('ItemSyncState', () => {
       release()
       await saving
 
-      expect(state.listFlagged()).toEqual([{ itemId: ITEM_1, dirty: true }])
+      expect(state.listFlagged()).toEqual([ITEM_1])
       expect(state.getServerHeads(ITEM_1)).toEqual(['mine'])
       expect(await stored()).toEqual([{ itemId: ITEM_1, dirty: true, serverHeads: ['mine'] }])
     })
@@ -271,7 +274,94 @@ describe('ItemSyncState', () => {
 
       await state.load()
 
-      expect(state.listFlagged()).toEqual([{ itemId: ITEM_1, dirty: true }, { itemId: ITEM_2, dirty: false }])
+      expect(state.listFlagged()).toEqual([ITEM_1, ITEM_2])
+    })
+  })
+
+  describe('dirty items', () => {
+    it('ticks each marking, so a stale tick leaves the item dirty', async () => {
+      const state = createState()
+      state.markDirty(ITEM_1)
+      const firstTick = state.getDirtyTick(ITEM_1)!
+      state.markDirty(ITEM_2)
+      state.markDirty(ITEM_1)
+
+      expect(state.getDirtyTick(ITEM_1)).toBeGreaterThan(firstTick)
+      expect(state.clearDirty(ITEM_1, firstTick)).toBe(false)
+      expect(state.listDirty()).toEqual([ITEM_1, ITEM_2])
+
+      expect(state.clearDirty(ITEM_1, state.getDirtyTick(ITEM_1))).toBe(true)
+      await state.save()
+
+      expect(state.isDirty(ITEM_1)).toBe(false)
+      expect(state.dirtyCount).toBe(1)
+      expect(await stored()).toEqual([{ itemId: ITEM_1 }, { itemId: ITEM_2, dirty: true }])
+    })
+
+    it('clears without a tick whatever the tick, and only an item it queued', async () => {
+      await db.put(SYNC_LOG_STORES.items, { itemId: ITEM_2, dirty: true })
+      const state = createState()
+      await state.load()
+      state.markDirty(ITEM_1)
+
+      expect(state.clearDirty(ITEM_1)).toBe(true)
+      // Flagged by an earlier session, but not queued in this one
+      expect(state.clearDirty(ITEM_2)).toBe(false)
+      expect(state.listFlagged()).toEqual([ITEM_2])
+    })
+
+    it('keeps the queue over a load, which replaces the records', async () => {
+      const state = createState()
+      state.markDirty(ITEM_1)
+      const tick = state.getDirtyTick(ITEM_1)
+      await state.save()
+      await db.put(SYNC_LOG_STORES.items, { itemId: ITEM_1, baseVersion: 3 })
+
+      await state.load()
+
+      expect(state.getDirtyTick(ITEM_1)).toBe(tick)
+      expect(await stored()).toEqual([{ itemId: ITEM_1, baseVersion: 3 }])
+    })
+
+    it('never saves a tick', async () => {
+      const state = createState()
+      state.markDirty(ITEM_1)
+
+      await state.save()
+
+      expect(await stored()).toEqual([{ itemId: ITEM_1, dirty: true }])
+    })
+
+    it('queues flagged items once, skipping those it is told to, and flags snapshot-only ones', async () => {
+      await db.put(
+        SYNC_LOG_STORES.items,
+        { itemId: ITEM_1, dirty: true },
+        { itemId: ITEM_2, snapshotOnly: true },
+        { itemId: 'item-3' as ItemId, dirty: true },
+        { itemId: 'item-4' as ItemId, baseVersion: 2 },
+      )
+      const state = createState()
+      await state.load()
+      const update = vi.spyOn(db, 'update')
+
+      expect(state.queueFlagged(new Set(['item-3' as ItemId]))).toBe(2)
+      expect(state.queueFlagged(new Set())).toBe(1)
+      await state.save()
+
+      expect(state.listDirty()).toEqual([ITEM_1, ITEM_2, 'item-3'])
+      // Only the snapshot-only item lacked its flag
+      expect(update).toHaveBeenCalledWith(expect.anything(), [ITEM_2], expect.any(Function))
+      expect(await storedRecord(ITEM_2)).toEqual({ itemId: ITEM_2, snapshotOnly: true, dirty: true })
+    })
+
+    it('forgets the queue once stopped', async () => {
+      const state = createState()
+      state.markDirty(ITEM_1)
+
+      await state.shutdown({ clearLocalData: true })
+      state.markDirty(ITEM_2)
+
+      expect(state.dirtyCount).toBe(0)
     })
   })
 
@@ -338,7 +428,7 @@ describe('ItemSyncState', () => {
       await reloaded.load()
 
       expect(reloaded.isSnapshotOnly(ITEM_1)).toBe(true)
-      expect(reloaded.listFlagged()).toEqual([{ itemId: ITEM_1, dirty: false }])
+      expect(reloaded.listFlagged()).toEqual([ITEM_1])
     })
 
     it('take the confirmed snapshot\'s heads as their server heads', async () => {

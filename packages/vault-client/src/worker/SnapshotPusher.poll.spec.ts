@@ -258,7 +258,7 @@ describe('SnapshotPusher in a poll', () => {
 
     expect(result).toEqual({ persisted: 1, total: 1 })
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-    expect(snapshots.schedule.dirtyCount).toBe(0)
+    expect(snapshots.state.dirtyCount).toBe(0)
   })
 
   it('reports nothing uploaded when the flush poll failed', async () => {
@@ -268,7 +268,7 @@ describe('SnapshotPusher in a poll', () => {
     const result = await snapshots.pusher.flushPendingSnapshots()
 
     expect(result).toEqual({ persisted: 0, total: 0 })
-    expect(snapshots.schedule.getDirtyItemIds()).toContain('item-1')
+    expect(snapshots.state.listDirty()).toContain('item-1')
   })
 
   it('does not run a poll to flush when nothing is dirty', async () => {
@@ -386,12 +386,12 @@ describe('SnapshotPusher in a poll', () => {
       records.records.set('item-unpushed' as ItemId, { itemId: 'item-unpushed' as ItemId, dirty: true })
       records.records.set('item-clean' as ItemId, { itemId: 'item-clean' as ItemId, baseVersion: 3 })
 
-      expect(follower.schedule.getDirtyItemIds()).toEqual([])
+      expect(follower.state.listDirty()).toEqual([])
 
       await setLeader(follower, true)
 
-      expect(follower.schedule.getDirtyItemIds()).toContain('item-unpushed')
-      expect(follower.schedule.getDirtyItemIds()).not.toContain('item-clean')
+      expect(follower.state.listDirty()).toContain('item-unpushed')
+      expect(follower.state.listDirty()).not.toContain('item-clean')
     })
 
     it('pushes un-snapshotted items from previous leader after follower promotion', async () => {
@@ -425,8 +425,8 @@ describe('SnapshotPusher in a poll', () => {
 
       await setLeader(follower, true)
 
-      expect(follower.schedule.getDirtyItemIds()).toContain('follower-local-item')
-      expect(follower.schedule.getDirtyItemIds()).toContain('item-from-previous-leader')
+      expect(follower.state.listDirty()).toContain('follower-local-item')
+      expect(follower.state.listDirty()).toContain('item-from-previous-leader')
 
       elapse()
       await poll(follower)
@@ -442,7 +442,7 @@ describe('SnapshotPusher in a poll', () => {
 
       await setLeader(follower, true)
 
-      expect(follower.schedule.getDirtyItemIds()).toHaveLength(0)
+      expect(follower.state.listDirty()).toHaveLength(0)
       expect(follower.schedule.nextDueAt).toBeUndefined()
     })
 
@@ -493,7 +493,7 @@ describe('SnapshotPusher in a poll', () => {
 
       expect(capturedSignal?.aborted).toBe(true)
       await expect(flush).resolves.toEqual({ persisted: 0, total: 0 })
-      expect(snapshots.schedule.getDirtyItemIds()).toContain('item-1')
+      expect(snapshots.state.listDirty()).toContain('item-1')
     })
 
     it('stops cleanly once polling has stopped', async () => {
@@ -501,7 +501,7 @@ describe('SnapshotPusher in a poll', () => {
 
       await shutDown(snapshots)
 
-      expect(snapshots.schedule.dirtyCount).toBe(0)
+      expect(snapshots.state.dirtyCount).toBe(0)
       expect(vi.getTimerCount()).toBe(0)
     })
   })

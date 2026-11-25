@@ -34,9 +34,15 @@ export interface SnapshotPusherOptions {
   accountId: string
   /** Only the leader uploads snapshots, and only while online */
   session: SyncSessionState
-  schedule: SnapshotSchedule
-  /** Saved at once when flushing, in case the page is closing */
-  state: Pick<ItemSyncState, 'flushPendingSave'>
+  schedule: Pick<SnapshotSchedule, 'requestNow' | 'isDue' | 'clearDue' | 'retryNextPoll' | 'deferUntil'>
+  /**
+   * Which items are dirty, which a stored snapshot clears and whose base version it raises. Saved at
+   * once when flushing, in case the page is closing.
+   */
+  state: Pick<
+    ItemSyncState,
+    'flushPendingSave' | 'dirtyCount' | 'listDirty' | 'getDirtyTick' | 'clearDirty' | 'raiseBaseVersion'
+  >
   builder: SnapshotBuilder
   /** Pushes items' changes to the log, which comes before their snapshots */
   pushToLog: (itemIds: ItemId[], signal?: AbortSignal) => Promise<void>
@@ -85,7 +91,7 @@ class SnapshotsRefusedError extends Error {
 }
 
 /**
- * Uploads the dirty items' snapshots from `SnapshotSchedule`. Uploads run as the last phase of each
+ * Uploads the dirty items' snapshots (`ItemSyncState`) when `SnapshotSchedule` says they're due. Uploads run as the last phase of each
  * poll (`pushDue`), so they share the poll's leadership, online state, abort, auth handling and
  * backoff.
  */
@@ -93,6 +99,8 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
   private readonly maxPayloadBytes: number
 
   private readonly consecutiveFailures = new ConsecutiveFailureCounter<ItemId>(MAX_CONSECUTIVE_SNAPSHOT_FAILURES)
+  /** Items found too large to upload this session, so the warning is given only once */
+  private readonly oversizedItems = new Set<ItemId>()
   private lastPush: SnapshotPushResult = { persisted: 0, total: 0 }
   private pushes = 0
 
@@ -134,24 +142,24 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
     // Saved first, in case the page is closing
     state.flushPendingSave()
     if (!session.isOperational) return { persisted: 0, total: 0 }
-    if (schedule.dirtyCount === 0 && !(await this.deps.hasPendingMarks())) {
+    if (state.dirtyCount === 0 && !(await this.deps.hasPendingMarks())) {
       return { persisted: 0, total: 0 }
     }
     schedule.requestNow()
     const pushesBefore = this.pushes
     await this.deps.runPollNow()
     // Nothing became dirty, so the request mustn't make a later edit's snapshot due at once
-    if (schedule.dirtyCount === 0) schedule.clearDue()
+    if (state.dirtyCount === 0) schedule.clearDue()
     return this.pushes > pushesBefore ? this.lastPush : { persisted: 0, total: 0 }
   }
 
   private async pushDueSnapshots(signal: AbortSignal): Promise<SnapshotPushOutcome> {
-    const { schedule, session } = this.deps
+    const { schedule, session, state } = this.deps
     if (!session.isOperational || !schedule.isDue()) {
       return { persisted: 0, total: 0, success: true }
     }
     schedule.clearDue()
-    const dirtyItemIds = schedule.getDirtyItemIds()
+    const dirtyItemIds = state.listDirty()
 
     let result: SnapshotPushOutcome
     try {
@@ -184,7 +192,7 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
       log.error(
         `Item ${itemId} reached max consecutive snapshot ${failureType} failures (${MAX_CONSECUTIVE_SNAPSHOT_FAILURES}). Reason: ${detailedReason}. Moving to manual recovery.`,
       )
-      this.deps.schedule.removeDirtyItemIfTickMatches(itemId, tick)
+      this.deps.state.clearDirty(itemId, tick)
 
       this.deps.eventHub.emit({
         type: 'snapshotFailed',
@@ -204,29 +212,49 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
     }
   }
 
-  private handleOversizedItem(itemId: ItemId, snapshotSize: number): void {
-    if (this.deps.schedule.recordOversized(itemId)) {
-      log.error(
-        `Snapshot for item ${itemId} exceeds maxPayloadBytes (${snapshotSize} > ${this.maxPayloadBytes}). Skipping.`,
-      )
-      this.deps.eventHub.emit({
-        type: 'snapshotFailed',
+  private async handleOversizedItem(itemId: ItemId, snapshotSize: number): Promise<void> {
+    // Unconditionally, and with its flag, to avoid infinite retry loops while it's quarantined
+    this.deps.state.clearDirty(itemId)
+    if (this.oversizedItems.has(itemId)) return
+    this.oversizedItems.add(itemId)
+    // An earlier session quarantined it, and gave the warning then
+    if (await this.isQuarantinedAsOversized(itemId)) return
+
+    log.error(
+      `Snapshot for item ${itemId} exceeds maxPayloadBytes (${snapshotSize} > ${this.maxPayloadBytes}). Skipping.`,
+    )
+    this.deps.eventHub.emit({
+      type: 'snapshotFailed',
+      itemId,
+      message: `Snapshot for item ${itemId} (${Math.round(snapshotSize / 1024)} KB) exceeds the ${MAX_ITEM_SIZE_KB} KB limit. Recreating the item with fresh history is required to resume sync.`,
+    })
+    fireAndForget(
+      this.deps.recoveryManager.quarantine(
         itemId,
-        message: `Snapshot for item ${itemId} (${Math.round(snapshotSize / 1024)} KB) exceeds the ${MAX_ITEM_SIZE_KB} KB limit. Recreating the item with fresh history is required to resume sync.`,
-      })
-      fireAndForget(
-        this.deps.recoveryManager.quarantine(
-          itemId,
-          'oversized',
-          { code: 'oversized', sizeKb: Math.round(snapshotSize / 1024) },
-        ),
-        'SnapshotPusher:quarantine',
-      )
+        'oversized',
+        { code: 'oversized', sizeKb: Math.round(snapshotSize / 1024) },
+      ),
+      'SnapshotPusher:quarantine',
+    )
+  }
+
+  private async isQuarantinedAsOversized(itemId: ItemId): Promise<boolean> {
+    try {
+      const entries = await this.deps.recoveryManager.listRecoveryItems()
+      return entries.some(entry => entry.itemId === itemId && entry.kind === 'oversized')
+    } catch (error) {
+      log.warn('Failed to read manual recovery entries', error)
+      return false
     }
   }
 
+  /** Forgets that the item was found oversized, so finding it again warns again, such as after a retry */
+  clearOversized(itemId: ItemId): void {
+    this.oversizedItems.delete(itemId)
+  }
+
   private async prepareItemForPush(itemId: ItemId, signal?: AbortSignal): Promise<ItemPreparationResult> {
-    const tick = this.deps.schedule.getDirtyTick(itemId)
+    const tick = this.deps.state.getDirtyTick(itemId)
     if (tick === undefined) {
       return { type: 'skip' }
     }
@@ -254,7 +282,7 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
 
     if (snapshotSize > this.maxPayloadBytes && snapshot.deleted === true) {
       // The full history can never be uploaded, but the server still needs to learn of the deletion
-      this.deps.schedule.clearOversized(itemId)
+      this.clearOversized(itemId)
       log.warn(`Uploading metadata-only tombstone for oversized deleted item ${itemId}`)
       const tombstone = toTombstoneSnapshot(snapshot)
       return {
@@ -265,11 +293,11 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
     }
 
     if (snapshotSize > this.maxPayloadBytes) {
-      this.handleOversizedItem(itemId, snapshotSize)
+      await this.handleOversizedItem(itemId, snapshotSize)
       return { type: 'skip' }
     }
 
-    this.deps.schedule.clearOversized(itemId)
+    this.clearOversized(itemId)
 
     return {
       type: 'ready',
@@ -283,13 +311,22 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
     for (const item of stored) {
       const { itemId } = item.snapshot
       this.consecutiveFailures.reset(itemId)
-      this.deps.schedule.recordSnapshotSuccess(itemId, item.tick, versions.get(itemId))
+      this.recordSnapshotSuccess(itemId, item.tick, versions.get(itemId))
       this.deps.onSnapshotStored({ itemId, heads: item.heads })
       fireAndForget(
         this.deps.recoveryManager.unquarantine(item.snapshot.itemId),
         'SnapshotPusher:unquarantine',
       )
     }
+  }
+
+  /**
+   * The item leaves the queue if its tick hasn't moved, and its base version rises to the stored one.
+   * Without a tick, the item stays dirty: the snapshot wasn't built for its pending edits.
+   */
+  private recordSnapshotSuccess(itemId: ItemId, tick: number | undefined, version: number | undefined): void {
+    if (tick !== undefined) this.deps.state.clearDirty(itemId, tick)
+    if (version !== undefined) this.deps.state.raiseBaseVersion(itemId, version)
   }
 
   /** Sends a batch. Throws if the request fails, and `SnapshotsRefusedError` if the server turns it away. */
@@ -367,5 +404,6 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
   /** Called once polling has stopped, so no upload is in flight */
   shutdown(): void {
     this.consecutiveFailures.clear()
+    this.oversizedItems.clear()
   }
 }

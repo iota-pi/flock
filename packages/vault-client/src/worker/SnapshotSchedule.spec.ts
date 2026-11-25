@@ -52,12 +52,12 @@ describe('SnapshotSchedule', () => {
 
   it('marks items dirty with monotonic tick, due once the debounce expires', async () => {
     tracker.markItemDirty('item-1' as ItemId)
-    expect(tracker.getDirtyTick('item-1' as ItemId)).toBe(1)
-    expect(tracker.dirtyCount).toBe(1)
+    expect(state.getDirtyTick('item-1' as ItemId)).toBe(1)
+    expect(state.dirtyCount).toBe(1)
 
     tracker.markItemDirty('item-2' as ItemId)
-    expect(tracker.getDirtyTick('item-2' as ItemId)).toBe(2)
-    expect(tracker.dirtyCount).toBe(2)
+    expect(state.getDirtyTick('item-2' as ItemId)).toBe(2)
+    expect(state.dirtyCount).toBe(2)
 
     expect(tracker.nextDueAt).toBe(1000)
     expect(tracker.isDue(999)).toBe(false)
@@ -124,7 +124,7 @@ describe('SnapshotSchedule', () => {
 
     expect(tracker.isDue()).toBe(false)
     expect(tracker.nextDueAt).toBeUndefined()
-    expect(tracker.dirtyCount).toBe(1)
+    expect(state.dirtyCount).toBe(1)
   })
 
   describe('after a failed upload', () => {
@@ -269,19 +269,17 @@ describe('SnapshotSchedule', () => {
     store.records.set('item-flagged' as ItemId, { itemId: 'item-flagged' as ItemId, dirty: true })
     store.records.set('item-synced' as ItemId, { itemId: 'item-synced' as ItemId, baseVersion: 2 })
     store.records.set('item-quarantined' as ItemId, { itemId: 'item-quarantined' as ItemId, dirty: true })
+    store.records.set('item-oversized' as ItemId, { itemId: 'item-oversized' as ItemId, snapshotOnly: true })
 
     mockRecoveryManager.listRecoveryItems.mockResolvedValue([
       { itemId: 'item-quarantined', reason: 'Decryption failed', kind: 'pullDecryption' },
       { itemId: 'item-oversized', reason: `Snapshot size exceeds ${MAX_ITEM_SIZE_KB} KB limit`, kind: 'oversized' },
-      { itemId: 'item-rate-limited', reason: 'Push failed after 5 consecutive attempts: Rate limit exceeded', kind: 'unknown' },
     ])
 
     await load()
 
-    expect(tracker.getDirtyItemIds()).toEqual(['item-flagged'])
+    expect(state.listDirty()).toEqual(['item-flagged'])
     expect(state.getBaseVersion('item-synced' as ItemId)).toBe(2)
-    expect(tracker['oversizedItems'].has('item-oversized' as ItemId)).toBe(true)
-    expect(tracker['oversizedItems'].has('item-rate-limited' as ItemId)).toBe(false)
 
     // The restored items go up after the restored delay, capped at this tracker's 1s debounce
     expect(tracker.nextDueAt).toBe(Date.now() + 1000)
@@ -295,7 +293,7 @@ describe('SnapshotSchedule', () => {
     await load()
     await state.save()
 
-    expect(tracker.getDirtyItemIds()).toEqual(['item-flagged', 'item-unflagged'])
+    expect(state.listDirty()).toEqual(['item-flagged', 'item-unflagged'])
     expect(store.db.update).toHaveBeenCalledWith(expect.anything(), ['item-unflagged'], expect.any(Function))
     expect(store.get('item-unflagged')).toEqual({ itemId: 'item-unflagged', snapshotOnly: true, dirty: true })
   })
@@ -308,77 +306,6 @@ describe('SnapshotSchedule', () => {
     await load()
 
     expect(state.getBaseVersion('item-1' as ItemId)).toBe(7)
-  })
-
-  it('recordSnapshotSuccess clears a matching tick, its flag, and records the version', async () => {
-    tracker.markItemDirty('item-1' as ItemId)
-    const tick = tracker.getDirtyTick('item-1' as ItemId)!
-    await state.save()
-
-    tracker.recordSnapshotSuccess('item-1' as ItemId, tick, 4)
-    await state.save()
-
-    expect(tracker.getDirtyTick('item-1' as ItemId)).toBeUndefined()
-    expect(store.get('item-1')).toEqual({ itemId: 'item-1', baseVersion: 4 })
-  })
-
-  it('recordSnapshotSuccess does not clear item if tick has changed (new edits)', async () => {
-    tracker.markItemDirty('item-1' as ItemId)
-    const oldTick = tracker.getDirtyTick('item-1' as ItemId)!
-
-    // Item was updated again before first snapshot completed
-    tracker.markItemDirty('item-1' as ItemId)
-    const newTick = tracker.getDirtyTick('item-1' as ItemId)!
-    expect(newTick).toBeGreaterThan(oldTick)
-
-    tracker.recordSnapshotSuccess('item-1' as ItemId, oldTick, 2)
-    await state.save()
-
-    expect(tracker.getDirtyTick('item-1' as ItemId)).toBeDefined()
-    expect(store.get('item-1')).toEqual({ itemId: 'item-1', baseVersion: 2, dirty: true })
-  })
-
-  it('recordSnapshotSuccess without a tick keeps the item dirty and records the version', () => {
-    tracker.markItemDirty('item-1' as ItemId)
-
-    tracker.recordSnapshotSuccess('item-1' as ItemId, undefined, 7)
-
-    expect(tracker.getDirtyTick('item-1' as ItemId)).toBeDefined()
-    expect(state.getBaseVersion('item-1' as ItemId)).toBe(7)
-  })
-
-  it('recordOversized removes item from dirty queue and clears its flag, so the audit leaves it', async () => {
-    tracker.markItemDirty('item-big' as ItemId)
-    await state.save()
-
-    tracker.recordOversized('item-big' as ItemId)
-    await state.save()
-
-    expect(tracker.getDirtyTick('item-big' as ItemId)).toBeUndefined()
-    expect(store.get('item-big')).toEqual({ itemId: 'item-big' })
-  })
-
-  it('recordOversized reports only the first time an item is found oversized', () => {
-    expect(tracker.recordOversized('item-big' as ItemId)).toBe(true)
-    expect(tracker.recordOversized('item-big' as ItemId)).toBe(false)
-
-    tracker.clearOversized('item-big' as ItemId)
-
-    expect(tracker['oversizedItems'].has('item-big' as ItemId)).toBe(false)
-    expect(tracker.recordOversized('item-big' as ItemId)).toBe(true)
-  })
-
-  it('removeDirtyItemIfTickMatches clears the flag only for a matching tick', async () => {
-    tracker.markItemDirty('item-1' as ItemId)
-    const tick = tracker.getDirtyTick('item-1' as ItemId)!
-    tracker.markItemDirty('item-1' as ItemId)
-    await state.save()
-
-    expect(tracker.removeDirtyItemIfTickMatches('item-1' as ItemId, tick)).toBe(false)
-    expect(tracker.removeDirtyItemIfTickMatches('item-1' as ItemId, tick + 1)).toBe(true)
-    await state.save()
-
-    expect(store.get('item-1')).toEqual({ itemId: 'item-1' })
   })
 
   describe('importVersions', () => {
@@ -409,20 +336,20 @@ describe('SnapshotSchedule', () => {
       const restarted = new SnapshotSchedule({ state: restartedState, recoveryManager: mockRecoveryManager, session: restartedSession })
       await restarted.load()
 
-      expect(restarted.getDirtyItemIds()).toEqual(['item-offline'])
+      expect(restartedState.listDirty()).toEqual(['item-offline'])
     })
   })
 
   describe('deleteDirtyItem', () => {
     it('removes item from dirtyItems and clears the due time when dirtyItems becomes empty', async () => {
       tracker.markItemDirty('item-1' as ItemId)
-      expect(tracker.getDirtyTick('item-1' as ItemId)).toBeDefined()
+      expect(state.getDirtyTick('item-1' as ItemId)).toBeDefined()
       expect(tracker.nextDueAt).toBeDefined()
 
       const deleted = tracker.deleteDirtyItem('item-1' as ItemId)
       expect(deleted).toBe(true)
-      expect(tracker.getDirtyTick('item-1' as ItemId)).toBeUndefined()
-      expect(tracker.dirtyCount).toBe(0)
+      expect(state.getDirtyTick('item-1' as ItemId)).toBeUndefined()
+      expect(state.dirtyCount).toBe(0)
 
       // A later edit starts a new debounce and max wait rather than inheriting the old ones
       vi.setSystemTime(4000)
@@ -441,7 +368,7 @@ describe('SnapshotSchedule', () => {
       await load()
 
       expect(store.get('item-1')).toEqual({ itemId: 'item-1' })
-      expect(tracker.dirtyCount).toBe(0)
+      expect(state.dirtyCount).toBe(0)
     })
 
     it('returns false when deleting an item that was not dirty', () => {
@@ -452,7 +379,7 @@ describe('SnapshotSchedule', () => {
   describe('shutdown', () => {
     it('saves what this tab changed', async () => {
       tracker.markItemDirty('item-1' as ItemId)
-      tracker.recordSnapshotSuccess('item-2' as ItemId, undefined, 4)
+      state.raiseBaseVersion('item-2' as ItemId, 4)
 
       await shutDown()
 
@@ -468,7 +395,7 @@ describe('SnapshotSchedule', () => {
       await shutDown({ clearLocalData: true })
 
       expect(state.listBaseVersions().size).toBe(0)
-      expect(tracker.dirtyCount).toBe(0)
+      expect(state.dirtyCount).toBe(0)
       expect(store.db.update).not.toHaveBeenCalled()
 
       // No debounced save fires afterwards
@@ -496,7 +423,7 @@ describe('SnapshotSchedule', () => {
       await vi.advanceTimersByTimeAsync(5000)
 
       expect(store.db.update).not.toHaveBeenCalled()
-      expect(tracker.dirtyCount).toBe(0)
+      expect(state.dirtyCount).toBe(0)
     })
   })
 
@@ -537,8 +464,9 @@ describe('SnapshotSchedule', () => {
 
       // The follower loaded before the leader uploaded these snapshots
       leader.schedule.markItemDirty('item-1' as ItemId)
-      leader.schedule.recordSnapshotSuccess('item-1' as ItemId, leader.schedule.getDirtyTick('item-1' as ItemId), 5)
-      leader.schedule.recordSnapshotSuccess('item-2' as ItemId, undefined, 3)
+      leader.state.clearDirty('item-1' as ItemId, leader.state.getDirtyTick('item-1' as ItemId))
+      leader.state.raiseBaseVersion('item-1' as ItemId, 5)
+      leader.state.raiseBaseVersion('item-2' as ItemId, 3)
       await leader.state.save()
       follower.schedule.markItemDirty('item-3' as ItemId)
       await follower.state.save()

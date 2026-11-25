@@ -10,8 +10,8 @@ import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 const log = createLogger('SnapshotSchedule')
 
 export interface SnapshotScheduleOptions {
-  /** Where each item's dirty flag and base version are kept */
-  state: Pick<ItemSyncState, 'load' | 'setDirty' | 'raiseBaseVersion' | 'listFlagged'>
+  /** The queue of dirty items, which the schedule marks and clears for its callers */
+  state: Pick<ItemSyncState, 'load' | 'markDirty' | 'clearDirty' | 'queueFlagged' | 'dirtyCount'>
   recoveryManager: Pick<RecoveryManager, 'listRecoveryItems'>
   debounceDelayMs?: number
   maxWaitMs?: number
@@ -22,21 +22,15 @@ export interface SnapshotScheduleOptions {
 }
 
 /**
- * The session's queue of items that owe the server a snapshot, and when their uploads are due.
+ * When the dirty items' snapshots are due. `ItemSyncState` holds which items are dirty, with their
+ * ticks and stored flags; this holds only the session's due times, retry and quota deferral.
  *
- * Within a session the dirty items are counted with ticks, so an edit made while an upload is in
- * flight keeps the item dirty. Across sessions, each item's sync record carries a `dirty` flag
- * (`ItemSyncState`), set when the item is queued and cleared when it leaves the queue, and the startup
- * and promotion audit (`restoreFlagged`) queues every flagged item again. Only the leader queues
- * items: an edit is queued when the leader records the acknowledgement of its push, and the leader
- * alone uploads and so takes them out.
+ * Marking an item here queues it and makes it due. Only the leader marks items: an edit is marked
+ * when the leader records the acknowledgement of its push, and the leader alone uploads and so clears
+ * them. After the records load, at start and on promotion, the flagged items that aren't quarantined
+ * are queued again and made due.
  */
 export class SnapshotSchedule {
-  private readonly dirtyItems = new Map<ItemId, number>()
-  private dirtyItemsTick = 0
-  /** Items quarantined as too large to upload, so the warning is given only once */
-  private readonly oversizedItems = new Set<ItemId>()
-
   /**
    * When the dirty items' snapshots are due. An edit puts `debounceDueAt` off again, and `maxWaitDueAt`
    * bounds that for steady editing. A request with its own delay (`requestedDueAt`) isn't put off by edits.
@@ -65,7 +59,7 @@ export class SnapshotSchedule {
   onLeaderChange(): void {
     if (this.deps.session.isShutdown) return
     if (this.deps.session.isLeader) {
-      if (this.dirtyItems.size > 0) {
+      if (this.deps.state.dirtyCount > 0) {
         this.scheduleDue()
       }
     } else {
@@ -75,21 +69,8 @@ export class SnapshotSchedule {
 
   markItemDirty(itemId: ItemId, customDebounceDelayMs?: number): void {
     if (this.deps.session.isShutdown || !itemId) return
-    this.queue(itemId)
-    this.deps.state.setDirty(itemId, true)
+    this.deps.state.markDirty(itemId)
     this.scheduleDue(customDebounceDelayMs)
-  }
-
-  private queue(itemId: ItemId): void {
-    this.dirtyItemsTick += 1
-    this.dirtyItems.set(itemId, this.dirtyItemsTick)
-  }
-
-  /** Drops the item from the queue, clearing its flag */
-  private removeDirty(itemId: ItemId): boolean {
-    const removed = this.dirtyItems.delete(itemId)
-    if (removed) this.deps.state.setDirty(itemId, false)
-    return removed
   }
 
   /** Makes the dirty items due after the debounce, or after `customDelayMs` however later edits come */
@@ -115,7 +96,7 @@ export class SnapshotSchedule {
    * retry at the next poll doesn't count: it waits for the poll's own cadence or backoff.
    */
   get nextDueAt(): number | undefined {
-    if (this.dirtyItems.size === 0) return undefined
+    if (this.deps.state.dirtyCount === 0) return undefined
     const dueAt = Math.min(
       this.debounceDueAt ?? Number.POSITIVE_INFINITY,
       this.maxWaitDueAt ?? Number.POSITIVE_INFINITY,
@@ -126,7 +107,7 @@ export class SnapshotSchedule {
 
   /** Whether a poll now should upload the dirty items' snapshots */
   isDue(now = this.now()): boolean {
-    if (this.dirtyItems.size === 0) return false
+    if (this.deps.state.dirtyCount === 0) return false
     if (this.retryAtNextPoll && now >= this.notBefore) return true
     const dueAt = this.nextDueAt
     return dueAt !== undefined && dueAt <= now
@@ -165,8 +146,7 @@ export class SnapshotSchedule {
 
   /**
    * The startup and promotion audit, run once the item records have loaded: queues every flagged item
-   * that isn't quarantined, due after `restoredSnapshotDelay` however later edits come, and notes the
-   * items quarantined as oversized.
+   * that isn't quarantined, due after `restoredSnapshotDelay` however later edits come.
    */
   private async restoreFlagged(): Promise<void> {
     if (this.deps.session.isShutdown) return
@@ -177,23 +157,13 @@ export class SnapshotSchedule {
         checkAlive(null, () => !this.deps.session.isShutdown)
         for (const entry of recoveryEntries) {
           quarantinedIds.add(entry.itemId)
-          if (entry.kind === 'oversized') {
-            this.oversizedItems.add(entry.itemId)
-          }
         }
       } catch (recoveryErr) {
         if (isAbortError(recoveryErr)) throw recoveryErr
         log.error('Failed to read manual recovery entries during startup audit', recoveryErr)
       }
 
-      let auditCount = 0
-      for (const { itemId, dirty } of this.deps.state.listFlagged()) {
-        if (quarantinedIds.has(itemId) || this.dirtyItems.has(itemId)) continue
-        this.queue(itemId)
-        // Only `snapshotOnly` flagged it, which a dirty flag should have gone with
-        if (!dirty) this.deps.state.setDirty(itemId, true)
-        auditCount += 1
-      }
+      const auditCount = this.deps.state.queueFlagged(quarantinedIds)
       if (auditCount > 0) {
         log.info(`Startup audit restored ${auditCount} un-snapshotted items to dirty queue`)
         // Due soon, however later edits come: a fresh debounce could put them off session after session
@@ -205,73 +175,24 @@ export class SnapshotSchedule {
     }
   }
 
-  /**
-   * Records a snapshot the server stored: the item leaves the queue if its tick hasn't moved, and its
-   * base version rises to the stored one. Without a tick, the item stays dirty: the snapshot wasn't
-   * built for its pending edits.
-   */
-  recordSnapshotSuccess(itemId: ItemId, tick: number | undefined, version?: number): void {
-    if (tick !== undefined && this.dirtyItems.get(itemId) === tick) {
-      this.removeDirty(itemId)
-    }
-    if (typeof version === 'number') {
-      this.deps.state.raiseBaseVersion(itemId, version)
-    }
-  }
-
-  /** Returns whether the item wasn't already known to be oversized */
-  recordOversized(itemId: ItemId): boolean {
-    const isNew = !this.oversizedItems.has(itemId)
-    this.oversizedItems.add(itemId)
-
-    // Unconditionally, and with its flag, to avoid infinite retry loops while it's quarantined
-    this.removeDirty(itemId)
-    return isNew
-  }
-
-  clearOversized(itemId: ItemId): void {
-    this.oversizedItems.delete(itemId)
-  }
-
-  removeDirtyItemIfTickMatches(itemId: ItemId, tick: number): boolean {
-    return this.dirtyItems.get(itemId) === tick && this.removeDirty(itemId)
-  }
-
+  /** Takes the item out of the queue, clearing its flag, and nothing stays due once none is left */
   deleteDirtyItem(itemId: ItemId): boolean {
     if (this.deps.session.isShutdown || !itemId) return false
-    const deleted = this.removeDirty(itemId)
-    if (this.dirtyItems.size === 0) {
+    const deleted = this.deps.state.clearDirty(itemId)
+    if (this.deps.state.dirtyCount === 0) {
       this.clearDue()
     }
     return deleted
   }
 
-  getDirtyTick(itemId: ItemId): number | undefined {
-    return this.dirtyItems.get(itemId)
-  }
-
-  isDirty(itemId: ItemId): boolean {
-    return this.dirtyItems.has(itemId)
-  }
-
-  get dirtyCount(): number {
-    return this.dirtyItems.size
-  }
-
-  getDirtyItemIds(): ItemId[] {
-    return Array.from(this.dirtyItems.keys())
-  }
-
   /**
-   * Forgets the session's queue and due times, once a load in flight has finished. Called once, as the
-   * session stops and after polling has. The item records save as `ItemSyncState` stops.
+   * Forgets the session's due times, once a load in flight has finished. Called once, as the session
+   * stops and after polling has. The queue goes, and the item records save, as `ItemSyncState` stops.
    */
   async shutdown(): Promise<void> {
     await this.loadGuard.waitForRunning()
     this.clearDue()
     this.notBefore = 0
-    this.dirtyItems.clear()
-    this.oversizedItems.clear()
     this.loadGuard.clear()
   }
 }
