@@ -2,6 +2,7 @@ import {
   classifySyncError,
   TRANSIENT_VAULT_ERROR_SUBSTRINGS,
   isAuthError,
+  isRequestFailure,
 } from './errorClassifier'
 import { AbortError } from './abort'
 import { MissingKeyError } from '../worker/utils/decryptWithKeyResolution'
@@ -613,3 +614,22 @@ describe('convenience error predicate helpers', () => {
   })
 })
 
+
+describe('isRequestFailure', () => {
+  it.each([
+    ['a network error', new TypeError('Failed to fetch')],
+    ['a 5xx', { message: 'boom', data: { httpStatus: 500 } }],
+    ['a 429', { message: 'slow down', data: { httpStatus: 429 } }],
+    ['a rejected session', { message: 'UNAUTHORIZED', data: { httpStatus: 401 } }],
+    ['an outdated build', { message: 'CLIENT_OUTDATED', data: { code: 'PRECONDITION_FAILED', httpStatus: 412 } }],
+  ])('is true for %s', (_, error) => {
+    expect(isRequestFailure(error)).toBe(true)
+  })
+
+  it.each([
+    ['a bad request', { message: 'bad input', data: { httpStatus: 400, code: 'BAD_REQUEST' } }],
+    ['a plain error', new Error('corrupt doc')],
+  ])('is false for %s', (_, error) => {
+    expect(isRequestFailure(error)).toBe(false)
+  })
+})

@@ -5,6 +5,7 @@ import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
 import { spyOnExports } from '../../test/moduleMocks'
 import { MissingKeyError } from './utils/decryptWithKeyResolution'
 import * as decryptWithKeyResolutionModule from './utils/decryptWithKeyResolution'
+import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
 
 const mockVault = createMockVault()
 const keys = createMockKeyProvider(mockVault)
@@ -592,18 +593,42 @@ describe('ManifestHydrator', () => {
       })
     })
 
-    it('handles batch fetch errors gracefully by setting hasFailures', async () => {
-      mockApiClient.fetchSnapshotsByIds.mockRejectedValue(new Error('Network error'))
-
-      const result = await hydrator.fetchAndHydrateRemoteItems({
+    describe('a snapshot request that fails', () => {
+      const params = {
         missingIds: ['item-err' as ItemId],
         manifest: [{ itemId: 'item-err' as ItemId, modifiedAt: 1000 }],
-        knownSet: new Set(),
-        tombstoneSet: new Set(),
+        knownSet: new Set<ItemId>(),
+        tombstoneSet: new Set<ItemId>(),
+      }
+
+      it.each([
+        ['a network error', new TypeError('Failed to fetch')],
+        ['a 5xx', { message: 'boom', data: { httpStatus: 500, code: 'INTERNAL_SERVER_ERROR' } }],
+        ['a 503', { message: 'unavailable', data: { httpStatus: 503 } }],
+        ['a rejected session', { message: 'UNAUTHORIZED', data: { httpStatus: 401, code: 'UNAUTHORIZED' } }],
+        ['an outdated build', { message: 'CLIENT_OUTDATED', data: { code: 'PRECONDITION_FAILED', httpStatus: 412 } }],
+      ])('throws on %s, so the poll fails and backs off (rule 4)', async (_, error) => {
+        mockApiClient.fetchSnapshotsByIds.mockRejectedValue(error)
+
+        await expect(hydrator.fetchAndHydrateRemoteItems(params)).rejects.toBe(error)
       })
 
-      expect(result.hasFailures).toBe(true)
-      expect(result.added).toHaveLength(0)
+      it('stops at the first batch that fails as a whole', async () => {
+        const ids = Array.from({ length: SYNC_BATCH_SIZES.hydrationFetch + 1 }, (_, i) => `item-${i}` as ItemId)
+        mockApiClient.fetchSnapshotsByIds.mockRejectedValue(new TypeError('Failed to fetch'))
+
+        await expect(hydrator.fetchAndHydrateRemoteItems({ ...params, missingIds: ids })).rejects.toThrow()
+        expect(mockApiClient.fetchSnapshotsByIds).toHaveBeenCalledTimes(1)
+      })
+
+      it('counts any other error against the batch and goes on', async () => {
+        mockApiClient.fetchSnapshotsByIds.mockRejectedValue({ message: 'bad input', data: { httpStatus: 400, code: 'BAD_REQUEST' } })
+
+        const result = await hydrator.fetchAndHydrateRemoteItems(params)
+
+        expect(result.hasFailures).toBe(true)
+        expect(result.added).toHaveLength(0)
+      })
     })
 
     it('limits concurrent hydration tasks to hydrationConcurrency limit (M-18)', async () => {

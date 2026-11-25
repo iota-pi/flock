@@ -10,6 +10,7 @@ import type { RecoveryManager } from './RecoveryManager'
 import type { SyncSessionState } from './SyncSessionState'
 import { AbortableRun } from '../utils/AbortableRun'
 import { checkAlive, isAbortError } from '../utils/abort'
+import { isRequestFailure } from '../utils/errorClassifier'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { calculateSyncDeltas, type QuarantinedItem, type SyncDeltas } from './calculateSyncDeltas'
 import { ManifestHydrator } from './ManifestHydrator'
@@ -305,7 +306,8 @@ export class ManifestSyncManager {
 
   /**
    * Uploads every dirty item's snapshot through the snapshot phase's upload. The manifest sync is
-   * itself a phase of the poll, so nothing else is uploading.
+   * itself a phase of the poll, so nothing else is uploading. A request that fails as a whole fails
+   * the sync (rule 4); anything else is left to the snapshot phase, which uploads them again.
    */
   private async flushPendingSnapshotsSafely(signal: AbortSignal): Promise<void> {
     const { snapshotSchedule, snapshotPusher } = this.deps
@@ -314,7 +316,7 @@ export class ManifestSyncManager {
       snapshotSchedule.requestNow()
       await snapshotPusher.pushDue(signal)
     } catch (flushErr) {
-      if (signal.aborted || isAbortError(flushErr)) throw flushErr
+      if (signal.aborted || isAbortError(flushErr) || isRequestFailure(flushErr)) throw flushErr
       log.warn('Failed to flush pending snapshots before sync', flushErr)
     }
   }

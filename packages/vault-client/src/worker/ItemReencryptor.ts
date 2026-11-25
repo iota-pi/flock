@@ -5,7 +5,7 @@ import { estimateSnapshotSize, type BuildSnapshotResult, type SnapshotBuilder } 
 import type { RecoveryManager } from './RecoveryManager'
 import type { SyncApiClient } from './SyncApiClient'
 import { uploadSnapshotBatch, type StoredSnapshotRecorder, type UploadableSnapshot } from './snapshotUpload'
-import { classifySyncError } from '../utils/errorClassifier'
+import { classifySyncError, isRequestFailure } from '../utils/errorClassifier'
 import { isClientOutdatedError } from '@vault/shared'
 import type { SyncLogPuller } from './SyncLogPuller'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
@@ -40,15 +40,6 @@ class DeferredBuildError extends Error {
     super(`The snapshot of item ${itemId} has to wait for the log`)
     this.name = 'DeferredBuildError'
   }
-}
-
-/**
- * Whether an error building an item's snapshot (such as a push to the log on the way) stops the whole
- * run. An outage, an auth error or a refused build says nothing about the item, so it isn't quarantined.
- */
-function isRunStoppingError(error: unknown): boolean {
-  const classified = classifySyncError(error)
-  return classified.isNetwork || classified.isServerError || classified.isAuth || isClientOutdatedError(error)
 }
 
 /** One call's options for `ItemReencryptor.run`. A scheduled retry runs with the same ones. */
@@ -332,7 +323,9 @@ export class ItemReencryptor {
           result.failed.push({ itemId, error: outcome.reason.message })
           continue
         }
-        if (isRunStoppingError(outcome.reason)) {
+        // An error building the snapshot (such as a push to the log on the way) that failed the
+        // request as a whole says nothing about the item, so it stops the run and isn't quarantined
+        if (isRequestFailure(outcome.reason)) {
           throw outcome.reason
         }
         const error = `Failed to build snapshot for item ${itemId}: ${errorMessage(outcome.reason)}`
@@ -400,7 +393,7 @@ export class ItemReencryptor {
         signal,
         shouldRetry: err => {
           if (err instanceof DeferredBuildError) return true
-          return !isRunStoppingError(err)
+          return !isRequestFailure(err)
         },
         onRetry: (err, attempt) => {
           log.warn(

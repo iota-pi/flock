@@ -199,7 +199,7 @@ describe('ManifestSyncManager', () => {
         manifest: [{ itemId: 'item-2', version: 1, modifiedAt: 1 }],
         serverTime: Date.now(),
       })
-      mockFetchSnapshotsByIds.mockRejectedValue(new Error('server error'))
+      mockFetchSnapshotsByIds.mockResolvedValue({ items: [], deferred: ['item-2'] })
 
       expect(await manifestSyncManager.runPhase(signal())).toMatchObject({ success: false, fetchedManifest: true })
       expect(mockUpdateLastManifestSyncTime).not.toHaveBeenCalled()
@@ -279,9 +279,20 @@ describe('ManifestSyncManager', () => {
         manifest: [{ itemId: 'item-1', version: 1, modifiedAt: 1 }],
         serverTime: Date.now(),
       })
-      mockFetchSnapshotsByIds.mockRejectedValue(new Error('server error'))
+      mockFetchSnapshotsByIds.mockResolvedValue({ items: [], deferred: ['item-1'] })
 
       expect(await sync(manifestSyncManager, 'now')).toMatchObject({ success: false, fetchedManifest: true })
+    })
+
+    it('fails when a snapshot request fails as a whole, so the poll backs off (rule 4)', async () => {
+      mockFetchManifest.mockResolvedValue({
+        manifest: [{ itemId: 'item-1', version: 1, modifiedAt: 1 }],
+        serverTime: Date.now(),
+      })
+      mockFetchSnapshotsByIds.mockRejectedValue({ message: 'boom', data: { httpStatus: 500 } })
+
+      await expect(sync(manifestSyncManager, 'now')).rejects.toMatchObject({ message: 'boom' })
+      expect(mockUpdateLastManifestSyncTime).not.toHaveBeenCalled()
     })
 
     it('still counts as run when processing the manifest fails, which the next sync retries', async () => {
@@ -685,7 +696,7 @@ describe('ManifestSyncManager', () => {
         manifest: [{ itemId: 'item-1', modifiedAt: 100 }],
         serverTime: Date.now(),
       })
-      mockFetchSnapshotsByIds.mockRejectedValue(new Error('Network error fetching batch'))
+      mockFetchSnapshotsByIds.mockResolvedValue({ items: [], deferred: ['item-1'] })
 
       await sync(manager)
 
@@ -709,8 +720,8 @@ describe('ManifestSyncManager', () => {
         serverTime: Date.now(),
       })
 
-      // Batch fetch fails with network error
-      mockFetchSnapshotsByIds.mockRejectedValue(new Error('Network error fetching batch'))
+      // A batch fails with an error that isn't an outage, so it counts against its items
+      mockFetchSnapshotsByIds.mockRejectedValue({ message: 'bad input', data: { httpStatus: 400, code: 'BAD_REQUEST' } })
 
       await sync(manifestSyncManager)
 
@@ -965,6 +976,16 @@ describe('ManifestSyncManager', () => {
         expect.any(Error)
       )
       warnSpy.mockRestore()
+    })
+
+    it('fails when the upload before the manifest fails as a whole', async () => {
+      depsObj.snapshotManager.schedule.dirtyCount = 1
+      depsObj.snapshotManager.pushDue.mockRejectedValue(new TypeError('Failed to fetch'))
+      mockListItemIds.mockResolvedValue(['item-1'])
+      mockGetLastManifestSyncTime.mockResolvedValue(0)
+
+      await expect(sync(manifestSyncManager)).rejects.toThrow('Failed to fetch')
+      expect(mockFetchManifest).not.toHaveBeenCalled()
     })
 
     it('skips fetching when the server version matches the local base version', async () => {
