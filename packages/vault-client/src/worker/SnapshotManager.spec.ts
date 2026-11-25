@@ -145,8 +145,10 @@ describe('SnapshotManager', () => {
     keys: KeyProvider
     onDueChanged: () => void
     isCaughtUp: () => boolean
+    hasPendingMarks: () => Promise<boolean>
   }
   let caughtUp: boolean
+  let pendingMarks: boolean
   let records: ReturnType<typeof createMemoryItemRecords>
 
   beforeEach(async () => {
@@ -169,6 +171,7 @@ describe('SnapshotManager', () => {
     }
     onDueChanged = vi.fn()
     caughtUp = true
+    pendingMarks = false
 
     context = {
       accountId: 'test-account',
@@ -181,6 +184,7 @@ describe('SnapshotManager', () => {
       keys,
       onDueChanged: () => onDueChanged(),
       isCaughtUp: () => caughtUp,
+      hasPendingMarks: async () => pendingMarks,
     }
 
     records = createMemoryItemRecords()
@@ -224,6 +228,7 @@ describe('SnapshotManager', () => {
     expect(mockPutSnapshots).not.toHaveBeenCalled()
 
     caughtUp = true
+    pendingMarks = false
     await poll(manager)
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
   })
@@ -261,6 +266,50 @@ describe('SnapshotManager', () => {
 
     await expect(idle.flushPendingSnapshots()).resolves.toEqual({ persisted: 0, total: 0 })
     expect(runPollNow).not.toHaveBeenCalled()
+  })
+
+  it('runs a poll to flush when nothing is dirty yet but items have pending marks', async () => {
+    pendingMarks = true
+    let dueInPoll = false
+    // eslint-disable-next-line prefer-const -- read by the poll, before it's assigned below
+    let leader: SnapshotManager
+    const runPollNow = vi.fn(async () => {
+      // The poll's log push is acknowledged, which marks the item dirty
+      leader.schedule.markItemDirty('item-1' as ItemId)
+      dueInPoll = leader.schedule.isDue()
+    })
+    const session = new SyncSessionState({ isLeader: true })
+    leader = new SnapshotManager({
+      ...context as any,
+      session,
+      state: new ItemSyncState({ db: records.db, session }),
+      builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec, noLogCoverage),
+      runPollNow: () => runPollNow(),
+    })
+
+    await leader.flushPendingSnapshots()
+
+    expect(runPollNow).toHaveBeenCalledTimes(1)
+    expect(dueInPoll).toBe(true)
+  })
+
+  it("doesn't leave a flush's request due when the poll made nothing dirty", async () => {
+    pendingMarks = true
+    const runPollNow = vi.fn().mockResolvedValue(undefined)
+    const session = new SyncSessionState({ isLeader: true })
+    const leader = new SnapshotManager({
+      ...context as any,
+      session,
+      state: new ItemSyncState({ db: records.db, session }),
+      builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec, noLogCoverage),
+      runPollNow,
+    })
+
+    await leader.flushPendingSnapshots()
+    leader.schedule.markItemDirty('item-1' as ItemId)
+
+    expect(runPollNow).toHaveBeenCalledTimes(1)
+    expect(leader.schedule.isDue()).toBe(false)
   })
 
   it('saves pending dirty flags at once when flushed, even in a follower tab', async () => {

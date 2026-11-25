@@ -147,8 +147,8 @@ function actorName(device: number, inTab: boolean): string {
 
 /**
  * Waits until the device's leader has a change its follower tab made, as the broadcast adapter
- * delivers it. A leader that pushed before it arrived would clear the tab's mark with nothing sent.
- * The leader's re-mark when the doc changes covers that in the app, but the harness doesn't wire it.
+ * delivers it. A leader that pushed before it arrived would clear the tab's mark with nothing sent,
+ * and only its re-mark when the doc changes would send it, at a time the commands don't control.
  */
 async function reachLeader(
   world: World,
@@ -708,8 +708,32 @@ export async function quiesce(world: World, model: Model): Promise<void> {
     device?.setOnline(true)
   }
   await syncRounds(world, model, trace)
+  await assertAuthorsUploaded(world, model)
   world.clockOffset += SYNC_TIMEOUTS.pulledChangesGrace + HOUR
   await syncRounds(world, model, trace)
+}
+
+/**
+ * Before `pulledChangesGrace` has passed, the server's snapshots alone already hold every durable
+ * edit: its author's push was acknowledged, which queued the author's own snapshot, so no device
+ * needs S2 to upload it. Checked with an observer that reads snapshots only, with the log put back
+ * after it.
+ */
+async function assertAuthorsUploaded(world: World, model: Model): Promise<void> {
+  const rows = world.server.rows
+  world.server.expireLog()
+  const observer = await startObserver(world, 'observer-before-grace')
+  try {
+    const observed = await view(observer)
+    for (const [id, keys] of model.durableEdits) {
+      if (!observed.live.includes(id)) continue
+      expect(observed.edits.get(id), `edits to ${id} in snapshots before the grace`)
+        .toEqual(expect.arrayContaining(Array.from(keys)))
+    }
+  } finally {
+    world.server.rows = rows
+    await observer.stop()
+  }
 }
 
 // ---------------------------------------------------------------------------------------------------

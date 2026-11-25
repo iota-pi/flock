@@ -26,8 +26,9 @@ export interface SnapshotScheduleOptions {
  * Within a session the dirty items are counted with ticks, so an edit made while an upload is in
  * flight keeps the item dirty. Across sessions, each item's sync record carries a `dirty` flag
  * (`ItemSyncState`), set when the item is queued and cleared when it leaves the queue, and the startup
- * and promotion audit (`restoreFlagged`) queues every flagged item again. Every tab queues items, but
- * only the leader uploads and so takes them out.
+ * and promotion audit (`restoreFlagged`) queues every flagged item again. Only the leader queues
+ * items: an edit is queued when the leader records the acknowledgement of its push, and the leader
+ * alone uploads and so takes them out.
  */
 export class SnapshotSchedule {
   private readonly dirtyItems = new Map<ItemId, number>()

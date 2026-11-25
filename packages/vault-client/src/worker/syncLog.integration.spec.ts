@@ -300,16 +300,50 @@ describe('sync log', () => {
       await follower.edit(itemId, { title: 'from the follower' })
       await follower.settle()
       await vi.waitFor(async () => expect((await leader.read(itemId))?.title).toBe('from the follower'))
-      await vi.waitFor(() => expect(leader.services.snapshotManager.schedule.isDirty(itemId)).toBe(true))
       expect(await follower.poll()).toBe('no-poll')
       expect(server.rows).toHaveLength(1)
+      // Neither tab owes a snapshot until the leader's push is acknowledged
+      expect(leader.services.snapshotManager.schedule.isDirty(itemId)).toBe(false)
+      expect(follower.services.snapshotManager.schedule.isDirty(itemId)).toBe(false)
 
+      await leader.poll()
+      expect(leader.services.snapshotManager.schedule.isDirty(itemId)).toBe(true)
+      expect(follower.services.snapshotManager.schedule.isDirty(itemId)).toBe(false)
       await leader.sync()
       await b.poll()
 
       expect((await b.read(itemId))?.title).toBe('from the follower')
       expect(await leader.pending()).toEqual([])
       expect(server.items.get(itemId)?.version).toBe(2)
+    })
+
+    it(`wakes the leader to push a follower's edit, though the follower marked it first`, async () => {
+      const { leader, follower, itemId } = await startTabs()
+      const flush = vi.mocked(leader.services.orchestrator.flush)
+      flush.mockClear()
+
+      await follower.edit(itemId, { title: 'from the follower' })
+      await vi.waitFor(async () => expect(await leader.pending()).toEqual([itemId]))
+      await vi.waitFor(async () => expect((await leader.read(itemId))?.title).toBe('from the follower'))
+
+      // The follower's own flush can't push, so the leader must queue a poll once the change reaches it
+      await vi.waitFor(() => expect(flush.mock.contexts).toContain(leader.services.orchestrator))
+    })
+
+    it('counts on a follower an item the leader has pushed but not yet uploaded a snapshot of', async () => {
+      const { leader, follower, itemId } = await startTabs()
+
+      await follower.edit(itemId, { title: 'from the follower' })
+      await vi.waitFor(async () => expect((await leader.read(itemId))?.title).toBe('from the follower'))
+      await leader.poll()
+      expect(await leader.pending()).toEqual([])
+
+      expect(await follower.context.getUnsyncedChanges()).toEqual({ pendingItems: 1, quarantinedItems: 0 })
+
+      await leader.uploadSnapshots()
+      // The leader saves the cleared flag after its usual delay
+      await leader.services.itemSyncState.save()
+      expect(await follower.context.getUnsyncedChanges()).toEqual({ pendingItems: 0, quarantinedItems: 0 })
     })
 
     it('re-marks a follower\'s edit that reaches the leader after its push cleared the mark', async () => {
@@ -388,6 +422,48 @@ describe('sync log', () => {
     })
   })
 
+  describe('dirty on acknowledgement', () => {
+    it(`pushes and uploads a leader's unpushed edit before counting unsynced changes`, async () => {
+      const a = await startDevice('device-a')
+      const itemId = await a.create('item-1', { title: 'first' })
+      await a.sync()
+      const version = server.items.get(itemId)!.version
+      await a.edit(itemId, { title: 'second' })
+      await a.settle()
+      expect(a.services.snapshotManager.schedule.isDirty(itemId)).toBe(false)
+
+      expect(await a.context.getUnsyncedChanges()).toEqual({ pendingItems: 0, quarantinedItems: 0 })
+      expect(server.items.get(itemId)?.version).toBe(version + 1)
+    })
+
+    it('keeps an acknowledged item pending when its records fail to save, and snapshots it after a crash', async () => {
+      const a = await startDevice('device-a')
+      const itemId = await a.create('item-1', { title: 'first' })
+      await a.sync()
+      const version = server.items.get(itemId)!.version
+      await a.edit(itemId, { title: 'second' })
+      await a.settle()
+      const rows = server.rows.length
+
+      a.failNextStateSave()
+      await a.poll()
+      expect(server.rows).toHaveLength(rows + 1)
+      expect(await a.pending()).toEqual([itemId])
+
+      await a.crash()
+      await a.start()
+      expect(await a.pending()).toEqual([itemId])
+
+      await a.sync()
+      expect(await a.pending()).toEqual([])
+      expect(server.items.get(itemId)?.version).toBe(version + 1)
+      server.expireLog()
+      const b = await startDevice('device-b')
+      await b.poll()
+      expect((await b.read(itemId))?.title).toBe('second')
+    })
+  })
+
   describe('both outbound loops', () => {
     /** Device A with an edit that the log and a snapshot both still have to carry, and device B */
     async function editToSend() {
@@ -403,7 +479,8 @@ describe('sync log', () => {
 
     async function expectHeld(a: Device, itemId: ItemId, rows: number, version: number) {
       expect(await a.pending()).toEqual([itemId])
-      expect(a.services.snapshotManager.schedule.isDirty(itemId)).toBe(true)
+      // Only the push's acknowledgement makes the item owe a snapshot
+      expect(a.services.snapshotManager.schedule.isDirty(itemId)).toBe(false)
       expect(server.rows).toHaveLength(rows)
       expect(server.items.get(itemId)?.version).toBe(version)
       expect(await a.services.recoveryManager.listRecoveryItems()).toEqual([])
@@ -899,6 +976,30 @@ describe('sync log', () => {
       expect(result).toEqual({ succeeded: [itemId], failed: [] })
       expect(server.rows.length).toBe(rows + 1)
       expect(await a.services.recoveryManager.listRecoveryItems()).toEqual([])
+    })
+
+    it('uploads an item edited during a rewrite at most once more afterwards', async () => {
+      const a = await startDevice('device-a')
+      const itemId = await a.create('item-1', { title: 'first' })
+      await a.sync()
+      const version = server.items.get(itemId)!.version
+      const { changeOutbox } = a.services
+      const pushItems = changeOutbox.pushItems.bind(changeOutbox)
+      vi.spyOn(changeOutbox, 'pushItems').mockImplementationOnce(async (itemIds, signal) => {
+        await a.edit(itemId, { title: 'during the rewrite' })
+        await a.settle()
+        return pushItems(itemIds, signal)
+      })
+
+      expect(await a.services.itemReencryptor.run()).toEqual({ succeeded: [itemId], failed: [] })
+      expect(server.items.get(itemId)?.version).toBe(version + 1)
+
+      await a.sync()
+      await a.sync()
+
+      expect(server.items.get(itemId)?.version).toBeLessThanOrEqual(version + 2)
+      expect(await a.pending()).toEqual([])
+      expect(a.services.snapshotManager.schedule.isDirty(itemId)).toBe(false)
     })
 
     it('waits for catch-up after the sync reset', async () => {

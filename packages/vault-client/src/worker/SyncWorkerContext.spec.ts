@@ -278,23 +278,36 @@ describe('SyncWorkerContext', () => {
     expect(context.services.indexStore.clear).not.toHaveBeenCalled()
   })
 
-  it('marks local edits dirty and pending, and announces them to other tabs', () => {
+  it('marks local edits pending only, leaving them dirty for the acknowledgement of their push', () => {
     const markSpy = vi.spyOn(context.services.changeOutbox, 'mark')
     const { deps } = context.services.itemOperations as unknown as { deps: { markDocumentDirty: (id: ItemId) => void } }
+    const recordEdit = vi.spyOn(context.services.storageRecoveryService, 'recordEdit')
     deps.markDocumentDirty('edited-item' as ItemId)
 
-    expect(context.services.snapshotManager.schedule.markItemDirty).toHaveBeenCalledWith('edited-item')
     expect(markSpy).toHaveBeenCalledWith('edited-item')
-    expect(realtimeBus.publishItemDirty).toHaveBeenCalledWith(['edited-item'])
+    expect(recordEdit).toHaveBeenCalledWith('edited-item')
+    expect(context.services.snapshotManager.schedule.markItemDirty).not.toHaveBeenCalled()
+    expect(realtimeBus.publishSyncPing).not.toHaveBeenCalled()
   })
 
-  it('marks items dirty when another tab announces local edits', () => {
-    realtimeBus.receiveItemDirty(['tab-item-1', 'tab-item-2'] as ItemId[])
+  it("asks for restored items' snapshots only on the leader, and marks them pending on every tab", async () => {
+    const markAll = vi.spyOn(context.services.changeOutbox, 'markAll').mockResolvedValue(undefined)
+    const { markItemDirty } = context.services.snapshotManager.schedule
 
-    expect(context.services.snapshotManager.schedule.markItemDirty).toHaveBeenCalledWith('tab-item-1')
-    expect(context.services.snapshotManager.schedule.markItemDirty).toHaveBeenCalledWith('tab-item-2')
-    expect(realtimeBus.publishItemDirty).not.toHaveBeenCalled()
-    expect(context.services.orchestrator.flush).toHaveBeenCalled()
+    context.session.setLeader(false)
+    await context.markRestored(['restored-1' as ItemId])
+    expect(markItemDirty).not.toHaveBeenCalled()
+
+    context.session.setLeader(true)
+    await context.markRestored(['restored-2' as ItemId])
+    expect(markItemDirty).toHaveBeenCalledWith('restored-2', 0)
+    expect(markAll.mock.calls).toEqual([[['restored-1']], [['restored-2']]])
+  })
+
+  it('marks an item dirty when the leader records the acknowledgement of its push', () => {
+    depsOf<ChangeOutboxDeps>(context.services.changeOutbox).onAcknowledged('pushed-item' as ItemId)
+
+    expect(context.services.snapshotManager.schedule.markItemDirty).toHaveBeenCalledWith('pushed-item')
   })
 
   it('closes its realtime bus on shutdown', async () => {
@@ -480,7 +493,10 @@ describe('SyncWorkerContext', () => {
       vi.spyOn(context.services.changeOutbox, 'listMarks').mockResolvedValue(
         marked.map(itemId => ({ itemId, tick: 1, createdAt: options.markedAt ?? Date.now() })),
       )
-      vi.spyOn(context.services.snapshotManager.schedule, 'getDirtyItemIds').mockReturnValue((options.dirty ?? []) as ItemId[])
+      vi.spyOn(context.services.itemSyncState, 'load').mockResolvedValue(undefined)
+      vi.spyOn(context.services.itemSyncState, 'listFlagged').mockReturnValue(
+        (options.dirty ?? []).map(itemId => ({ itemId: itemId as ItemId, dirty: true })),
+      )
       vi.spyOn(context.services.recoveryManager, 'listRecoveryItems').mockResolvedValue(
         (options.quarantined ?? []).map(itemId => ({
           id: `entry-${itemId}`,
@@ -499,6 +515,13 @@ describe('SyncWorkerContext', () => {
       expect(await context.getUnsyncedChanges()).toEqual({ pendingItems: 0, quarantinedItems: 0 })
       expect(context.services.orchestrator.flush).toHaveBeenCalled()
       expect(context.services.snapshotManager.flushPendingSnapshots).toHaveBeenCalled()
+    })
+
+    it("reloads the item records before counting, so a follower sees the leader's dirty flags", async () => {
+      stubPending({ dirty: ['item-1'] })
+
+      expect(await context.getUnsyncedChanges()).toEqual({ pendingItems: 1, quarantinedItems: 0 })
+      expect(context.services.itemSyncState.load).toHaveBeenCalled()
     })
 
     it('counts each item with a pending mark or a pending snapshot once, and quarantined items apart', async () => {
@@ -558,7 +581,7 @@ describe('SyncWorkerContext', () => {
     })
   })
 
-  it('saves the dirty flags and flushes the log push when the page is hidden, without forcing snapshots up', () => {
+  it('saves the item records and flushes the log push when the page is hidden, without forcing snapshots up', () => {
     const { orchestrator, snapshotManager, itemSyncState } = context.services
     const flushPendingSave = vi.spyOn(itemSyncState, 'flushPendingSave')
 

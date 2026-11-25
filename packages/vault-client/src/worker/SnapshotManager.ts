@@ -31,6 +31,7 @@ export class SnapshotManager implements StoredSnapshotRecorder {
   private readonly session: SyncSessionState
   private readonly runPollNow: () => Promise<void>
   private readonly isCaughtUp: () => boolean
+  private readonly hasPendingMarks: () => Promise<boolean>
   private lastPush: SnapshotPushResult = { persisted: 0, total: 0 }
   private pushes = 0
 
@@ -54,12 +55,18 @@ export class SnapshotManager implements StoredSnapshotRecorder {
        * since a snapshot could replace one holding what the doc hasn't merged yet.
        */
       isCaughtUp: () => boolean
+      /**
+       * Whether any item has a pending mark. A pushed mark's acknowledgement makes its item dirty in
+       * the same poll, so a flush with nothing dirty yet still has something to upload.
+       */
+      hasPendingMarks: () => Promise<boolean>
     },
     options?: SnapshotManagerOptions,
   ) {
     this.session = deps.session
     this.runPollNow = deps.runPollNow
     this.isCaughtUp = deps.isCaughtUp
+    this.hasPendingMarks = deps.hasPendingMarks
     this.state = deps.state
     this.schedule = new SnapshotSchedule({
       state: deps.state,
@@ -134,18 +141,23 @@ export class SnapshotManager implements StoredSnapshotRecorder {
   }
 
   /**
-   * Uploads every dirty item's snapshot now, with a poll, such as when the page may be closing. Never
-   * call it from inside a poll, which it would wait for.
+   * Uploads every dirty item's snapshot now, with a poll, such as when the page may be closing. Items
+   * with pending marks go too: the poll pushes them to the log first, and their acknowledgement makes
+   * them dirty, due in the same poll's snapshot phase. Never call it from inside a poll, which it
+   * would wait for.
    */
   async flushPendingSnapshots(): Promise<SnapshotPushResult> {
-    // Saved first, and in any tab: a follower can't push, but its edits must still survive the page closing
+    // Saved first, in case the page is closing
     this.state.flushPendingSave()
-    if (!this.session.isOperational || this.schedule.dirtyCount === 0) {
+    if (!this.session.isOperational) return { persisted: 0, total: 0 }
+    if (this.schedule.dirtyCount === 0 && !(await this.hasPendingMarks())) {
       return { persisted: 0, total: 0 }
     }
     this.schedule.requestNow()
     const pushesBefore = this.pushes
     await this.runPollNow()
+    // Nothing became dirty, so the request mustn't make a later edit's snapshot due at once
+    if (this.schedule.dirtyCount === 0) this.schedule.clearDue()
     return this.pushes > pushesBefore ? this.lastPush : { persisted: 0, total: 0 }
   }
 

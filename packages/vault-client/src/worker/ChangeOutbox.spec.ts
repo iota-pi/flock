@@ -26,6 +26,7 @@ describe('ChangeOutbox', () => {
   let encryptBytes: AnyMock
   let requestSnapshot: AnyMock
   let onMarked: AnyMock
+  let onAcknowledged: AnyMock
   let now: number
   let outbox: ChangeOutbox
 
@@ -48,6 +49,8 @@ describe('ChangeOutbox', () => {
     encryptBytes = vi.fn(async (data: Uint8Array) => ({ iv: 'iv', cipher: 'c'.repeat(data.byteLength), kver: '1', format: 2 }))
     requestSnapshot = vi.fn()
     onMarked = vi.fn()
+    // As the context's does, through the snapshot schedule
+    onAcknowledged = vi.fn((itemId: ItemId) => itemSyncState.setDirty(itemId, true))
     now = 1_000
     outbox = new ChangeOutbox({
       db,
@@ -58,6 +61,7 @@ describe('ChangeOutbox', () => {
       exchange,
       requestSnapshot,
       onMarked,
+      onAcknowledged,
       now: () => now,
     })
   })
@@ -127,6 +131,74 @@ describe('ChangeOutbox', () => {
     expect(exchange).toHaveBeenCalledTimes(1)
     expect(itemSyncState.getServerHeads(ITEM)).toEqual(['head-2'])
     expect(await outbox.listPending()).toEqual([])
+  })
+
+  it('marks an acknowledged item dirty in the same save as its server heads', async () => {
+    await outbox.mark(ITEM)
+    const update = vi.spyOn(db, 'update')
+
+    await outbox.pushPending()
+
+    expect(onAcknowledged).toHaveBeenCalledWith(ITEM)
+    const recordWrites = update.mock.calls.filter(([store]) => store === SYNC_LOG_STORES.items)
+    expect(recordWrites).toHaveLength(1)
+    expect(await db.get(SYNC_LOG_STORES.items, ITEM)).toEqual({ itemId: ITEM, serverHeads: ['head-2'], dirty: true })
+  })
+
+  it('marks nothing dirty for a false mark or a failed push', async () => {
+    docStore.readChangesSince.mockResolvedValueOnce({ changes: [], heads: ['head-1'] })
+    await outbox.mark(ITEM)
+    await outbox.pushPending()
+
+    await outbox.mark(ITEM)
+    exchange.mockRejectedValueOnce(new Error('offline'))
+    await expect(outbox.pushPending()).rejects.toThrow('offline')
+
+    expect(onAcknowledged).not.toHaveBeenCalled()
+  })
+
+  describe('an acknowledgement that fails to save', () => {
+    let failRecordSaves: boolean
+
+    beforeEach(() => {
+      failRecordSaves = true
+      const update = db.update.bind(db)
+      vi.spyOn(db, 'update').mockImplementation((async (store: string, ...rest: unknown[]) => {
+        if (store === SYNC_LOG_STORES.items && failRecordSaves) throw new Error('disk full')
+        return (update as (...args: unknown[]) => Promise<void>)(store, ...rest)
+      }) as typeof db.update)
+    })
+
+    it('keeps the mark and the item queued, and asks for the save again', async () => {
+      const requestSave = vi.spyOn(itemSyncState, 'requestSave')
+      await outbox.mark(ITEM)
+
+      await outbox.pushPending()
+
+      expect(await outbox.listPending()).toEqual([ITEM])
+      expect(onAcknowledged).toHaveBeenCalledWith(ITEM)
+      expect(itemSyncState.hasUnsaved(ITEM, 'serverHeads')).toBe(true)
+      expect(itemSyncState.hasUnsaved(ITEM, 'dirty')).toBe(true)
+      expect(requestSave).toHaveBeenCalled()
+    })
+
+    it('keeps the mark while the heads are unsaved, and clears it at the next push once they are saved', async () => {
+      await outbox.mark(ITEM)
+      await outbox.pushPending()
+      // The doc has nothing after the heads the acknowledgement recorded
+      docStore.readChangesSince.mockResolvedValue({ changes: [], heads: ['head-2'] })
+
+      await outbox.pushPending()
+      expect(await outbox.listPending()).toEqual([ITEM])
+      expect(exchange).toHaveBeenCalledTimes(1)
+
+      failRecordSaves = false
+      await itemSyncState.save()
+      await outbox.pushPending()
+
+      expect(await outbox.listPending()).toEqual([])
+      expect(await db.get(SYNC_LOG_STORES.items, ITEM)).toEqual({ itemId: ITEM, serverHeads: ['head-2'], dirty: true })
+    })
   })
 
   it('reads changes after the server heads', async () => {
@@ -247,6 +319,7 @@ describe('ChangeOutbox', () => {
       exchange,
       requestSnapshot,
       onMarked,
+      onAcknowledged,
     })
     docStore.readChangesSince.mockClear()
     await reloaded.pushPending()
@@ -456,7 +529,7 @@ describe('ChangeOutbox', () => {
       expect(docStore.hasChangesSince).not.toHaveBeenCalled()
     })
 
-    it('leaves the mark an item already has, so its tick stays', async () => {
+    it('leaves the mark an item already has, so its tick stays, but still wakes the push', async () => {
       await db.put(SYNC_LOG_STORES.outbox, { itemId: ITEM, tick: 5 })
       docStore.hasChangesSince.mockReturnValue(true)
 
@@ -464,6 +537,17 @@ describe('ChangeOutbox', () => {
       await settleCheck()
 
       expect(await db.get(SYNC_LOG_STORES.outbox, ITEM)).toEqual({ itemId: ITEM, tick: 5 })
+      // A follower's mark reached the leader before its change, so this is what pushes it
+      expect(onMarked).toHaveBeenCalledTimes(1)
+    })
+
+    it("doesn't wake the push for an item with nothing unpushed", async () => {
+      await db.put(SYNC_LOG_STORES.outbox, { itemId: ITEM, tick: 5 })
+
+      outbox.onDocChanged(ITEM)
+      await settleCheck()
+
+      expect(onMarked).not.toHaveBeenCalled()
     })
   })
 })

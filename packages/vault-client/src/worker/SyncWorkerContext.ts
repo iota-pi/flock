@@ -220,7 +220,6 @@ export class SyncWorkerContext {
     this.sealedStorage = local.mode === 'sealed' ? local.storage : null
     const services = this.createServices(local)
     this._services = services
-    this.subscribeCrossTabDirtyItems(services)
     this.registerLifecycleServices(services)
   }
 
@@ -293,6 +292,8 @@ export class SyncWorkerContext {
         this._services?.orchestrator.flush()
         syncProgress.scheduleRecount()
       },
+      // The leader's acknowledgement is the one place an edit makes its item dirty
+      onAcknowledged: itemId => this._services?.snapshotManager.schedule.markItemDirty(itemId),
     })
 
     const snapshotCoverage = new SnapshotCoverage({
@@ -372,13 +373,13 @@ export class SyncWorkerContext {
       onDueChanged: () => this._services?.orchestrator.onSnapshotDue(),
       runPollNow: () => this.services.orchestrator.pollNow(),
       isCaughtUp: () => puller.isCaughtUp,
+      hasPendingMarks: async () => (await changeOutbox.listPending()).length > 0,
     })
 
+    // Only the mark: the leader's push acknowledgement marks the item dirty for its snapshot
     const markDocumentDirty = (id: ItemId) => {
-      snapshotManager.schedule.markItemDirty(id)
       fireAndForget(changeOutbox.mark(id), 'SyncWorkerContext:markPending')
-      // Only the leader pushes and uploads snapshots, so tell it about edits made in this tab
-      realtimeBus.publishItemDirty([id])
+      this._services?.storageRecoveryService.recordEdit(id)
     }
 
     const itemOperations = new ItemOperations({
@@ -594,16 +595,6 @@ export class SyncWorkerContext {
     }
   }
 
-  private subscribeCrossTabDirtyItems({ realtimeBus, snapshotManager, orchestrator }: SyncWorkerServices): void {
-    const unsub = realtimeBus.subscribeItemDirty(itemIds => {
-      for (const itemId of itemIds) {
-        snapshotManager.schedule.markItemDirty(itemId)
-      }
-      orchestrator.flush()
-    })
-    this.unsubscribers.push(unsub)
-  }
-
   private registerLifecycleServices(services: SyncWorkerServices): void {
     const {
       realtimeBus, foregroundTracker, repoManager, syncLogDatabase, storageRecoveryService, indexManager, recoveryManager,
@@ -683,9 +674,13 @@ export class SyncWorkerContext {
     this._services?.snapshotManager.schedule.markItemDirty(itemId, SYNC_TIMEOUTS.upstreamSnapshotDebounce)
   }
 
-  /** Marks restored items pending and dirty. Whatever they hold that the server lacks gets pushed. */
+  /**
+   * Marks restored items pending, so whatever they hold that the server lacks gets pushed, and on the
+   * leader asks for their snapshots. A follower's restored items become dirty when the leader's push
+   * is acknowledged.
+   */
   async markRestored(itemIds: ItemId[]): Promise<void> {
-    this.requestSnapshot(itemIds)
+    if (this.session.isLeader) this.requestSnapshot(itemIds)
     await this.services.changeOutbox.markAll(itemIds)
   }
 
@@ -929,8 +924,8 @@ export class SyncWorkerContext {
   }
 
   /**
-   * Saves the dirty flags now, in any tab, so the startup audit finds them if the page is closed, and
-   * flushes the log push. Snapshots aren't forced up: the log already delivers the change.
+   * Saves the item records now, so the startup audit finds the leader's dirty flags if the page is
+   * closed, and flushes the log push. Snapshots aren't forced up: the log already delivers the change.
    */
   onPageHidden(): void {
     const { orchestrator, itemSyncState } = this.services
@@ -946,10 +941,12 @@ export class SyncWorkerContext {
   /**
    * Counts the items whose local changes the server may not have: pending marks or a snapshot still
    * to upload, plus quarantined items. It first gives pending pushes a short chance to finish, so
-   * changes about to sync aren't reported.
+   * changes about to sync aren't reported. Snapshots still to upload are read from the stored dirty
+   * flags, which only the leader writes, so a follower counts what the leader has pushed but not
+   * uploaded.
    */
   async getUnsyncedChanges(): Promise<UnsyncedChanges> {
-    const { orchestrator, snapshotManager } = this.services
+    const { orchestrator, snapshotManager, itemSyncState } = this.services
     orchestrator.flush()
     try {
       await withTimeout(
@@ -959,7 +956,9 @@ export class SyncWorkerContext {
     } catch (error) {
       log.warn('Pending snapshots did not finish uploading before counting unsynced changes', error)
     }
-    return this.countChanges(snapshotManager.schedule.getDirtyItemIds())
+    // Keeps this tab's unsaved values, so the leader's own queue counts too
+    await itemSyncState.load()
+    return this.countChanges(itemSyncState.listFlagged().map(({ itemId }) => itemId))
   }
 
   /**

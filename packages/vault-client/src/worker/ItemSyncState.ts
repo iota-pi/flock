@@ -39,9 +39,10 @@ export interface ItemSyncStateDeps {
  * snapshot can deliver its changes (`snapshotOnly`), and when it first pulled changes no snapshot has
  * confirmed (`pulledAt`).
  *
- * Every tab holds a copy, but they don't all know the same: every tab marks items dirty, while only
- * the leader records server heads, uploads and pulls, and a tab that has just stopped leading can
- * still save after the new leader loaded. So this tab's changes are tracked per item and per field,
+ * Every tab holds a copy, but they don't all know the same: only the leader records server heads,
+ * marks items dirty (as it records an acknowledged push), uploads and pulls, and a tab that has just
+ * stopped leading can still save after the new leader loaded. Followers read the records, to count
+ * what's still to sync. So this tab's changes are tracked per item and per field,
  * and a save writes only the fields this tab changed, in one transaction, keeping the stored values
  * of the rest. A load keeps this tab's unsaved values over the stored ones. Base versions only rise
  * (sync rule 8), in memory and against the stored value on save.
@@ -160,6 +161,11 @@ export class ItemSyncState {
     return this.unsaved.get(itemId)?.has(field) ?? false
   }
 
+  /** Whether this tab changed the item's field and hasn't saved it yet, such as after a failed save */
+  hasUnsaved(itemId: ItemId, field: ItemSyncField): boolean {
+    return this.isUnsaved(itemId, field) || (this.saving.get(itemId)?.has(field) ?? false)
+  }
+
   /** The item's server heads, empty when none are known */
   getServerHeads(itemId: ItemId): string[] {
     return this.items.get(itemId)?.serverHeads ?? []
@@ -208,9 +214,9 @@ export class ItemSyncState {
   }
 
   /**
-   * Sets or clears the item's dirty flag. Every tab sets it, and it's written every time, since this
-   * tab's copy may be stale: the edit must survive a leader that crashes before uploading. Only the
-   * leader clears it.
+   * Sets or clears the item's dirty flag. Only the leader writes it: it sets the flag as it records the
+   * acknowledgement of a push, in the same save as the item's server heads, and clears it once the
+   * snapshot is stored. It's written every time, since this tab's copy may be stale.
    */
   setDirty(itemId: ItemId, dirty: boolean): void {
     if (this.stopped) return
@@ -290,6 +296,12 @@ export class ItemSyncState {
       this.markUnsaved(itemId, 'pulledAt')
     }
     await this.save()
+  }
+
+  /** Saves what this tab changed after the usual delay, such as to retry a save that failed */
+  requestSave(): void {
+    if (this.stopped) return
+    this.saveDebounced()
   }
 
   /** Starts a pending save now, such as when the page is hidden and may be closed */

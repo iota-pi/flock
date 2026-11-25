@@ -402,14 +402,12 @@ export function createMemoryItemRecords(initial: ItemSyncRecord[] = []) {
 export interface FakeRealtimeBus {
   bus: RealtimeBus
   publishSyncPing: Mock<(itemIds: ItemId[]) => void>
-  publishItemDirty: Mock<(itemIds: ItemId[]) => void>
   publishIndexUpdated: Mock<(itemIds: ItemId[]) => void>
   publishMetadataUpdated: Mock<(metadata: VaultMetadata) => void>
   publishTabVisibility: Mock<(visibility: TabVisibility) => void>
   close: Mock<() => void>
   /** Delivers messages as if another tab had published them */
   receiveSyncPing(itemIds: ItemId[]): void
-  receiveItemDirty(itemIds: ItemId[]): void
   receiveIndexUpdated(itemIds: ItemId[]): void
   receiveMetadataUpdated(metadata: VaultMetadata): void
   receiveTabVisibility(visibility: TabVisibility): void
@@ -417,7 +415,6 @@ export interface FakeRealtimeBus {
 
 export function createFakeRealtimeBus(): FakeRealtimeBus {
   const syncPing = new Set<(itemIds: ItemId[]) => void>()
-  const itemDirty = new Set<(itemIds: ItemId[]) => void>()
   const index = new Set<(itemIds: ItemId[]) => void>()
   const metadata = new Set<(metadata: VaultMetadata) => void>()
   const tabVisibility = new Set<(visibility: TabVisibility) => void>()
@@ -429,19 +426,16 @@ export function createFakeRealtimeBus(): FakeRealtimeBus {
   }
   const fake = {
     publishSyncPing: vi.fn(),
-    publishItemDirty: vi.fn(),
     publishIndexUpdated: vi.fn(),
     publishMetadataUpdated: vi.fn(),
     publishTabVisibility: vi.fn(),
     close: vi.fn(() => {
       syncPing.clear()
-      itemDirty.clear()
       index.clear()
       metadata.clear()
       tabVisibility.clear()
     }),
     receiveSyncPing: (itemIds: ItemId[]) => syncPing.forEach(listener => listener(itemIds)),
-    receiveItemDirty: (itemIds: ItemId[]) => itemDirty.forEach(listener => listener(itemIds)),
     receiveIndexUpdated: (itemIds: ItemId[]) => index.forEach(listener => listener(itemIds)),
     receiveMetadataUpdated: (value: VaultMetadata) => metadata.forEach(listener => listener(value)),
     receiveTabVisibility: (value: TabVisibility) => tabVisibility.forEach(listener => listener(value)),
@@ -449,7 +443,6 @@ export function createFakeRealtimeBus(): FakeRealtimeBus {
   const bus = {
     ...fake,
     subscribeSyncPing: subscribe(syncPing),
-    subscribeItemDirty: subscribe(itemDirty),
     subscribeIndexUpdated: subscribe(index),
     subscribeMetadataUpdated: subscribe(metadata),
     subscribeTabVisibility: subscribe(tabVisibility),

@@ -1,3 +1,4 @@
+import type { ItemId } from '@vault/shared'
 import { isQuotaError } from '../utils/storageQuota'
 import { resetQuotaExceededStatus, registerQuotaReporter } from '../utils/storageManager'
 import type { ClientEventHub } from './SyncEventHub'
@@ -34,6 +35,12 @@ export interface StorageRecoveryServiceDeps {
 
 export class StorageRecoveryService {
   private unregisterQuotaReporter: (() => void) | null = null
+  /**
+   * Items edited in this tab since the last successful retry. An edit's doc and pending mark can both
+   * fail to save while storage is full, and only the leader's acknowledged pushes queue snapshots, so
+   * the dirty queue alone would miss them.
+   */
+  private readonly editedItems = new Set<ItemId>()
 
   constructor(private readonly deps: StorageRecoveryServiceDeps) {}
 
@@ -48,11 +55,18 @@ export class StorageRecoveryService {
   /** Unregisters the global storage handler */
   stop(): void {
     this.unregisterQuotaReporter?.()
+    this.editedItems.clear()
+  }
+
+  /** Records an edit in this tab, whose doc a later `retrySave` saves again */
+  recordEdit(itemId: ItemId): void {
+    this.editedItems.add(itemId)
   }
 
   /**
-   * Saves what failed to save while storage was full, once it has room again: the dirty documents,
-   * then the items' sync records. Their pending marks may have failed too, so they're written again.
+   * Saves what failed to save while storage was full, once it has room again: the documents edited in
+   * this tab and those queued for a snapshot, then the items' sync records. Their pending marks may
+   * have failed too, so they're written again.
    */
   async retrySave(): Promise<RetrySaveResult> {
     try {
@@ -60,7 +74,8 @@ export class StorageRecoveryService {
         this.deps.metadataStore.testStorageAvailable(),
         'Storage quota is still exceeded. Please free up more space on your device.',
       )
-      const dirtyIds = this.deps.snapshotManager.schedule.getDirtyItemIds()
+      const edited = Array.from(this.editedItems)
+      const dirtyIds = Array.from(new Set([...edited, ...this.deps.snapshotManager.schedule.getDirtyItemIds()]))
       for (const itemId of dirtyIds) {
         try {
           await this.deps.docStore.saveDocToStorage(itemId)
@@ -85,6 +100,9 @@ export class StorageRecoveryService {
         this.deps.orchestrator.flush()
       }
 
+      for (const itemId of edited) {
+        this.editedItems.delete(itemId)
+      }
       resetQuotaExceededStatus()
       this.deps.clientEventHub.emit({ type: 'quotaResolved' })
       return { success: true }

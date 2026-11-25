@@ -107,6 +107,21 @@ describe('StorageRecoveryService', () => {
       expect(emitSpy).toHaveBeenCalledWith({ type: 'quotaResolved' })
     })
 
+    it("saves the docs of this tab's edits, which aren't queued for a snapshot, until a retry succeeds", async () => {
+      mockSnapshotManager.schedule.getDirtyItemIds.mockReturnValue([])
+      service.recordEdit('edited' as ItemId)
+      mockMetadataStore.testStorageAvailable.mockRejectedValueOnce(new DOMException('Quota exceeded', 'QuotaExceededError'))
+
+      expect((await service.retrySave()).success).toBe(false)
+      expect(await service.retrySave()).toEqual({ success: true })
+      expect(mockDocStore.saveDocToStorage).toHaveBeenCalledWith('edited')
+      expect(mockOutbox.markAll).toHaveBeenCalledWith(['edited'])
+
+      mockOutbox.markAll.mockClear()
+      await service.retrySave()
+      expect(mockOutbox.markAll).toHaveBeenCalledWith([])
+    })
+
     it('returns failure when storage probe fails with QuotaExceededError', async () => {
       const quotaErr = new DOMException('Quota exceeded', 'QuotaExceededError')
       mockMetadataStore.testStorageAvailable.mockRejectedValueOnce(quotaErr)
