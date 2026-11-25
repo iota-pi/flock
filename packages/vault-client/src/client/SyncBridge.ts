@@ -129,9 +129,6 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
           },
         })
       },
-      onRestart: async (accountId: string) => {
-        await this.initialize(accountId)
-      },
       onShutdownCleanup: shutdownOptions => {
         if (!shutdownOptions?.internalRestart) {
           this.telemetry.setUser(null)

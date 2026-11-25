@@ -98,7 +98,6 @@ describe('WorkerLifecycleManager', () => {
       },
       onEvent: vi.fn(),
       onReady: vi.fn(),
-      onRestart: vi.fn().mockResolvedValue(undefined),
       onShutdownCleanup: vi.fn(),
       onStatusChange: vi.fn(),
       onSyncWarning: vi.fn(),
@@ -511,8 +510,9 @@ describe('WorkerLifecycleManager', () => {
       // Fast-forward 1000ms for the restart timer
       await vi.advanceTimersByTimeAsync(1000)
 
-      expect(callbacks.onRestart).toHaveBeenCalledTimes(1)
-      expect(callbacks.onRestart).toHaveBeenCalledWith('test-account')
+      expect(workers).toHaveLength(2)
+      expect(mockSyncApi.initRepo).toHaveBeenLastCalledWith('test-account', 'test-key', { authToken: null })
+      expect(manager.getSyncApi()).not.toBeNull()
       windowDispatchSpy.mockRestore()
       vi.useRealTimers()
     })
@@ -536,30 +536,31 @@ describe('WorkerLifecycleManager', () => {
       // Move time forward by second timeout: HEARTBEAT_INTERVAL (15s) + HEARTBEAT_TIMEOUT (30s) = 45s -> total 90s
       await vi.advanceTimersByTimeAsync(45000)
 
-      expect(callbacks.onStatusChange).toHaveBeenLastCalledWith('connecting')
-      expect(callbacks.onSyncWarning).toHaveBeenLastCalledWith('Sync connection lost. Reconnecting...')
+      // The crash lands partway through that window, so the restart may already have run
+      expect(callbacks.onStatusChange).toHaveBeenCalledWith('connecting')
+      expect(callbacks.onSyncWarning).toHaveBeenCalledWith('Sync connection lost. Reconnecting...')
 
       // Fast-forward another 1000ms for the restart timer
       await vi.advanceTimersByTimeAsync(1000)
-      expect(callbacks.onRestart).toHaveBeenCalledTimes(1)
+      expect(workers).toHaveLength(2)
+      expect(manager.getSyncApi()).not.toBeNull()
 
       vi.useRealTimers()
     })
 
     it('halts auto-restart and sets a fatal error after 3 consecutive crashes', async () => {
       vi.useFakeTimers()
-      callbacks.onRestart = vi.fn((accountId: string) => manager.initialize(accountId))
       await manager.initialize('test-account')
 
       // First crash
       workers.at(-1)!.dispatchEvent(new ErrorEvent('error', { message: 'crash 1' }))
       await vi.advanceTimersByTimeAsync(1000) // triggers restart
-      expect(callbacks.onRestart).toHaveBeenCalledTimes(1)
+      expect(workers).toHaveLength(2)
 
       // Second crash
       workers.at(-1)!.dispatchEvent(new ErrorEvent('error', { message: 'crash 2' }))
       await vi.advanceTimersByTimeAsync(1000) // triggers restart
-      expect(callbacks.onRestart).toHaveBeenCalledTimes(2)
+      expect(workers).toHaveLength(3)
 
       // Third crash
       workers.at(-1)!.dispatchEvent(new ErrorEvent('error', { message: 'crash 3' }))
@@ -568,14 +569,14 @@ describe('WorkerLifecycleManager', () => {
       expect(callbacks.onFatalError).toHaveBeenCalledWith('Sync worker crashed repeatedly. Please refresh the page to try again.')
       expect(callbacks.onStatusChange).toHaveBeenLastCalledWith('dead')
       await vi.advanceTimersByTimeAsync(1000)
-      expect(callbacks.onRestart).toHaveBeenCalledTimes(2) // should not have incremented
+      expect(workers).toHaveLength(3) // no restart
+      await expect(manager.ensureReady()).rejects.toThrow('SyncBridge not initialized')
 
       vi.useRealTimers()
     })
 
     it('queues mutations during worker crash and applies them after restart', async () => {
       vi.useFakeTimers()
-      callbacks.onRestart = vi.fn((accountId: string) => manager.initialize(accountId))
       await manager.initialize('test-account')
       expect(workers).toHaveLength(1)
 
@@ -802,6 +803,80 @@ describe('WorkerLifecycleManager', () => {
         expect.objectContaining({ clearLocalData: true }),
       )
       expect(manager.isClearingLocalData()).toBe(false)
+    })
+  })
+
+  describe('lifecycle guarantees', () => {
+    it('keeps ensureReady waiting through a failed start until its retry succeeds', async () => {
+      vi.useFakeTimers()
+      let rejectInit: (error: Error) => void = () => {}
+      mockSyncApi.initRepo.mockImplementationOnce(() => new Promise<void>((_, reject) => { rejectInit = reject }))
+
+      const initPromise = manager.initialize('retry-account')
+      initPromise.catch(() => {})
+      let ready = false
+      const ensureReadyPromise = manager.ensureReady().then(() => { ready = true })
+
+      await vi.advanceTimersByTimeAsync(0)
+      rejectInit(new Error('transient'))
+      await expect(initPromise).rejects.toThrow('transient')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(ready).toBe(false)
+
+      await vi.advanceTimersByTimeAsync(2000)
+      await ensureReadyPromise
+      expect(ready).toBe(true)
+      vi.useRealTimers()
+    })
+
+    it('never restarts a crashed worker once shut down', async () => {
+      vi.useFakeTimers()
+      await manager.initialize('test-account')
+      workers[0].dispatchEvent(new ErrorEvent('error', { message: 'crash' }))
+
+      const waiting = manager.ensureReady()
+      await manager.shutdown()
+      await expect(waiting).rejects.toThrow('SyncBridge not initialized')
+
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(workers).toHaveLength(1)
+      expect(manager.getCurrentAccountId()).toBeNull()
+      vi.useRealTimers()
+    })
+
+    it('cancels a pending retry on shutdown', async () => {
+      vi.useFakeTimers()
+      mockSyncApi.initRepo.mockRejectedValueOnce(new Error('fail'))
+      await expect(manager.initialize('retry-account')).rejects.toThrow('fail')
+
+      await manager.shutdown()
+      await vi.advanceTimersByTimeAsync(60000)
+      expect(mockSyncApi.initRepo).toHaveBeenCalledTimes(1)
+      expect(callbacks.onStatusChange).toHaveBeenLastCalledWith('offline')
+      vi.useRealTimers()
+    })
+
+    it('rule 5: closes the worker before clearing local data', async () => {
+      await manager.initialize('test-account')
+      const order: string[] = []
+      mockSyncApi.shutdown.mockImplementationOnce(async () => { order.push('worker shutdown') })
+      workers[0].terminate.mockImplementation(() => { order.push('terminate') })
+      clearAccountLocalDataSpy.mockImplementation(async () => { order.push('clear') })
+
+      await manager.shutdown({ clearLocalData: true })
+      expect(order).toEqual(['worker shutdown', 'terminate', 'clear'])
+    })
+
+    it('rule 5: closes the old worker before clearing when re-initializing with clearLocalData', async () => {
+      await manager.initialize('test-account')
+      const order: string[] = []
+      workers[0].terminate.mockImplementation(() => { order.push('terminate') })
+      clearAccountLocalDataSpy.mockImplementation(async () => { order.push('clear') })
+
+      await manager.initialize('test-account', { clearLocalData: true })
+      expect(order).toEqual(['terminate', 'clear'])
+      expect(workers).toHaveLength(2)
+      expect(manager.getSyncApi()).not.toBeNull()
     })
   })
 })
