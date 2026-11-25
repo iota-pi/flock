@@ -10,12 +10,21 @@ import {
 } from './SyncWorkerHealthMonitor'
 import { getOnlineState } from '../utils/onlineStatus'
 import { clearAccountLocalData } from './localDataCleanup'
-import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { RetryTimer } from '../utils/RetryTimer'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { createLogger } from '../utils/logger'
-import { AbortError, delay, untilAborted, withTimeout } from '../utils/abort'
+import { AbortError, untilAborted, withTimeout } from '../utils/abort'
 import { noopTelemetry, type SyncTelemetry } from './host'
+import {
+  INITIAL_LIFECYCLE_STATE,
+  isCurrentRun,
+  isPending,
+  phaseAccountId,
+  transitionLifecycle,
+  type LifecycleEffect,
+  type LifecycleEvent,
+  type LifecycleState,
+} from './workerLifecycleState'
 
 const log = createLogger('WorkerLifecycleManager')
 
@@ -56,8 +65,6 @@ class WorkerSession {
 
 export interface WorkerShutdownOptions {
   clearLocalData?: boolean
-  /** Shutting down to restart the worker, so initialization stays in progress */
-  internalRestart?: boolean
   accountId?: string
 }
 
@@ -67,8 +74,8 @@ export interface WorkerLifecycleCallbacks {
   telemetry?: SyncTelemetry
   onEvent: (event: ClientEvent) => void
   onReady?: () => void
-  onRestart: (accountId: string) => Promise<void>
-  onShutdownCleanup?: (options?: { internalRestart?: boolean }) => void
+  /** The worker is closing. `internalRestart` means a new one is starting in its place, for the same account or another. */
+  onShutdownCleanup?: (options: { internalRestart: boolean }) => void
   onStatusChange: (status: SyncStatus) => void
   onSyncWarning?: (message: string | null) => void
   onFatalError?: (message: string) => void
@@ -79,33 +86,40 @@ export interface WorkerInitOptions {
   clearLocalData?: boolean
 }
 
+/** A run starting a worker, which an `abortRun` effect aborts */
+interface InitRun {
+  id: number
+  promise: Promise<void>
+  abortController: AbortController
+}
+
+interface CloseOptions {
+  accountId: string | null
+  clearLocalData: boolean
+  /** A new worker is starting in place of this one */
+  internalRestart: boolean
+  /** Runs once the worker has closed, before any local data is cleared */
+  onClosed?: () => void
+}
+
+/**
+ * Starts, restarts and shuts down the sync worker. Which of those it's doing is `state`, moved by
+ * `transitionLifecycle` (workerLifecycleState.ts); this class holds the worker and carries out the
+ * effects.
+ */
 export class WorkerLifecycleManager {
-  /** The current worker, set as soon as it starts so a shutdown during initialization can shut it down */
+  private state: LifecycleState = INITIAL_LIFECYCLE_STATE
+  /** The current worker, set as soon as it starts so whatever supersedes its run can shut it down */
   private session: WorkerSession | null = null
-  /** The current session's API, once it has initialized */
-  private syncApi: Comlink.Remote<SyncApi> | null = null
-  private currentAccountId: string | null = null
+  private run: InitRun | null = null
+  /** Retries a failed start, or restarts a crashed worker */
+  private readonly timer = new RetryTimer()
+  /** Settles once a worker is no longer on its way, for `ensureReady`. Set exactly while the phase is pending. */
+  private settled: PromiseWithResolvers<void> | null = null
+  /** Closing the worker. A run, or another shutdown, waits for it so local data is never cleared under a live worker. */
+  private activeShutdown: Promise<void> | null = null
   private lastKnownAccountId: string | null = null
   private readonly pendingShutdownClearAccounts = new Set<string>()
-  private activeShutdownPromise: Promise<void> | null = null
-
-  private initializationPromise: Promise<void> | null = null
-  private initAbortController: AbortController | null = null
-  private static readonly MAX_INIT_RETRIES = 5
-  private readonly initRetryStrategy = new RetryStrategy({
-    delays: DEFAULT_RETRY_DELAYS,
-    maxAttempts: WorkerLifecycleManager.MAX_INIT_RETRIES,
-  })
-
-  /** Settles the pending `initializationPromise` that mutations wait on while a crashed worker restarts */
-  private pendingRestart: PromiseWithResolvers<void> | null = null
-  /** Restarts a crashed worker after a delay; every shutdown cancels it */
-  private readonly restartTimer = new RetryTimer()
-
-  private resolvePendingRestart(): void {
-    this.pendingRestart?.resolve()
-    this.pendingRestart = null
-  }
 
   private readonly healthMonitor = new SyncWorkerHealthMonitor({
     setSyncStatus: status => this.callbacks.onStatusChange(status),
@@ -124,16 +138,16 @@ export class WorkerLifecycleManager {
   }
 
   getSyncApi(): Comlink.Remote<SyncApi> | null {
-    return this.syncApi
+    return this.state.phase.kind === 'ready' ? this.session?.api ?? null : null
   }
 
   getCurrentAccountId(): string | null {
-    return this.currentAccountId
+    return phaseAccountId(this.state.phase)
   }
 
   /** The account a shutdown or local data clear applies to when none is given */
   private resolveTargetAccountId(accountId?: string): string | null {
-    return accountId || this.currentAccountId || this.lastKnownAccountId || this.callbacks.getAccountId?.() || null
+    return accountId || this.getCurrentAccountId() || this.lastKnownAccountId || this.callbacks.getAccountId?.() || null
   }
 
   requestClearOnShutdown(accountId?: string): void {
@@ -151,91 +165,154 @@ export class WorkerLifecycleManager {
     return this.pendingShutdownClearAccounts.size > 0
   }
 
+  /** The worker's API, waiting while one is starting, retrying or restarting */
   async ensureReady(): Promise<Comlink.Remote<SyncApi>> {
-    if (this.initializationPromise) {
-      await this.initializationPromise
+    while (this.settled) {
+      await this.settled.promise
     }
-    if (!this.syncApi) {
+    const api = this.getSyncApi()
+    if (!api) {
       throw new Error('SyncBridge not initialized')
     }
-    return this.syncApi
-  }
-
-  initialize(accountId: string, options?: WorkerInitOptions): Promise<void> {
-    if (this.syncApi && this.currentAccountId === accountId && !options?.clearLocalData) {
-      return Promise.resolve()
-    }
-    if (this.initializationPromise && this.currentAccountId === accountId && !options?.clearLocalData) {
-      return this.initializationPromise
-    }
-
-    this.lastKnownAccountId = accountId
-    this.currentAccountId = accountId
-
-    this.initAbortController?.abort(new AbortError('Initialization aborted'))
-    const abortController = new AbortController()
-    this.initAbortController = abortController
-
-    this.initializationPromise = this.runInitialization(accountId, options, abortController.signal)
-    return this.initializationPromise
+    return api
   }
 
   /**
-   * Whether a shutdown or a newer initialize (which shuts the old worker down) has aborted this run.
-   * Whatever aborted it takes over the worker and shuts it down cleanly, so an aborted run leaves it alone.
+   * Starts a worker for the account. A start that fails rejects, and is retried in the background.
+   * Joins a worker for the account that is already running or on its way, unless `clearLocalData`.
    */
-  private isInitAborted(accountId: string, signal: AbortSignal): boolean {
-    return signal.aborted || this.currentAccountId !== accountId
+  initialize(accountId: string, options?: WorkerInitOptions): Promise<void> {
+    this.lastKnownAccountId = accountId
+    this.dispatch({ type: 'initialize', accountId, clearLocalData: Boolean(options?.clearLocalData) })
+    const { phase } = this.state
+    if (phase.kind === 'starting' && this.run?.id === phase.run) {
+      return this.run.promise
+    }
+    return this.settled?.promise ?? Promise.resolve()
   }
 
-  private throwIfInitAborted(accountId: string, signal: AbortSignal): void {
-    if (this.isInitAborted(accountId, signal)) throw new AbortError('Initialization aborted')
+  async shutdown(options?: WorkerShutdownOptions): Promise<void> {
+    const accountId = this.resolveTargetAccountId(options?.accountId)
+    const clearLocalData = Boolean(options?.clearLocalData)
+    if (clearLocalData && accountId) {
+      this.pendingShutdownClearAccounts.add(accountId)
+    }
+    this.lastKnownAccountId = options?.accountId || this.getCurrentAccountId() || this.lastKnownAccountId
+
+    this.dispatch({ type: 'shutdown' })
+    await this.closeWorker({
+      accountId,
+      clearLocalData,
+      internalRestart: false,
+      onClosed: () => this.dispatch({ type: 'shutdownFinished' }),
+    })
   }
 
+  private dispatch(event: LifecycleEvent): void {
+    const wasPending = isPending(this.state.phase)
+    const { state, effects } = transitionLifecycle(this.state, event)
+    this.state = state
+    const pending = isPending(state.phase)
+    if (!wasPending && pending) {
+      this.settled = Promise.withResolvers<void>()
+    } else if (wasPending && !pending) {
+      this.settled?.resolve()
+      this.settled = null
+    }
+    for (const effect of effects) {
+      this.runEffect(effect)
+    }
+  }
+
+  private runEffect(effect: LifecycleEffect): void {
+    switch (effect.type) {
+      case 'startRun':
+        this.startRun(effect.run, effect.accountId, effect.clearLocalData)
+        break
+      case 'abortRun':
+        this.run?.abortController.abort(new AbortError('Initialization aborted'))
+        this.run = null
+        break
+      case 'armTimer':
+        this.timer.schedule(effect.delayMs, () => this.dispatch({ type: 'timerFired' }))
+        break
+      case 'cancelTimer':
+        this.timer.cancel()
+        break
+      case 'ready':
+        this.onRunReady()
+        break
+      case 'reportRetry':
+        this.callbacks.onSyncWarning?.(`Sync initialization failed. Retrying in ${effect.delayMs / 1000}s...`)
+        break
+      case 'reportFatal':
+        this.callbacks.onFatalError?.('Unable to start sync. Please refresh the page.')
+        this.callbacks.onStatusChange('offline')
+        break
+      case 'reportOffline':
+        this.callbacks.onStatusChange('offline')
+        break
+    }
+  }
+
+  private startRun(id: number, accountId: string, clearLocalData: boolean): void {
+    const run: InitRun = { id, promise: Promise.resolve(), abortController: new AbortController() }
+    this.run = run
+    run.promise = this.runInitialization(id, accountId, clearLocalData, run.abortController.signal)
+    // A retry or restart has no caller to see its failure, which was logged
+    run.promise.catch(() => {})
+  }
+
+  /**
+   * Starts a worker for run `id`. Once a newer run or a shutdown supersedes it, it returns quietly:
+   * whatever superseded it takes over the worker and shuts it down cleanly.
+   */
   private async runInitialization(
+    id: number,
     accountId: string,
-    options: WorkerInitOptions | undefined,
+    clearLocalData: boolean,
     signal: AbortSignal,
   ): Promise<void> {
-    if (this.activeShutdownPromise) {
-      await this.activeShutdownPromise
+    const isCurrent = () => isCurrentRun(this.state, id)
+    if (this.activeShutdown) {
+      await this.activeShutdown
     }
-    if (this.isInitAborted(accountId, signal)) {
+    if (!isCurrent()) {
       return
     }
-
-    if (this.session) {
-      await this.shutdown({ internalRestart: true, clearLocalData: options?.clearLocalData, accountId })
-    } else if (options?.clearLocalData) {
-      await clearAccountLocalData(accountId)
-    }
-
-    if (this.isInitAborted(accountId, signal)) {
-      return
-    }
-
-    this.callbacks.onStatusChange('connecting')
-    const initialOnlineState = getOnlineState()
 
     let session: WorkerSession | null = null
     try {
+      if (this.session) {
+        await this.closeWorker({ accountId, clearLocalData, internalRestart: true })
+      } else if (clearLocalData) {
+        await clearAccountLocalData(accountId)
+      }
+      if (!isCurrent()) {
+        return
+      }
+
+      this.callbacks.onStatusChange('connecting')
+      const onlineState = getOnlineState()
       const vaultKey = await exportKeyringData()
-      this.throwIfInitAborted(accountId, signal)
+      throwIfSuperseded(isCurrent)
 
       session = this.startSession()
-      await this.initSession(session, { accountId, vaultKey, onlineState: initialOnlineState, signal })
-
-      this.syncApi = session.api
-      this.callbacks.onReady?.()
-      this.initRetryStrategy.reset()
-      this.callbacks.onSyncWarning?.(null)
-      this.watchHealth(session, accountId)
+      await this.initSession(session, { accountId, vaultKey, onlineState, signal, isCurrent })
+      this.dispatch({ type: 'runSucceeded', run: id })
     } catch (error) {
-      if (this.isInitAborted(accountId, signal)) {
+      if (!isCurrent()) {
         log.warn('Initialization aborted due to account change or concurrent shutdown')
         return
       }
-      this.handleInitFailure(error, { accountId, options, signal, session })
+      log.error('Failed to initialize SyncBridge:', error)
+      if (session) {
+        session.close()
+        if (this.session === session) {
+          this.session = null
+        }
+      }
+      this.dispatch({ type: 'runFailed', run: id })
       throw error
     }
   }
@@ -260,11 +337,12 @@ export class WorkerLifecycleManager {
   /** Opens the account's repo in a new session's worker and loads its items */
   private async initSession(
     session: WorkerSession,
-    { accountId, vaultKey, onlineState, signal }: {
+    { accountId, vaultKey, onlineState, signal, isCurrent }: {
       accountId: string
       vaultKey: Parameters<SyncApi['initRepo']>[1]
       onlineState: boolean
       signal: AbortSignal
+      isCurrent: () => boolean
     },
   ): Promise<void> {
     const { api } = session
@@ -280,151 +358,75 @@ export class WorkerLifecycleManager {
     if (authToken) {
       await untilAborted(api.updateAuthToken(authToken), signal)
     }
-    this.throwIfInitAborted(accountId, signal)
+    throwIfSuperseded(isCurrent)
 
     await untilAborted(api.setOnlineState(onlineState), signal)
-    this.throwIfInitAborted(accountId, signal)
+    throwIfSuperseded(isCurrent)
 
     await untilAborted(api.bootstrapItems(), signal)
     this.healthMonitor.recordActivity()
-    this.throwIfInitAborted(accountId, signal)
+    throwIfSuperseded(isCurrent)
   }
 
-  /** Health-checks a ready session, tearing it down if it crashes and restarting sync after a delay */
-  private watchHealth(session: WorkerSession, accountId: string): void {
+  private onRunReady(): void {
+    const { session } = this
+    if (!session) return
+    this.callbacks.onReady?.()
+    this.callbacks.onSyncWarning?.(null)
+    this.watchHealth(session)
+  }
+
+  /** Health-checks a ready session, tearing it down if it crashes so the state can restart it */
+  private watchHealth(session: WorkerSession): void {
     this.healthMonitor.setupWorkerHealthCheck({
       worker: session.worker,
       pingPort: session.pingPort,
-      isCurrentWorker: () => this.session === session && !!this.syncApi,
+      isCurrentWorker: () => this.session === session && this.state.phase.kind === 'ready',
       onCrash: (willRestart = true) => {
-        if (this.session === session) {
-          session.close()
-          this.session = null
-          this.syncApi = null
-          if (willRestart) {
-            // Keep initializationPromise as a pending promise so mutations queue up
-            this.pendingRestart = Promise.withResolvers<void>()
-            this.initializationPromise = this.pendingRestart.promise
-          } else {
-            this.initializationPromise = null
-            this.resolvePendingRestart()
-          }
-        }
-      },
-      onRestart: () => {
-        this.restartTimer.schedule(SYNC_TIMEOUTS.workerRestartDelay, () => {
-          if (this.currentAccountId === accountId) {
-            this.initializationPromise = null
-            this.callbacks.onRestart(accountId)
-              .then(() => this.resolvePendingRestart())
-              .catch(err => {
-                log.error('Auto-restart initialization failed:', err)
-                this.resolvePendingRestart()
-              })
-          } else {
-            this.resolvePendingRestart()
-          }
-        })
+        if (this.session !== session) return
+        session.close()
+        this.session = null
+        this.dispatch({ type: 'crashed', willRestart })
       },
     })
   }
 
-  /** Closes a failed run's worker, then schedules a retry or, once retries run out, reports a fatal error */
-  private handleInitFailure(
-    error: unknown,
-    { accountId, options, signal, session }: {
-      accountId: string
-      options: WorkerInitOptions | undefined
-      signal: AbortSignal
-      session: WorkerSession | null
-    },
-  ): void {
-    log.error('Failed to initialize SyncBridge:', error)
-    if (session) {
-      session.close()
-      if (this.session === session) {
-        this.session = null
-      }
-      if (this.syncApi === session.api) {
-        this.syncApi = null
-      }
-    }
-
-    if (this.initRetryStrategy.canRetry) {
-      const retryDelay = this.initRetryStrategy.nextDelay()
-      this.callbacks.onSyncWarning?.(`Sync initialization failed. Retrying in ${retryDelay / 1000}s...`)
-
-      // Keep initializationPromise alive so ensureReady() callers wait
-      const retryPromise = delay(retryDelay, signal).then(() => {
-        this.initializationPromise = null
-        return this.initialize(accountId, options)
-      })
-      retryPromise.catch(() => {})
-      this.initializationPromise = retryPromise
-    } else {
-      // Exhausted retries — surface to user
-      this.callbacks.onFatalError?.('Unable to start sync. Please refresh the page.')
-      this.callbacks.onStatusChange('offline')
-      this.currentAccountId = null
-      this.initializationPromise = null
-    }
-  }
-
-  async shutdown(options?: WorkerShutdownOptions) {
-    const targetAccountId = this.resolveTargetAccountId(options?.accountId)
-
-    if (options?.clearLocalData && targetAccountId) {
-      this.pendingShutdownClearAccounts.add(targetAccountId)
-    }
-    if (options?.accountId) {
-      this.lastKnownAccountId = options.accountId
-    } else if (this.currentAccountId) {
-      this.lastKnownAccountId = this.currentAccountId
-    }
-
-    if (this.activeShutdownPromise) {
-      await this.activeShutdownPromise
-      if (targetAccountId && (options?.clearLocalData || this.pendingShutdownClearAccounts.has(targetAccountId))) {
-        await this.clearLocalData(targetAccountId)
+  /**
+   * Shuts the worker down, then clears the account's local data if asked (rule 5: the worker's Repo
+   * closes before its storage is cleared). A close already in progress serves this one.
+   */
+  private async closeWorker(options: CloseOptions): Promise<void> {
+    const { accountId, clearLocalData, onClosed } = options
+    if (this.activeShutdown) {
+      await this.activeShutdown
+      onClosed?.()
+      if (accountId && (clearLocalData || this.pendingShutdownClearAccounts.has(accountId))) {
+        await this.clearLocalData(accountId)
       }
       return
     }
 
-    const shutdownPromise = this._performShutdown(options)
-    this.activeShutdownPromise = shutdownPromise
+    const shutdownPromise = this.performClose(options)
+    this.activeShutdown = shutdownPromise
     try {
       await shutdownPromise
     } finally {
-      if (this.activeShutdownPromise === shutdownPromise) {
-        this.activeShutdownPromise = null
+      if (this.activeShutdown === shutdownPromise) {
+        this.activeShutdown = null
       }
     }
   }
 
-  private async _performShutdown(options?: WorkerShutdownOptions) {
-    const targetAccountId = this.resolveTargetAccountId(options?.accountId)
+  private async performClose({ accountId, clearLocalData, internalRestart, onClosed }: CloseOptions): Promise<void> {
+    const shouldClearLocalData = clearLocalData || Boolean(accountId && this.pendingShutdownClearAccounts.has(accountId))
 
-    const shouldClearLocalData = Boolean(
-      options?.clearLocalData || (targetAccountId && this.pendingShutdownClearAccounts.has(targetAccountId))
-    )
-
-    if (!options?.internalRestart) {
-      this.initAbortController?.abort(new AbortError('Initialization aborted'))
-      this.initAbortController = null
-      this.initializationPromise = null
-      this.currentAccountId = null
-    }
-    this.initRetryStrategy.reset()
-    this.restartTimer.cancel()
-    this.resolvePendingRestart()
     this.healthMonitor.stopWorkerHeartbeat()
     this.healthMonitor.resetCrashMetrics()
 
     const oldSession = this.session
     this.session = null
-    this.syncApi = null
 
-    this.callbacks.onShutdownCleanup?.(options)
+    this.callbacks.onShutdownCleanup?.({ internalRestart })
 
     if (oldSession) {
       try {
@@ -439,12 +441,10 @@ export class WorkerLifecycleManager {
       oldSession.close()
     }
 
-    if (!this.initializationPromise) {
-      this.callbacks.onStatusChange('offline')
-    }
+    onClosed?.()
 
-    if (shouldClearLocalData && targetAccountId) {
-      await this.clearLocalData(targetAccountId)
+    if (shouldClearLocalData && accountId) {
+      await this.clearLocalData(accountId)
     }
   }
 
@@ -456,4 +456,8 @@ export class WorkerLifecycleManager {
       this.pendingShutdownClearAccounts.delete(accountId)
     }
   }
+}
+
+function throwIfSuperseded(isCurrent: () => boolean): void {
+  if (!isCurrent()) throw new AbortError('Initialization aborted')
 }

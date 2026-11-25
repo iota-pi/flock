@@ -29,7 +29,8 @@ export interface HealthCheckOptions {
   pingPort: MessagePort
   isCurrentWorker: () => boolean
   onCrash: (willRestart?: boolean) => void
-  onRestart: () => void
+  /** Called after `onCrash` when the worker should restart */
+  onRestart?: () => void
   heartbeatIntervalMs?: number
   heartbeatTimeoutMs?: number
   maxMissedPings?: number
@@ -38,7 +39,7 @@ export interface HealthCheckOptions {
 interface CrashDetails {
   worker: Worker
   onCrash: (willRestart?: boolean) => void
-  onRestart: () => void
+  onRestart?: () => void
   isTimeout?: boolean
 }
 
@@ -185,7 +186,7 @@ export class SyncWorkerHealthMonitor {
       )
       this.reporter.setSyncStatus('connecting')
       this.reporter.setSyncWarning('Sync connection lost. Reconnecting...')
-      onRestart()
+      onRestart?.()
     }
   }
 

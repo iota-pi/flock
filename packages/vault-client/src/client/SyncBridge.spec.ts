@@ -709,14 +709,15 @@ describe('SyncBridge', () => {
     vi.useRealTimers()
   })
 
-  it('preserves recovery entries subscriptions and app store state on shutdown with internalRestart', async () => {
+  it('preserves recovery entries subscriptions and app store state when the worker restarts in place', async () => {
     await SyncBridge.initialize('test-account')
 
     const recoveryListener = vi.fn()
     SyncBridge.subscribeRecoveryItems(recoveryListener)
     expect(recoveryListener).toHaveBeenCalledTimes(1)
 
-    await SyncBridge.shutdown({ internalRestart: true })
+    // Clearing local data replaces the running worker with a new one
+    await SyncBridge.initialize('test-account', { clearLocalData: true })
 
     // Listener shouldn't have been called with empty array upon shutdown
     expect(recoveryListener).toHaveBeenCalledTimes(1)
