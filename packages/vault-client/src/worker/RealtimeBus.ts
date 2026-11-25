@@ -77,9 +77,10 @@ function postToChannel(channel: BroadcastChannel | null, message: unknown): void
 }
 
 /**
- * Tells this account's other tabs on the device what this tab did: items synced (`sync_ping`), items
- * edited (`item_dirty`, so the leader uploads their snapshots), whether it's visible (`tab_visibility`,
- * so the leader polls at the foreground rate), and index and metadata changes. Each
+ * Tells this account's other tabs on the device what this tab did: items synced (`sync_ping`), whether
+ * it's visible (`tab_visibility`, so the leader polls at the foreground rate), and index and metadata
+ * changes. Edits need no message: the leader marks an item dirty as it records its push (see
+ * `ChangeOutbox`), and ignores the `item_dirty` messages tabs of earlier releases still send. Each
  * session's context owns one and closes it when it stops. Index and metadata messages keep their own
  * channel, so tabs running an earlier release still hear them.
  */
@@ -87,7 +88,6 @@ export class RealtimeBus {
   private syncChannel: BroadcastChannel | null
   private indexChannel: BroadcastChannel | null
   private readonly syncPingListeners = new Set<ItemIdsListener>()
-  private readonly itemDirtyListeners = new Set<ItemIdsListener>()
   private readonly indexListeners = new Set<ItemIdsListener>()
   private readonly metadataListeners = new Set<MetadataListener>()
   private readonly tabVisibilityListeners = new Set<TabVisibilityListener>()
@@ -115,8 +115,6 @@ export class RealtimeBus {
     const itemIds = message.itemIds as ItemId[]
     if (message.type === 'sync_ping') {
       notifyListeners(this.syncPingListeners, itemIds, 'SyncPingListener')
-    } else if (message.type === 'item_dirty') {
-      notifyListeners(this.itemDirtyListeners, itemIds, 'ItemDirtyListener')
     }
   }
 
@@ -132,11 +130,6 @@ export class RealtimeBus {
   /** Items another tab synced */
   subscribeSyncPing(listener: ItemIdsListener): () => void {
     return addListener(this.syncPingListeners, listener)
-  }
-
-  /** Items another tab edited. The leader marks them dirty, since followers can't upload snapshots. */
-  subscribeItemDirty(listener: ItemIdsListener): () => void {
-    return addListener(this.itemDirtyListeners, listener)
   }
 
   /** Another tab's visibility */
@@ -159,11 +152,6 @@ export class RealtimeBus {
     postToChannel(this.syncChannel, { type: 'sync_ping', itemIds })
   }
 
-  publishItemDirty(itemIds: ItemId[]): void {
-    if (itemIds.length === 0) return
-    postToChannel(this.syncChannel, { type: 'item_dirty', itemIds })
-  }
-
   publishTabVisibility(visibility: TabVisibility): void {
     postToChannel(this.syncChannel, { type: 'tab_visibility', ...visibility })
   }
@@ -183,7 +171,6 @@ export class RealtimeBus {
     this.syncChannel = null
     this.indexChannel = null
     this.syncPingListeners.clear()
-    this.itemDirtyListeners.clear()
     this.indexListeners.clear()
     this.metadataListeners.clear()
     this.tabVisibilityListeners.clear()

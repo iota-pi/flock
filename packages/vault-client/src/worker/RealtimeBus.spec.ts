@@ -54,23 +54,21 @@ describe('RealtimeBus', () => {
   it('delivers each kind of message to its own listeners', () => {
     bus = new RealtimeBus('acc-1')
     const ping = vi.fn()
-    const dirty = vi.fn()
     const index = vi.fn()
     const metadata = vi.fn()
     bus.subscribeSyncPing(ping)
-    bus.subscribeItemDirty(dirty)
     bus.subscribeIndexUpdated(index)
     bus.subscribeMetadataUpdated(metadata)
 
     const syncChannel = channelNamed(getSyncPingChannelName('acc-1'))
     const indexChannel = channelNamed(getIndexChannelName('acc-1'))
     syncChannel.receive({ type: 'sync_ping', itemIds: ['item-a'] })
+    // Tabs of earlier releases still send these, which are ignored
     syncChannel.receive({ type: 'item_dirty', itemIds: ['item-b'] })
     indexChannel.receive({ type: 'indexUpdated', itemIds: ['item-c'] })
     indexChannel.receive({ type: 'metadataUpdated', metadata: { prayerGoal: 5 } })
 
     expect(ping.mock.calls).toEqual([[['item-a']]])
-    expect(dirty.mock.calls).toEqual([[['item-b']]])
     expect(index.mock.calls).toEqual([[['item-c']]])
     expect(metadata.mock.calls).toEqual([[{ prayerGoal: 5 }]])
   })
@@ -118,13 +116,11 @@ describe('RealtimeBus', () => {
   it('publishes in the formats earlier releases read', () => {
     bus = new RealtimeBus('acc-1')
     bus.publishSyncPing(['item-1'] as ItemId[])
-    bus.publishItemDirty(['item-2'] as ItemId[])
     bus.publishIndexUpdated(['item-3'] as ItemId[])
     bus.publishMetadataUpdated({ prayerGoal: 3 })
 
     expect(channelNamed(getSyncPingChannelName('acc-1')).postMessage.mock.calls).toEqual([
       [{ type: 'sync_ping', itemIds: ['item-1'] }],
-      [{ type: 'item_dirty', itemIds: ['item-2'] }],
     ])
     expect(channelNamed(getIndexChannelName('acc-1')).postMessage.mock.calls).toEqual([
       [{ type: 'indexUpdated', itemIds: ['item-3'] }],
@@ -135,7 +131,6 @@ describe('RealtimeBus', () => {
   it("doesn't publish empty item lists", () => {
     bus = new RealtimeBus('acc-1')
     bus.publishSyncPing([])
-    bus.publishItemDirty([])
 
     expect(channelNamed(getSyncPingChannelName('acc-1')).postMessage).not.toHaveBeenCalled()
   })

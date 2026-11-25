@@ -78,12 +78,23 @@ export interface ChangeOutboxDeps {
   keys: KeyProvider
   session: SyncSessionState
   /** Each item's server heads and whether only a snapshot can deliver it */
-  itemSyncState: Pick<ItemSyncState, 'getServerHeads' | 'setServerHeads' | 'isSnapshotOnly' | 'setSnapshotOnly' | 'save'>
+  itemSyncState: Pick<
+    ItemSyncState,
+    'getServerHeads' | 'setServerHeads' | 'isSnapshotOnly' | 'setSnapshotOnly' | 'save' | 'requestSave' | 'hasUnsaved'
+  >
   exchange: LogExchange
   /** Asks for an item's snapshot now, which delivers what the log can't */
   requestSnapshot: (itemId: ItemId) => void
-  /** Called once a mark is written, so the leader pushes and the unsynced count updates */
+  /**
+   * Called once a mark is written, or the leader finds unpushed changes on an item already marked, so
+   * the leader pushes and the unsynced count updates
+   */
   onMarked: () => void
+  /**
+   * Called for each item whose push the server acknowledged in full, before the acknowledgement is
+   * saved, so the item owes a snapshot and its dirty flag goes in the same save as its server heads
+   */
+  onAcknowledged: (itemId: ItemId) => void
   now?: () => number
 }
 
@@ -220,7 +231,13 @@ export class ChangeOutbox {
     ))
     if (unpushed.length === 0) return
     const pending = new Set(await this.listPending())
-    await this.markAll(unpushed.filter(itemId => !pending.has(itemId)))
+    const unmarked = unpushed.filter(itemId => !pending.has(itemId))
+    if (unmarked.length > 0) {
+      await this.markAll(unmarked)
+    } else if (!this.deps.session.isShutdown) {
+      // A follower's edit is marked before its change reaches this tab, so nothing woke the push
+      this.deps.onMarked()
+    }
   }
 
   /** Pushes every item with a pending mark */
@@ -319,7 +336,10 @@ export class ChangeOutbox {
     }
 
     if (outgoing.changes.length === 0) {
-      await this.clearMark(itemId, tick)
+      // Server heads a failed save left unsaved would be lost in a crash, and the mark with them
+      if (!this.deps.itemSyncState.hasUnsaved(itemId, 'serverHeads')) {
+        await this.clearMark(itemId, tick)
+      }
       return null
     }
 
@@ -364,19 +384,24 @@ export class ChangeOutbox {
   }
 
   /**
-   * Heads are saved before marks clear, so a crash between the two resends rather than forgets. A
-   * failed save is logged and the marks clear anyway: the heads stay unsaved in memory and go with
-   * the next save, and heads that are too old only resend changes.
+   * Records each item's new server heads and marks it dirty, so the leader uploads its snapshot, and
+   * saves both in one transaction, before the marks clear: a crash between the two resends rather
+   * than forgets. If the save fails the marks stay, and the save is retried. The heads stay unsaved
+   * in memory, so the next push finds nothing to send but keeps the mark until they're saved
+   * (`preparePush`), and the item stays queued for its snapshot in this session.
    */
   private async recordAcknowledged(pushes: PreparedPush[]): Promise<void> {
     if (pushes.length === 0) return
     for (const { itemId, heads } of pushes) {
       this.deps.itemSyncState.setServerHeads(itemId, heads)
+      this.deps.onAcknowledged(itemId)
     }
     try {
       await this.deps.itemSyncState.save()
     } catch (error) {
-      log.error('Failed to save server heads', error)
+      log.error('Failed to save server heads; keeping the pending marks', error)
+      this.deps.itemSyncState.requestSave()
+      return
     }
     for (const { itemId, tick } of pushes) {
       await this.clearMark(itemId, tick)
