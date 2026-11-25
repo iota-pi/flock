@@ -101,13 +101,26 @@ describe('ItemRecoveryService', () => {
     })
   })
 
-  it('releases a quarantined item and pushes its snapshot again', async () => {
-    await service.retryRecoveryItem('item-1' as ItemId)
+  describe('retryRecoveryItem', () => {
+    it('takes over syncing, then releases a quarantined item and pushes its snapshot again', async () => {
+      await service.retryRecoveryItem('item-1' as ItemId)
 
-    expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith('item-1')
-    expect(mockSnapshotPusher.clearOversized).toHaveBeenCalledWith('item-1')
-    expect(mockSnapshotSchedule.markItemDirty).toHaveBeenCalledWith('item-1')
-    expect(mockSnapshotPusher.flushPendingSnapshots).toHaveBeenCalled()
+      expect(becomeLeader.mock.invocationCallOrder[0])
+        .toBeLessThan(mockRecoveryManager.unquarantine.mock.invocationCallOrder[0])
+      expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith('item-1')
+      expect(mockSnapshotPusher.clearOversized).toHaveBeenCalledWith('item-1')
+      expect(mockSnapshotSchedule.markItemDirty).toHaveBeenCalledWith('item-1')
+      expect(mockSnapshotPusher.flushPendingSnapshots).toHaveBeenCalled()
+    })
+
+    it('keeps the item quarantined when this tab cannot take over syncing', async () => {
+      becomeLeader.mockRejectedValue(new Error('This tab could not take over syncing'))
+
+      await expect(service.retryRecoveryItem('item-1' as ItemId)).rejects.toThrow(/could not take over/)
+
+      expect(mockRecoveryManager.unquarantine).not.toHaveBeenCalled()
+      expect(mockSnapshotSchedule.markItemDirty).not.toHaveBeenCalled()
+    })
   })
 
   it('recreates an oversized item and pushes the old one as a tombstone', async () => {

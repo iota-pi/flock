@@ -1,6 +1,8 @@
 import { MAX_INCREMENTAL_MESSAGE_BYTES, type ItemId } from '@vault/shared'
 import type { Keyring } from '../keys/Keyring'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
+import { SnapshotBuilder } from './SnapshotBuilder'
+import { MAX_CONSECUTIVE_SNAPSHOT_FAILURES } from './SnapshotPusher'
 import { FakeVaultServer } from './__test__/FakeVaultServer'
 import { createAccountKeys, Device, installLocalStorage } from './__test__/syncLogHarness'
 
@@ -443,6 +445,33 @@ describe('sync log', () => {
       expect(await leader.pending()).toEqual([])
       expect(await follower.quarantined()).toEqual([])
       expect(await b.quarantined()).toEqual([])
+    })
+
+    it('takes over syncing to upload an item a follower retries from recovery', async () => {
+      const { leader, follower, itemId } = await startTabs()
+      await leader.edit(itemId, { title: 'stuck' })
+      await leader.poll()
+      expect(leader.services.itemSyncState.isDirty(itemId)).toBe(true)
+
+      const build = vi.spyOn(SnapshotBuilder.prototype, 'build').mockResolvedValue({ type: 'error', reason: 'test' })
+      for (let attempt = 0; attempt < MAX_CONSECUTIVE_SNAPSHOT_FAILURES; attempt += 1) {
+        await leader.uploadSnapshots()
+      }
+      build.mockRestore()
+      expect(await follower.quarantined()).toEqual([itemId])
+      expect(server.items.get(itemId)?.version).toBe(1)
+
+      // As a granted lock does: the old leader loses it as the follower takes it
+      vi.spyOn(follower.services.orchestrator, 'claimLeader').mockImplementation(async () => {
+        leader.demote()
+        await follower.promote()
+        return true
+      })
+      await follower.services.itemRecoveryService.retryRecoveryItem(itemId)
+      await follower.sync()
+
+      expect(await follower.quarantined()).toEqual([])
+      expect(server.items.get(itemId)?.version).toBe(2)
     })
   })
 
