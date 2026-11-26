@@ -6,9 +6,9 @@ describe('calculateSyncDeltas', () => {
     it('partitions deltas correctly into missingIds, locallyTombstonedSnapshots, and upstreamIds', () => {
       const result = calculateSyncDeltas({
         manifest: [
-          { itemId: 'item-new-remote' as ItemId, version: 1, modifiedAt: 2000 },
-          { itemId: 'item-server-deleted' as ItemId, version: 2, modifiedAt: 2000, isDeleted: true },
-          { itemId: 'item-in-sync' as ItemId, version: 1, modifiedAt: 1000 },
+          { itemId: 'item-new-remote' as ItemId, version: 1 },
+          { itemId: 'item-server-deleted' as ItemId, version: 2, isDeleted: true },
+          { itemId: 'item-in-sync' as ItemId, version: 1 },
         ],
         force: false,
         knownItemIds: ['item-server-deleted' as ItemId, 'item-in-sync' as ItemId, 'item-local-only' as ItemId],
@@ -32,10 +32,10 @@ describe('calculateSyncDeltas', () => {
       const result = calculateSyncDeltas({
         manifest: [
           // Server clock far behind the quarantine time, but a newer version: fetched
-          { itemId: 'item-newer' as ItemId, version: 6, modifiedAt: 100 },
+          { itemId: 'item-newer' as ItemId, version: 6 },
           // Server clock far ahead of the quarantine time, but the same version that failed: skipped
-          { itemId: 'item-same' as ItemId, version: 5, modifiedAt: 999_999 },
-          { itemId: 'item-older' as ItemId, version: 4, modifiedAt: 999_999 },
+          { itemId: 'item-same' as ItemId, version: 5 },
+          { itemId: 'item-older' as ItemId, version: 4 },
         ],
         force: false,
         knownItemIds: ['item-newer' as ItemId, 'item-same' as ItemId, 'item-older' as ItemId],
@@ -60,9 +60,9 @@ describe('calculateSyncDeltas', () => {
     it('falls back to baseVersion for quarantine entries without a recorded server version', () => {
       const result = calculateSyncDeltas({
         manifest: [
-          { itemId: 'item-legacy-newer' as ItemId, version: 4, modifiedAt: 100 },
-          { itemId: 'item-legacy-same' as ItemId, version: 3, modifiedAt: 999_999 },
-          { itemId: 'item-legacy-unknown' as ItemId, version: 1, modifiedAt: 100 },
+          { itemId: 'item-legacy-newer' as ItemId, version: 4 },
+          { itemId: 'item-legacy-same' as ItemId, version: 3 },
+          { itemId: 'item-legacy-unknown' as ItemId, version: 1 },
         ],
         force: false,
         knownItemIds: ['item-legacy-newer' as ItemId, 'item-legacy-same' as ItemId],
@@ -83,7 +83,7 @@ describe('calculateSyncDeltas', () => {
 
     it('never skips past baseVersion when the recorded server version is older', () => {
       const result = calculateSyncDeltas({
-        manifest: [{ itemId: 'item-1' as ItemId, version: 4, modifiedAt: 100 }],
+        manifest: [{ itemId: 'item-1' as ItemId, version: 4 }],
         force: false,
         knownItemIds: ['item-1' as ItemId],
         tombstoneItemIds: [],
@@ -97,7 +97,7 @@ describe('calculateSyncDeltas', () => {
     it('does not filter quarantined items when force is true', () => {
       const result = calculateSyncDeltas({
         manifest: [
-          { itemId: 'item-quarantined-old' as ItemId, version: 5, modifiedAt: 500 },
+          { itemId: 'item-quarantined-old' as ItemId, version: 5 },
         ],
         force: true,
         knownItemIds: [],
@@ -114,7 +114,7 @@ describe('calculateSyncDeltas', () => {
     it('never resurrects locally tombstoned items with active server snapshot', () => {
       const result = calculateSyncDeltas({
         manifest: [
-          { itemId: 'item-tombstoned' as ItemId, modifiedAt: 5000 }, // active on server
+          { itemId: 'item-tombstoned' as ItemId }, // active on server
         ],
         force: false,
         knownItemIds: [],
@@ -130,7 +130,7 @@ describe('calculateSyncDeltas', () => {
     it('records the server version of a deleted inactive item without fetching its snapshot', () => {
       const result = calculateSyncDeltas({
         manifest: [
-          { itemId: 'item-server-del' as ItemId, version: 2, modifiedAt: 3000, isDeleted: true },
+          { itemId: 'item-server-del' as ItemId, version: 2, isDeleted: true },
         ],
         force: false,
         knownItemIds: [], // not in active items
@@ -149,7 +149,7 @@ describe('calculateSyncDeltas', () => {
     it('fetches an item it has a version for but neither indexes nor tombstones', () => {
       // Sync records don't say an item was deleted: only the index's tombstones do
       const result = calculateSyncDeltas({
-        manifest: [{ itemId: 'item-unindexed' as ItemId, version: 3, modifiedAt: 1000 }],
+        manifest: [{ itemId: 'item-unindexed' as ItemId, version: 3 }],
         force: false,
         knownItemIds: [],
         tombstoneItemIds: [],
@@ -165,7 +165,7 @@ describe('calculateSyncDeltas', () => {
     it('ignores a server deletion of an inactive item it has already recorded', () => {
       const result = calculateSyncDeltas({
         manifest: [
-          { itemId: 'item-server-del' as ItemId, version: 2, modifiedAt: 3000, isDeleted: true },
+          { itemId: 'item-server-del' as ItemId, version: 2, isDeleted: true },
         ],
         force: false,
         knownItemIds: [],
@@ -184,8 +184,8 @@ describe('calculateSyncDeltas', () => {
     it('pulls inbound when serverVersion > baseVersion even if client physical clock is far ahead', () => {
       const result = calculateSyncDeltas({
         manifest: [
-          // Server has version 5, modifiedAt 1000
-          { itemId: 'item-1' as ItemId, version: 5, modifiedAt: 1000 },
+          // Server has version 5
+          { itemId: 'item-1' as ItemId, version: 5 },
         ],
         force: false,
         knownItemIds: ['item-1' as ItemId],
@@ -204,7 +204,7 @@ describe('calculateSyncDeltas', () => {
     it('skips sync (in-sync) when serverVersion === baseVersion and isDirty is false', () => {
       const result = calculateSyncDeltas({
         manifest: [
-          { itemId: 'item-sync' as ItemId, version: 3, modifiedAt: 1000 },
+          { itemId: 'item-sync' as ItemId, version: 3 },
         ],
         force: false,
         knownItemIds: ['item-sync' as ItemId],
@@ -222,7 +222,7 @@ describe('calculateSyncDeltas', () => {
     it('pushes upstream when serverVersion === baseVersion and isDirty is true', () => {
       const result = calculateSyncDeltas({
         manifest: [
-          { itemId: 'item-dirty' as ItemId, version: 3, modifiedAt: 2000 },
+          { itemId: 'item-dirty' as ItemId, version: 3 },
         ],
         force: false,
         knownItemIds: ['item-dirty' as ItemId],
@@ -256,7 +256,7 @@ describe('calculateSyncDeltas', () => {
     it('does not push quarantined items upstream unless forced', () => {
       const params = {
         manifest: [
-          { itemId: 'item-quarantined-dirty' as ItemId, version: 3, modifiedAt: 1000 },
+          { itemId: 'item-quarantined-dirty' as ItemId, version: 3 },
         ],
         knownItemIds: ['item-quarantined-new' as ItemId, 'item-quarantined-dirty' as ItemId],
         tombstoneItemIds: [],
@@ -280,7 +280,7 @@ describe('calculateSyncDeltas', () => {
     it('tombstones local active item when server manifest marks it deleted and records serverVersion', () => {
       const result = calculateSyncDeltas({
         manifest: [
-          { itemId: 'item-del' as ItemId, version: 7, isDeleted: true, modifiedAt: 5000 },
+          { itemId: 'item-del' as ItemId, version: 7, isDeleted: true },
         ],
         force: false,
         knownItemIds: ['item-del' as ItemId],
@@ -299,7 +299,7 @@ describe('calculateSyncDeltas', () => {
     it('pushes local tombstone upstream when server still has active snapshot', () => {
       const result = calculateSyncDeltas({
         manifest: [
-          { itemId: 'item-tomb' as ItemId, version: 2, isDeleted: false, modifiedAt: 1000 },
+          { itemId: 'item-tomb' as ItemId, version: 2, isDeleted: false },
         ],
         force: false,
         knownItemIds: [],

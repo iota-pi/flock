@@ -1,9 +1,10 @@
 import { GetCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb'
 import { TransactionCanceledException } from '@aws-sdk/client-dynamodb'
-import { generateItemId, SYNC_LOG_TTL_DAYS, type SyncLogMessage } from '@vault/shared'
+import { generateItemId, MAX_LOG_PUSH_ROWS, SYNC_LOG_TTL_DAYS, type SyncLogMessage } from '@vault/shared'
 import DynamoDriver from './driver'
 import { readLogHead } from './__test__/logHead'
 import { MAX_APPEND_ATTEMPTS } from './syncLog'
+import { PushTooLargeError } from '../../errors'
 import { generateAccountId } from '../../util'
 
 const driver = new DynamoDriver({ syncLogPageSize: 3 })
@@ -143,27 +144,36 @@ describe('sync log', () => {
     }
   })
 
-  it('splits a push over the row limit into transactions, in order', async () => {
+  it('appends a full push in one transaction', async () => {
     const send = vi.spyOn(driver.client, 'send')
-    const pushed = messages(100)
+    const pushed = messages(MAX_LOG_PUSH_ROWS)
 
     const results = await driver.appendLog({ account, messages: pushed })
 
     expect(results).toEqual(pushed.map(({ itemId }, index) => ({ itemId, seq: index + 1 })))
     const transactions = send.mock.calls.filter(([command]) => command instanceof TransactWriteCommand)
     expect(transactions.map(([command]) => (command.input as { TransactItems: unknown[] }).TransactItems.length))
-      .toEqual([100, 2])
+      .toEqual([MAX_LOG_PUSH_ROWS + 1])
   })
 
-  it('splits a push over the size limit into transactions', async () => {
+  it('refuses a push over the row limit, appending none of it', async () => {
     const send = vi.spyOn(driver.client, 'send')
-    const pushed = Array.from({ length: 11 }, () => message('c'.repeat(350 * 1024)))
 
-    const results = await driver.appendLog({ account, messages: pushed })
+    await expect(driver.appendLog({ account, messages: messages(MAX_LOG_PUSH_ROWS + 1) }))
+      .rejects.toBeInstanceOf(PushTooLargeError)
 
-    expect(results.map(result => result.seq)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
-    const transactions = send.mock.calls.filter(([command]) => command instanceof TransactWriteCommand)
-    expect(transactions).toHaveLength(2)
+    expect(send).not.toHaveBeenCalled()
+    await expect(readLogHead(driver, account)).resolves.toBe(0)
+  })
+
+  it('refuses a push over the size limit, appending none of it', async () => {
+    const send = vi.spyOn(driver.client, 'send')
+    const pushed = Array.from({ length: 11 }, () => message('c'.repeat(340 * 1024)))
+
+    await expect(driver.appendLog({ account, messages: pushed })).rejects.toBeInstanceOf(PushTooLargeError)
+
+    expect(send).not.toHaveBeenCalled()
+    await expect(readLogHead(driver, account)).resolves.toBe(0)
   })
 
   it('rereads the head and retries when a transaction is cancelled', async () => {

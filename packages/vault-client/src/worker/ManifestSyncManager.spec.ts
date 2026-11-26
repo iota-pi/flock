@@ -222,7 +222,7 @@ describe('ManifestSyncManager', () => {
       mockListItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-2', version: 1, modifiedAt: 1 }],
+        manifest: [{ itemId: 'item-2', version: 1 }],
       })
       mockFetchSnapshotsByIds.mockResolvedValue({ items: [], deferred: ['item-2'] })
 
@@ -301,7 +301,7 @@ describe('ManifestSyncManager', () => {
 
     it('counts a sync that merged only some items as having fetched the manifest', async () => {
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-1', version: 1, modifiedAt: 1 }],
+        manifest: [{ itemId: 'item-1', version: 1 }],
       })
       mockFetchSnapshotsByIds.mockResolvedValue({ items: [], deferred: ['item-1'] })
 
@@ -310,7 +310,7 @@ describe('ManifestSyncManager', () => {
 
     it('fails when a snapshot request fails as a whole, so the poll backs off (rule 4)', async () => {
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-1', version: 1, modifiedAt: 1 }],
+        manifest: [{ itemId: 'item-1', version: 1 }],
       })
       mockFetchSnapshotsByIds.mockRejectedValue({ message: 'boom', data: { httpStatus: 500 } })
 
@@ -481,7 +481,7 @@ describe('ManifestSyncManager', () => {
     it('forces sync when force=true even within the minimum gap', async () => {
       mockListItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(Date.now() - 3600 * 1000)
-      mockFetchManifest.mockResolvedValue({ manifest: [{ itemId: 'item-1', modifiedAt: 100 }] })
+      mockFetchManifest.mockResolvedValue({ manifest: [{ itemId: 'item-1' }] })
 
       await sync(manifestSyncManager, 'force')
 
@@ -491,7 +491,7 @@ describe('ManifestSyncManager', () => {
     it('syncs once the minimum gap has passed', async () => {
       mockListItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(Date.now() - 51 * 60 * 1000)
-      mockFetchManifest.mockResolvedValue({ manifest: [{ itemId: 'item-1', modifiedAt: 100 }] })
+      mockFetchManifest.mockResolvedValue({ manifest: [{ itemId: 'item-1' }] })
 
       await sync(manifestSyncManager)
 
@@ -514,9 +514,9 @@ describe('ManifestSyncManager', () => {
       mockListItemIds.mockResolvedValue([])
       mockFetchManifest.mockResolvedValue({
         manifest: [
-          { itemId: 'item-snap', modifiedAt: 100 },
-          { itemId: 'item-legacy', modifiedAt: 200 },
-          { itemId: 'item-deleted', modifiedAt: 300 },
+          { itemId: 'item-snap' },
+          { itemId: 'item-legacy' },
+          { itemId: 'item-deleted' },
         ],
       })
 
@@ -573,7 +573,7 @@ describe('ManifestSyncManager', () => {
     it('reports legacy rows without a hook as needing migration, and does not count the sync as complete', async () => {
       mockListItemIds.mockResolvedValue([])
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-legacy', modifiedAt: 200 }],
+        manifest: [{ itemId: 'item-legacy' }],
       })
       mockFetchSnapshotsByIds.mockResolvedValue({
         items: [{ item: 'item-legacy', cipher: 'legacy-cipher', metadata: { iv: 'legacy-iv' } }],
@@ -596,9 +596,9 @@ describe('ManifestSyncManager', () => {
       depsObj.itemSyncState.trackedItems.mockReturnValue([['item-1', 100], ['item-2', 100]])
       mockFetchManifest.mockResolvedValue({
         manifest: [
-          { itemId: 'item-1', modifiedAt: 100 },
-          { itemId: 'item-2', modifiedAt: 100 },
-          { itemId: 'item-3', modifiedAt: 150 },
+          { itemId: 'item-1' },
+          { itemId: 'item-2' },
+          { itemId: 'item-3' },
         ],
       })
 
@@ -631,8 +631,8 @@ describe('ManifestSyncManager', () => {
       depsObj.itemSyncState.trackedItems.mockReturnValue([['item-1', 100], ['item-2', 100]])
       mockFetchManifest.mockResolvedValue({
         manifest: [
-          { itemId: 'item-1', modifiedAt: 100 },
-          { itemId: 'item-2', modifiedAt: 100 },
+          { itemId: 'item-1' },
+          { itemId: 'item-2' },
         ],
       })
 
@@ -655,8 +655,8 @@ describe('ManifestSyncManager', () => {
       ])
       mockFetchManifest.mockResolvedValue({
         manifest: [
-          { itemId: 'item-active', modifiedAt: 100 },
-          { itemId: 'item-deleted', modifiedAt: 100 },
+          { itemId: 'item-active' },
+          { itemId: 'item-deleted' },
         ],
       })
 
@@ -671,7 +671,6 @@ describe('ManifestSyncManager', () => {
       mockListItemIds.mockResolvedValue([])
       const manifestEntries = Array.from({ length: 120 }, (_, i) => ({
         itemId: `item-${i}`,
-        modifiedAt: 100 + i,
       }))
       mockFetchManifest.mockResolvedValue({
         manifest: manifestEntries,
@@ -711,7 +710,7 @@ describe('ManifestSyncManager', () => {
   describe('legacy settings migration', () => {
     beforeEach(() => {
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-1', modifiedAt: 100 }],
+        manifest: [{ itemId: 'item-1' }],
       })
       mockListItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
@@ -784,7 +783,7 @@ describe('ManifestSyncManager', () => {
       const manager = createManager({ ...depsObj, onSyncedWithoutFailures } as any)
       mockListItemIds.mockResolvedValue([])
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-1', modifiedAt: 100 }],
+        manifest: [{ itemId: 'item-1' }],
       })
       mockFetchSnapshotsByIds.mockResolvedValue({ items: [], deferred: ['item-1'] })
 
@@ -804,8 +803,8 @@ describe('ManifestSyncManager', () => {
       mockListItemIds.mockResolvedValue([])
       mockFetchManifest.mockResolvedValue({
         manifest: [
-          { itemId: 'item-1', modifiedAt: 100 },
-          { itemId: 'item-2', modifiedAt: 200 },
+          { itemId: 'item-1' },
+          { itemId: 'item-2' },
         ],
       })
 
@@ -829,7 +828,7 @@ describe('ManifestSyncManager', () => {
 
       mockListItemIds.mockResolvedValue([])
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-corrupt', modifiedAt: 100 }],
+        manifest: [{ itemId: 'item-corrupt' }],
       })
 
       mockFetchSnapshotsByIds.mockResolvedValue({
@@ -870,7 +869,7 @@ describe('ManifestSyncManager', () => {
 
       mockListItemIds.mockResolvedValue([])
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-undecryptable', modifiedAt: 500 }],
+        manifest: [{ itemId: 'item-undecryptable' }],
       })
 
       mockFetchSnapshotsByIds.mockResolvedValue({
@@ -908,7 +907,7 @@ describe('ManifestSyncManager', () => {
       ])
       mockFetchManifest.mockResolvedValue({
         // A server clock far ahead of the quarantine time doesn't matter, only the version does
-        manifest: [{ itemId: 'item-quarantined', version: 3, modifiedAt: 999_999 }],
+        manifest: [{ itemId: 'item-quarantined', version: 3 }],
       })
 
       const result = await sync(manifestSyncManager)
@@ -923,7 +922,7 @@ describe('ManifestSyncManager', () => {
         { id: 'item-quarantined', itemId: 'item-quarantined', reason: 'fail', createdAt: 500 },
       ])
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-quarantined', modifiedAt: 500 }],
+        manifest: [{ itemId: 'item-quarantined' }],
       })
       mockFetchSnapshotsByIds.mockResolvedValue({
         items: [
@@ -952,7 +951,7 @@ describe('ManifestSyncManager', () => {
       ])
       mockFetchManifest.mockResolvedValue({
         // A server clock behind the quarantine time doesn't matter, only the version does
-        manifest: [{ itemId: 'item-quarantined', version: 4, modifiedAt: 100 }],
+        manifest: [{ itemId: 'item-quarantined', version: 4 }],
       })
       mockFetchSnapshotsByIds.mockResolvedValue({
         items: [
@@ -977,7 +976,7 @@ describe('ManifestSyncManager', () => {
     it('waits for missing key version before attempting snapshot decryption', async () => {
       mockListItemIds.mockResolvedValue([])
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-kver', modifiedAt: 500 }],
+        manifest: [{ itemId: 'item-kver' }],
       })
       mockFetchSnapshotsByIds.mockResolvedValue({
         items: [
@@ -1013,7 +1012,7 @@ describe('ManifestSyncManager', () => {
       mockGetLastManifestSyncTime.mockResolvedValue(0)
       depsObj.itemSyncState.trackedItems.mockReturnValue([['item-1', 100]])
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-1', modifiedAt: 100 }],
+        manifest: [{ itemId: 'item-1' }],
       })
 
       await sync(manifestSyncManager)
@@ -1061,7 +1060,7 @@ describe('ManifestSyncManager', () => {
       mockGetLastManifestSyncTime.mockResolvedValue(0)
       depsObj.itemSyncState.trackedItems.mockReturnValue([['item-1', 100]])
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-1', modifiedAt: 100 }],
+        manifest: [{ itemId: 'item-1' }],
       })
 
       await expect(sync(manifestSyncManager)).resolves.toMatchObject({ added: [], success: true })
@@ -1087,7 +1086,7 @@ describe('ManifestSyncManager', () => {
       mockGetLastManifestSyncTime.mockResolvedValue(0)
       depsObj.itemSyncState.trackedItems.mockReturnValue([['item-1', 5000]])
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-1', version: 1, modifiedAt: 9000 }],
+        manifest: [{ itemId: 'item-1', version: 1 }],
       })
 
       const result = await sync(manifestSyncManager)
@@ -1102,7 +1101,7 @@ describe('ManifestSyncManager', () => {
       // The local timestamp is far ahead of the server's, which does not matter
       depsObj.itemSyncState.trackedItems.mockReturnValue([['item-1', 1_250_000]])
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-1', modifiedAt: 1_050_000, version: 2 }],
+        manifest: [{ itemId: 'item-1', version: 2 }],
       })
 
       mockFetchSnapshotsByIds.mockResolvedValue({
@@ -1133,7 +1132,7 @@ describe('ManifestSyncManager', () => {
       depsObj.itemSyncState.listBaseVersions.mockReturnValue(new Map([['item-1', 1]]))
       depsObj.itemSyncState.isDirty.mockReturnValue(true)
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-1', version: 1, modifiedAt: 900_000 }],
+        manifest: [{ itemId: 'item-1', version: 1 }],
       })
 
       const result = await sync(manifestSyncManager)
@@ -1166,7 +1165,7 @@ describe('ManifestSyncManager', () => {
     it('raises the base version instead of fetching when the local doc has the snapshot heads', async () => {
       const heads = Automerge.getHeads(localDoc)
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-1', version: 3, modifiedAt: 100, heads: headsPayload(heads) }],
+        manifest: [{ itemId: 'item-1', version: 3, heads: headsPayload(heads) }],
       })
 
       const result = await sync(manifestSyncManager)
@@ -1181,7 +1180,7 @@ describe('ManifestSyncManager', () => {
     it('fetches the snapshot when the local doc lacks its heads', async () => {
       const remoteDoc = Automerge.change(Automerge.clone(localDoc), d => { d.name = 'remote' })
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-1', version: 3, modifiedAt: 100, heads: headsPayload(Automerge.getHeads(remoteDoc)) }],
+        manifest: [{ itemId: 'item-1', version: 3, heads: headsPayload(Automerge.getHeads(remoteDoc)) }],
       })
 
       await sync(manifestSyncManager)
@@ -1192,7 +1191,7 @@ describe('ManifestSyncManager', () => {
 
     it('fetches the snapshot when its heads fail to decrypt', async () => {
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-1', version: 3, modifiedAt: 100, heads: { iv: 'iv', cipher: 'corrupt-cipher', kver: '1' } }],
+        manifest: [{ itemId: 'item-1', version: 3, heads: { iv: 'iv', cipher: 'corrupt-cipher', kver: '1' } }],
       })
 
       await sync(manifestSyncManager)
@@ -1202,7 +1201,7 @@ describe('ManifestSyncManager', () => {
 
     it('fetches the snapshot on a forced sync', async () => {
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-1', version: 3, modifiedAt: 100, heads: headsPayload(Automerge.getHeads(localDoc)) }],
+        manifest: [{ itemId: 'item-1', version: 3, heads: headsPayload(Automerge.getHeads(localDoc)) }],
       })
 
       await sync(manifestSyncManager, 'force')
@@ -1215,7 +1214,7 @@ describe('ManifestSyncManager', () => {
       depsObj.itemSyncState.listBaseVersions.mockReturnValue(new Map([['item-1', 1]]))
       depsObj.itemSyncState.isDirty.mockReturnValue(true)
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-1', version: 3, modifiedAt: 100, heads: headsPayload(Automerge.getHeads(localDoc)) }],
+        manifest: [{ itemId: 'item-1', version: 3, heads: headsPayload(Automerge.getHeads(localDoc)) }],
       })
 
       await sync(manifestSyncManager)
@@ -1230,7 +1229,7 @@ describe('ManifestSyncManager', () => {
       it('forgets the record once the manifest shows the item deleted', async () => {
         depsObj.itemSyncState.listUnconfirmedPulls.mockReturnValue(new Map([['item-1', Date.now()]]))
         mockFetchManifest.mockResolvedValue({
-          manifest: [{ itemId: 'item-1', version: 3, modifiedAt: 100, isDeleted: true }],
+          manifest: [{ itemId: 'item-1', version: 3, isDeleted: true }],
         })
 
         await sync(manifestSyncManager)
@@ -1241,7 +1240,7 @@ describe('ManifestSyncManager', () => {
       it('uploads after the grace period when the snapshot has no heads to check', async () => {
         depsObj.itemSyncState.listUnconfirmedPulls.mockReturnValue(new Map([['item-1', pastGrace()]]))
         mockFetchManifest.mockResolvedValue({
-          manifest: [{ itemId: 'item-1', version: 1, modifiedAt: 100 }],
+          manifest: [{ itemId: 'item-1', version: 1 }],
         })
 
         await sync(manifestSyncManager)
@@ -1254,7 +1253,7 @@ describe('ManifestSyncManager', () => {
       it('leaves a snapshot without heads to its author during the grace period', async () => {
         depsObj.itemSyncState.listUnconfirmedPulls.mockReturnValue(new Map([['item-1', Date.now()]]))
         mockFetchManifest.mockResolvedValue({
-          manifest: [{ itemId: 'item-1', version: 1, modifiedAt: 100 }],
+          manifest: [{ itemId: 'item-1', version: 1 }],
         })
 
         await sync(manifestSyncManager)
@@ -1267,7 +1266,7 @@ describe('ManifestSyncManager', () => {
         depsObj.itemSyncState.trackedItems.mockReturnValue([])
         depsObj.itemSyncState.listUnconfirmedPulls.mockReturnValue(new Map([['item-1', pastGrace()]]))
         mockFetchManifest.mockResolvedValue({
-          manifest: [{ itemId: 'item-1', version: 1, modifiedAt: 100 }],
+          manifest: [{ itemId: 'item-1', version: 1 }],
         })
 
         await sync(manifestSyncManager)
@@ -1292,10 +1291,8 @@ describe('ManifestSyncManager', () => {
       expect(result).toMatchObject({ added: [], success: true })
     })
 
-    it('marks item dirty with 2s debounce when local item is newer than server snapshot', async () => {
-      const now = Date.now()
-      const itemServerTime = now - 120_000 // Server snapshot is 2 minutes old
-      const localTime = now // Local was edited just now
+    it('marks a dirty item to upload with a 2s debounce', async () => {
+      const localTime = Date.now()
 
       mockListItemIds.mockResolvedValue(['item-newer' as ItemId])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
@@ -1303,7 +1300,7 @@ describe('ManifestSyncManager', () => {
       depsObj.itemSyncState.listBaseVersions.mockReturnValue(new Map([['item-newer', 1]]))
       depsObj.itemSyncState.isDirty.mockReturnValue(true)
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-newer', modifiedAt: itemServerTime }],
+        manifest: [{ itemId: 'item-newer', version: 1 }],
       })
 
       const result = await sync(manifestSyncManager)
@@ -1312,14 +1309,14 @@ describe('ManifestSyncManager', () => {
       expect(result).toMatchObject({ added: [], success: true })
     })
 
-    it('does not mark item dirty when local item is equal to or older than server snapshot', async () => {
+    it('does not mark an item that has no local changes', async () => {
       const serverTime = 500_000
 
       mockListItemIds.mockResolvedValue(['item-synced' as ItemId])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
       depsObj.itemSyncState.trackedItems.mockReturnValue([['item-synced', serverTime]])
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-synced', modifiedAt: serverTime }],
+        manifest: [{ itemId: 'item-synced' }],
       })
 
       const result = await sync(manifestSyncManager)
@@ -1333,7 +1330,7 @@ describe('ManifestSyncManager', () => {
       mockGetLastManifestSyncTime.mockResolvedValue(0)
       depsObj.itemSyncState.trackedItems.mockReturnValue([['item-pulling', 0]])
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-pulling', modifiedAt: 2000 }],
+        manifest: [{ itemId: 'item-pulling' }],
       })
       mockFetchSnapshotsByIds.mockResolvedValue({
         items: [
@@ -1358,8 +1355,8 @@ describe('ManifestSyncManager', () => {
 
       mockFetchManifest.mockResolvedValue({
         manifest: [
-          { itemId: 'item-offline', modifiedAt: 2000 }, // older on server, so it won't be fetched
-          { itemId: 'item-server', modifiedAt: 3000 },  // missing locally, so it will be fetched
+          { itemId: 'item-offline' }, // older on server, so it won't be fetched
+          { itemId: 'item-server' },  // missing locally, so it will be fetched
         ],
       })
 
@@ -1387,7 +1384,7 @@ describe('ManifestSyncManager', () => {
       mockGetLastManifestSyncTime.mockResolvedValue(0)
       depsObj.itemSyncState.trackedItems.mockReturnValue([['item-merged', 1000]])
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-merged', modifiedAt: 2000, version: 2 }],
+        manifest: [{ itemId: 'item-merged', version: 2 }],
       })
       mockFetchSnapshotsByIds.mockResolvedValue({
         items: [
@@ -1414,7 +1411,7 @@ describe('ManifestSyncManager', () => {
       mockGetLastManifestSyncTime.mockResolvedValue(0)
       depsObj.itemSyncState.trackedItems.mockReturnValue([['item-clean', 1000]])
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-clean', modifiedAt: 2000, version: 2 }],
+        manifest: [{ itemId: 'item-clean', version: 2 }],
       })
       mockFetchSnapshotsByIds.mockResolvedValue({
         items: [
@@ -1447,9 +1444,9 @@ describe('ManifestSyncManager', () => {
 
       mockFetchManifest.mockResolvedValue({
         manifest: [
-          { itemId: 'item-active-1', modifiedAt: 1000 },
-          { itemId: 'item-tombstone-1', modifiedAt: 2000, isDeleted: true },
-          { itemId: 'item-tombstone-2', modifiedAt: 3000, isDeleted: true },
+          { itemId: 'item-active-1' },
+          { itemId: 'item-tombstone-1', isDeleted: true },
+          { itemId: 'item-tombstone-2', isDeleted: true },
         ],
       })
 
@@ -1496,7 +1493,7 @@ describe('ManifestSyncManager', () => {
 
       mockFetchManifest.mockResolvedValue({
         manifest: [
-          { itemId: 'item-local', modifiedAt: 2000, isDeleted: true },
+          { itemId: 'item-local', isDeleted: true },
         ],
       })
 
@@ -1538,8 +1535,8 @@ describe('ManifestSyncManager', () => {
       // Server manifest has an older active snapshot for item-deleted (isDeleted is undefined)
       mockFetchManifest.mockResolvedValue({
         manifest: [
-          { itemId: 'item-active', modifiedAt: 100 },
-          { itemId: 'item-deleted', modifiedAt: 200 },
+          { itemId: 'item-active' },
+          { itemId: 'item-deleted' },
         ],
       })
 
@@ -1566,8 +1563,8 @@ describe('ManifestSyncManager', () => {
 
       mockFetchManifest.mockResolvedValue({
         manifest: [
-          { itemId: 'item-active', modifiedAt: 100 },
-          { itemId: 'item-unindexed', modifiedAt: 200 },
+          { itemId: 'item-active' },
+          { itemId: 'item-unindexed' },
         ],
       })
       mockFetchSnapshotsByIds.mockResolvedValue({
@@ -1598,7 +1595,7 @@ describe('ManifestSyncManager', () => {
       depsObj.itemSyncState.trackedItems.mockReturnValue([])
 
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-merged-deleted', modifiedAt: 2000 }],
+        manifest: [{ itemId: 'item-merged-deleted' }],
       })
 
       mockFetchSnapshotsByIds.mockResolvedValue({
@@ -1632,7 +1629,7 @@ describe('ManifestSyncManager', () => {
 
       // Suppose item was fetched in batch
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-legacy-tombstone', modifiedAt: 500 }],
+        manifest: [{ itemId: 'item-legacy-tombstone' }],
       })
 
       mockFetchSnapshotsByIds.mockResolvedValue({
@@ -1748,7 +1745,7 @@ describe('ManifestSyncManager', () => {
         mockFetchManifest.mockImplementation(async () => {
           controller.abort()
           return {
-            manifest: [{ itemId: 'item-remote-1', modifiedAt: 1000 }],
+            manifest: [{ itemId: 'item-remote-1' }],
           }
         })
 
@@ -1760,7 +1757,7 @@ describe('ManifestSyncManager', () => {
         mockFetchManifest.mockImplementation(async () => {
           depsObj.session.markShutdown()
           return {
-            manifest: [{ itemId: 'item-remote-1', modifiedAt: 1000 }],
+            manifest: [{ itemId: 'item-remote-1' }],
           }
         })
 

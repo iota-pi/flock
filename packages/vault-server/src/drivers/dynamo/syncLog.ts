@@ -1,9 +1,17 @@
 import { GetCommand, QueryCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb'
-import { backOff, SYNC_LOG_TTL_DAYS, type BackoffOptions, type SyncLogEntry, type SyncLogMessage } from '@vault/shared'
+import {
+  backOff,
+  MAX_LOG_PUSH_BYTES,
+  MAX_LOG_PUSH_ROWS,
+  SYNC_LOG_TTL_DAYS,
+  type BackoffOptions,
+  type SyncLogEntry,
+  type SyncLogMessage,
+} from '@vault/shared'
 import type { AppendLogInput, BaseData, LogPushResult, ReadLogInput, SyncLogPage } from '../vaultDriver'
 import type { DynamoContext } from './commands'
 import { isRetryableTransactionCancel } from './dynamoErrors'
-import { QuotaExceededError } from '../../errors'
+import { PushTooLargeError, QuotaExceededError } from '../../errors'
 
 export const SYNC_LOG_PAGE_SIZE = 200
 
@@ -11,42 +19,10 @@ export const SYNC_LOG_PAGE_SIZE = 200
 const HEAD_SEQ = 0
 const SYNC_LOG_TTL_SECONDS = SYNC_LOG_TTL_DAYS * 24 * 60 * 60
 
-// A transaction holds at most 100 actions and 4 MB, and one action is the head row's update
-const MAX_ROWS_PER_TRANSACTION = 99
-const MAX_BYTES_PER_TRANSACTION = 3.5 * 1024 * 1024
-
 export const MAX_APPEND_ATTEMPTS = 8
 const APPEND_BACKOFF: BackoffOptions = { baseMs: 25, maxMs: 1000, jitterMs: 50 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
-
-/** Messages that go in one transaction, and their size in bytes */
-interface MessageGroup {
-  messages: SyncLogMessage[]
-  bytes: number
-}
-
-/** Splits messages, in order, into groups that each fit in one transaction */
-function groupForTransactions(messages: SyncLogMessage[]): MessageGroup[] {
-  const groups: MessageGroup[] = []
-  let group: SyncLogMessage[] = []
-  let groupBytes = 0
-  for (const message of messages) {
-    const bytes = Buffer.byteLength(JSON.stringify(message))
-    const isFull = group.length === MAX_ROWS_PER_TRANSACTION || groupBytes + bytes > MAX_BYTES_PER_TRANSACTION
-    if (group.length > 0 && isFull) {
-      groups.push({ messages: group, bytes: groupBytes })
-      group = []
-      groupBytes = 0
-    }
-    group.push(message)
-    groupBytes += bytes
-  }
-  if (group.length > 0) {
-    groups.push({ messages: group, bytes: groupBytes })
-  }
-  return groups
-}
 
 /**
  * The head row: the last seq used, and how many bytes of messages were appended on `usageDay` (days
@@ -112,13 +88,17 @@ function buildAppendCommand(
   })
 }
 
-/** Appends one transaction's worth of messages and returns the head it started from */
-async function appendTransaction(
-  context: DynamoContext,
-  account: string,
-  { messages, bytes }: MessageGroup,
-  maxBytesPerDay: number | undefined,
-): Promise<number> {
+/**
+ * Appends a push in one transaction, so it commits whole or not at all. A push over
+ * `MAX_LOG_PUSH_ROWS` or `MAX_LOG_PUSH_BYTES` throws `PushTooLargeError` and appends nothing.
+ */
+export async function appendLog(context: DynamoContext, input: AppendLogInput): Promise<LogPushResult[]> {
+  const { account, messages, maxBytesPerDay } = input
+  const bytes = messages.reduce((total, message) => total + Buffer.byteLength(JSON.stringify(message)), 0)
+  if (messages.length > MAX_LOG_PUSH_ROWS || bytes > MAX_LOG_PUSH_BYTES) {
+    throw new PushTooLargeError(`A push of ${messages.length} rows and ${bytes} bytes is more than one transaction`)
+  }
+
   for (let attempt = 0; ; attempt += 1) {
     const head = await readHeadRow(context, { account })
     const expectedHead = head.head
@@ -126,7 +106,7 @@ async function appendTransaction(
     const usage = nextUsage(head, bytes, createdAt, maxBytesPerDay)
     try {
       await context.client.send(buildAppendCommand(context, account, messages, expectedHead, usage, createdAt))
-      return expectedHead
+      return messages.map(({ itemId }, index) => ({ itemId, seq: expectedHead + index + 1 }))
     } catch (error) {
       if (!isRetryableTransactionCancel(error) || attempt + 1 >= MAX_APPEND_ATTEMPTS) {
         throw error
@@ -134,16 +114,6 @@ async function appendTransaction(
       await backOff(attempt, APPEND_BACKOFF)
     }
   }
-}
-
-export async function appendLog(context: DynamoContext, input: AppendLogInput): Promise<LogPushResult[]> {
-  const results: LogPushResult[] = []
-  // One at a time, so that the groups' rows stay in order
-  for (const group of groupForTransactions(input.messages)) {
-    const startHead = await appendTransaction(context, input.account, group, input.maxBytesPerDay)
-    results.push(...group.messages.map(({ itemId }, index) => ({ itemId, seq: startHead + index + 1 })))
-  }
-  return results
 }
 
 export async function readLog(

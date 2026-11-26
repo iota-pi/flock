@@ -18,7 +18,8 @@ export interface PollLogResult {
 
 /**
  * Appends the client's messages to the account's log, then reads the log after `after`. A push past
- * the daily log quota throws `QuotaExceededError`, failing the whole poll, so the client backs off.
+ * the daily log quota throws `QuotaExceededError`, failing the whole poll, so the client backs off. A
+ * push over one transaction throws `PushTooLargeError`, so the client splits it.
  */
 export async function pollLog(
   vault: SyncRepository,
