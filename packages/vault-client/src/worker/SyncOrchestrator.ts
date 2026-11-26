@@ -256,17 +256,29 @@ export class SyncOrchestrator {
    */
   async syncManifest(mode: ManifestMode): Promise<ManifestPhaseResult> {
     const { manifestSyncManager } = this.deps
+    return this.pollWithTicket(
+      () => manifestSyncManager.openTicket(mode),
+      ticket => manifestSyncManager.closeTicket(ticket),
+    )
+  }
+
+  /**
+   * Runs a poll for a caller waiting on one of its phases, and returns what the phase left on the
+   * caller's ticket. The ticket opens after the poll in flight, which may have started that phase
+   * before the caller asked, and closes once the new poll has finished, served or not.
+   */
+  async pollWithTicket<T, R>(open: () => T, close: (ticket: T) => R): Promise<R> {
     while (this.pollInFlight) {
       await this.pollInFlight
     }
-    const ticket = manifestSyncManager.openTicket(mode)
+    const ticket = open()
     try {
       await this.pollNow()
     } catch (error) {
-      manifestSyncManager.closeTicket(ticket)
+      close(ticket)
       throw error
     }
-    return manifestSyncManager.closeTicket(ticket)
+    return close(ticket)
   }
 
   /** Polls soon to push local changes, batching flushes made in the same turn into one poll */

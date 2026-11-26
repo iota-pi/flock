@@ -8,11 +8,15 @@ import type { SyncLogDatabase } from './stores/SyncLogDatabase'
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
 import { SYNC_LOG_STORES } from '../shared/syncLogStorage'
 import { GAP_HEAL_DELAYS, SYNC_TIMEOUTS } from '../shared/syncConfig'
-import type { ManualRecoveryKind } from '../shared/manualRecoveryStore'
+import {
+  isServerCopyQuarantine,
+  MAX_MANUAL_RECOVERY_LIMIT,
+  type ManualRecoveryKind,
+} from '../shared/manualRecoveryStore'
 import { classifySyncError } from '../utils/errorClassifier'
 import { createLogger } from '../utils/logger'
 
-const log = createLogger('GapHealer')
+const log = createLogger('ItemReconciler')
 
 /** Attempts at a row that won't decrypt before its item is quarantined and the row is dropped */
 export const MAX_PULL_RETRIES = 5
@@ -59,15 +63,21 @@ interface HealingItem {
   fetches: number
 }
 
-export interface GapHealerDeps {
+export interface ItemReconcilerDeps {
   db: SyncLogDatabase
   keys: KeyProvider
   docStore: Pick<AutomergeDocStore, 'getMissingDeps'>
   indexManager: Pick<AutomergeIndexManager, 'listTombstoneIds'>
   incoming: Pick<IncomingChanges, 'apply'>
-  recoveryManager: Pick<RecoveryManager, 'quarantine' | 'reportDecryptionFailure' | 'resolveQuarantines'>
-  /** Fetches items' snapshots and merges them into their docs */
-  fetchSnapshots: (itemIds: ItemId[], signal?: AbortSignal) => Promise<void>
+  recoveryManager: Pick<
+    RecoveryManager,
+    'quarantine' | 'reportDecryptionFailure' | 'resolveQuarantines' | 'listRecoveryItems'
+  >
+  /**
+   * Fetches items' snapshots and merges them into their docs, returning the items whose snapshot
+   * merged (or whose server copy is deleted). Throws if a request fails as a whole.
+   */
+  fetchSnapshots: (itemIds: ItemId[], signal?: AbortSignal) => Promise<ItemId[]>
   /** Asks for a poll, which runs whatever is due */
   onWorkDue: () => void
   onKeyVersionMissing?: (kver: string) => void
@@ -75,15 +85,33 @@ export interface GapHealerDeps {
   onHealingChange?: (isHealing: boolean) => void
 }
 
-/**
- * Owns the items that have parked entries or missing dependencies. It fetches an item's snapshot at
- * once, rather than at the next hourly manifest sync, and applies what was parked. If the server
- * doesn't have the dependencies yet, some device's doc still holds them, so it keeps trying.
- */
-export class GapHealer {
-  private readonly items = new Map<ItemId, HealingItem>()
+export interface ReconcileOptions {
+  /** Fetches the item's snapshot at the next run, rather than only applying its parked rows */
+  fetch: boolean
+}
 
-  constructor(private readonly deps: GapHealerDeps) {}
+/** A caller waiting for an item's next snapshot fetch. The run that fetches it sets `settled`. */
+export interface ReconcileTicket {
+  readonly itemId: ItemId
+  /** Whether the server's copy merged (or is deleted), once a run has fetched it */
+  settled?: boolean
+}
+
+/**
+ * The one targeted path for bringing a single item up to date with the server, away from manifest
+ * sync. It owns the items that have parked entries or missing dependencies, and those another part of
+ * the engine (or the user) asks it to fetch. It fetches an item's snapshot at once, rather than at the
+ * next hourly manifest sync, and applies what was parked. If the server doesn't have the dependencies
+ * yet, some device's doc still holds them, so it keeps trying. Work runs in the poll (`runDue`), under
+ * its backoff.
+ */
+export class ItemReconciler {
+  private readonly items = new Map<ItemId, HealingItem>()
+  private readonly tickets = new Set<ReconcileTicket>()
+  /** Set by a keyring update: the quarantined server copies are fetched at the next run */
+  private isQuarantineRetryDue = false
+
+  constructor(private readonly deps: ItemReconcilerDeps) {}
 
   /** Picks up the items that parked entries were left for */
   async load(): Promise<void> {
@@ -131,13 +159,41 @@ export class GapHealer {
     this.reportHealing()
   }
 
-  /** Asks for an item's snapshot, for an indexed item with no local data */
-  requestSnapshot(itemId: ItemId): void {
-    const item = this.track(itemId)
-    item.snapshotDueAt = 0
-    item.nextAttemptAt = 0
-    this.reportHealing()
+  /**
+   * Brings an item up to date at the next poll: applies its parked rows, and with `fetch` fetches its
+   * snapshot first, whatever that fetch's backoff (an indexed item with no local data, a quarantined
+   * item the user retries).
+   */
+  reconcile(itemId: ItemId, { fetch }: ReconcileOptions): void {
+    this.schedule(itemId, fetch)
     this.deps.onWorkDue()
+  }
+
+  private schedule(itemId: ItemId, fetch: boolean): void {
+    const item = this.track(itemId)
+    item.nextAttemptAt = 0
+    if (fetch) item.snapshotDueAt = 0
+    this.reportHealing()
+  }
+
+  /**
+   * Registers a caller that waits for the item's next snapshot fetch, and makes the fetch due. It
+   * doesn't ask for a poll: the caller runs one, as for a manifest sync ticket, and then closes it.
+   */
+  openTicket(itemId: ItemId): ReconcileTicket {
+    const ticket: ReconcileTicket = { itemId }
+    this.tickets.add(ticket)
+    this.schedule(itemId, true)
+    return ticket
+  }
+
+  /**
+   * Withdraws a ticket, returning whether the server's copy settled. False when no run fetched it, as
+   * when the poll failed or didn't run.
+   */
+  closeTicket(ticket: ReconcileTicket): boolean {
+    this.tickets.delete(ticket)
+    return ticket.settled ?? false
   }
 
   /** A later entry for the item may be what it was waiting for. Its parked rows are applied again without a fetch. */
@@ -154,22 +210,43 @@ export class GapHealer {
     this.retryAll(false)
   }
 
-  /** A new key may open a parked row, or a snapshot that couldn't be read before */
+  /**
+   * A new key may open a parked row, or a snapshot that couldn't be read before, including one an item
+   * was quarantined for. Those items are fetched at the next run rather than waiting for the server to
+   * have a newer version.
+   */
   onKeyringUpdated(): void {
-    this.retryAll(true)
+    this.isQuarantineRetryDue = true
+    this.markAllDue(true)
+    this.deps.onWorkDue()
   }
 
   private retryAll(refetchSnapshots: boolean): void {
     if (this.items.size === 0) return
+    this.markAllDue(refetchSnapshots)
+    this.deps.onWorkDue()
+  }
+
+  private markAllDue(refetchSnapshots: boolean): void {
     for (const item of this.items.values()) {
       item.nextAttemptAt = 0
       if (refetchSnapshots && item.snapshotDueAt !== undefined) item.snapshotDueAt = 0
     }
-    this.deps.onWorkDue()
+  }
+
+  /** Makes the items quarantined for their server copy due for a fetch, once a keyring update asked */
+  private async scheduleQuarantineRetry(): Promise<void> {
+    if (!this.isQuarantineRetryDue) return
+    const entries = await this.deps.recoveryManager.listRecoveryItems({ limit: MAX_MANUAL_RECOVERY_LIMIT })
+    this.isQuarantineRetryDue = false
+    for (const entry of entries) {
+      if (isServerCopyQuarantine(entry)) this.schedule(entry.itemId, true)
+    }
   }
 
   /** Works on every item that's due. Throws if storage fails, leaving the rest for the next poll. */
   async runDue(signal?: AbortSignal): Promise<void> {
+    await this.scheduleQuarantineRetry()
     const now = Date.now()
     const isSnapshotDue = (item: HealingItem) => item.snapshotDueAt !== undefined && item.snapshotDueAt <= now
     const due = Array.from(this.items.entries()).filter(
@@ -179,12 +256,13 @@ export class GapHealer {
 
     const needSnapshots = due.filter(([, item]) => isSnapshotDue(item))
     if (needSnapshots.length > 0) {
-      // A failed request throws, leaving the snapshots due for the next poll (rule 4)
-      await this.deps.fetchSnapshots(needSnapshots.map(([itemId]) => itemId), signal)
+      // A failed request throws, leaving the snapshots due, and any tickets waiting, for the next poll (rule 4)
+      const settled = new Set(await this.deps.fetchSnapshots(needSnapshots.map(([itemId]) => itemId), signal))
       for (const [, item] of needSnapshots) {
         item.fetches += 1
         item.snapshotDueAt = now + gapHealDelay(item.fetches)
       }
+      this.settleTickets(needSnapshots.map(([itemId]) => itemId), settled)
     }
 
     const parked = await this.readParkedByItem()
@@ -205,6 +283,16 @@ export class GapHealer {
       await this.finishItem(itemId, item, outcome, remaining.has(itemId))
     }
     this.reportHealing()
+  }
+
+  /** Serves the tickets waiting on the fetched items, so each caller learns how its own item went */
+  private settleTickets(fetched: ItemId[], settled: ReadonlySet<ItemId>): void {
+    const fetchedSet = new Set(fetched)
+    for (const ticket of this.tickets) {
+      if (!fetchedSet.has(ticket.itemId)) continue
+      ticket.settled = settled.has(ticket.itemId)
+      this.tickets.delete(ticket)
+    }
   }
 
   /** Reads the parked rows once, grouped by item and in seq order */

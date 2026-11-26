@@ -569,7 +569,7 @@ describe('sync log', () => {
       server.loseRow(server.head - 1)
       const later = server.clock() + SYNC_TIMEOUTS.gapWait
       server.clock = () => later
-      const heal = vi.spyOn(b.services.gapHealer, 'runDue')
+      const heal = vi.spyOn(b.services.itemReconciler, 'runDue')
       vi.spyOn(b.services.manifestHydrator, 'fetchSnapshots').mockRejectedValueOnce(new Error('IndexedDB read failed'))
 
       expect(await b.poll()).toBe('failure')
@@ -593,6 +593,49 @@ describe('sync log', () => {
       expect(await b.poll()).toBe('success')
       expect((await b.read(itemId))?.title).toBe('first')
       expect(b.services.puller.cursor).toBe(server.head)
+    })
+  })
+
+  describe('replacing an item from the server', () => {
+    /** B holds two items A created, and the server's copy of `broken` no longer decrypts */
+    async function startWithBrokenItem() {
+      const a = await startDevice('device-a')
+      const b = await startDevice('device-b')
+      const itemId = await a.create('item-1', { title: 'from the server' })
+      const broken = await a.create('item-2', { title: 'broken' })
+      await a.sync()
+      await b.sync()
+      await b.manifestSync()
+      const stored = server.items.get(broken)!
+      const cipher = stored.snapshot!.cipher
+      stored.snapshot = { ...stored.snapshot!, cipher: `${cipher[0] === 'A' ? 'B' : 'A'}${cipher.slice(1)}` }
+      await b.services.recoveryManager.quarantine(
+        broken,
+        'snapshotDecryption',
+        { code: 'decryptionFailed' },
+        { serverVersion: stored.version },
+      )
+      // An unreadable copy never loads, so B starts again with neither doc in memory
+      await b.restart()
+      return { b, itemId, broken }
+    }
+
+    it('restores the item though another quarantined item fails to download', async () => {
+      const { b, itemId, broken } = await startWithBrokenItem()
+      await b.services.recoveryManager.quarantine(itemId, 'localDecryption', { code: 'decryptionFailed' })
+
+      await b.services.itemRecoveryService.replaceFromServer(itemId)
+
+      expect((await b.read(itemId))?.title).toBe('from the server')
+      expect(await b.quarantined()).toEqual([broken])
+    })
+
+    it('keeps the item quarantined when its own copy fails to download', async () => {
+      const { b, broken } = await startWithBrokenItem()
+
+      await expect(b.services.itemRecoveryService.replaceFromServer(broken)).rejects.toThrow(/could not be downloaded/)
+
+      expect(await b.quarantined()).toEqual([broken])
     })
   })
 

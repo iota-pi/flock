@@ -77,6 +77,11 @@ export interface ManifestHydratorDeps {
   /** `serverVersion` is the manifest version of the snapshot that failed, when known */
   onDecryptionFailure?: (itemId: ItemId, error: unknown, serverVersion?: number) => void
   onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void
+  /**
+   * Called, without waiting for it, with the items whose server copy merged and is stored (or is
+   * deleted), so the quarantines a fetch of that copy resolves can be cleared
+   */
+  onItemsSettled?: (itemIds: ItemId[]) => void
   /** Called with an item whose doc has changes the snapshot merged into it lacks */
   onLocalChangesFound?: (itemId: ItemId) => void
   onKeyVersionMissing?: (kver: string) => void
@@ -108,29 +113,34 @@ export class ManifestHydrator {
     return !this.deps.session.isShutdown
   }
 
-  /** Fetches items' snapshots and merges them into their docs, away from any manifest sync */
-  async fetchSnapshots(itemIds: ItemId[], signal?: AbortSignal): Promise<void> {
-    if (!this.isAlive() || itemIds.length === 0) return
+  /**
+   * Fetches items' snapshots and merges them into their docs, away from any manifest sync. Returns the
+   * items whose server copy settled: merged and stored, or deleted.
+   */
+  async fetchSnapshots(itemIds: ItemId[], signal?: AbortSignal): Promise<ItemId[]> {
+    if (!this.isAlive() || itemIds.length === 0) return []
     const [knownItemIds, tombstoneItemIds] = await Promise.all([
       this.deps.indexManager.listItemIds(),
       this.deps.indexManager.listTombstoneIds(),
     ])
-    await this.fetchAndHydrateRemoteItems({
+    const { settled } = await this.fetchAndHydrateRemoteItems({
       missingIds: itemIds,
       manifest: [],
       knownSet: new Set(knownItemIds),
       tombstoneSet: new Set(tombstoneItemIds),
     }, signal)
+    return settled
   }
 
   /**
    * Fetches the items' snapshots and merges them in. Throws if a request fails as a whole (see
-   * `isRequestFailure`); items that can't be fetched or hydrated only set `hasFailures`.
+   * `isRequestFailure`); items that can't be fetched or hydrated only set `hasFailures`. `settled`
+   * lists the items whose server copy merged and is stored, or is deleted.
    */
   async fetchAndHydrateRemoteItems(
     params: FetchAndHydrateParams,
     signal?: AbortSignal,
-  ): Promise<{ added: ItemId[]; hasFailures: boolean }> {
+  ): Promise<{ added: ItemId[]; hasFailures: boolean; settled: ItemId[] }> {
     const queue = [...params.missingIds]
     const fetchedItems: FetchedItem[] = []
     let hasBatchFailures = false
@@ -179,6 +189,7 @@ export class ManifestHydrator {
     const legacySnapshots: VaultDoc[] = []
     const hydratedIds: ItemId[] = []
     const versionUpdates: [ItemId, number][] = []
+    const settled: ItemId[] = []
     let hasHydrationFailures = false
     let hasMigrationRequired = false
 
@@ -204,6 +215,7 @@ export class ManifestHydrator {
       if (result.status !== 'error') this.consecutiveErrors.delete(result.itemId)
       switch (result.status) {
         case 'success':
+          settled.push(result.itemId)
           if (result.hydratedId) {
             hydratedIds.push(result.hydratedId)
           }
@@ -275,7 +287,7 @@ export class ManifestHydrator {
       await this.deps.docStore.flushToStorage(changedIds)
     } catch (error) {
       log.error('Failed to store hydrated docs; will fetch them again at the next sync', { error })
-      return { added: [], hasFailures: true }
+      return { added: [], hasFailures: true, settled: [] }
     }
 
     if (hydratedIds.length > 0) {
@@ -286,9 +298,14 @@ export class ManifestHydrator {
       await this.deps.itemSyncState.importBaseVersions(versionUpdates)
     }
 
+    if (settled.length > 0) {
+      this.deps.onItemsSettled?.(settled)
+    }
+
     return {
       added: hydratedIds,
       hasFailures: hasBatchFailures || hasHydrationFailures,
+      settled,
     }
   }
 

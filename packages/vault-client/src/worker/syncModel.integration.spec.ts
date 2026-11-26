@@ -301,7 +301,7 @@ describe('sync model', () => {
 
     // Found by the property (seed 24301, path 12:3:4:4:7:9:14:19:20:14:14, replay path AAArA///B:qH).
     // A parks C's delete row, whose create row expired, and the server's tombstone has no snapshot to
-    // supply it, so the GapHealer must drop the row once the item is a tombstone, not quarantine it.
+    // supply it, so the ItemReconciler must drop the row once the item is a tombstone, not quarantine it.
     it('quarantines nothing when an item\'s create row expires before its delete is pushed', async () => {
       const setup = await createWorld(3)
       world = setup.real

@@ -16,7 +16,7 @@ import { LocalCipher, LocalKeyUnavailableError } from './localEncryption/LocalCi
 import { toDocumentIdFromItemId } from './utils/automerge'
 import { DSK_KEY } from './localEncryption/openLocalStorage'
 import type { ChangeOutboxDeps } from './ChangeOutbox'
-import type { GapHealerDeps } from './GapHealer'
+import type { ItemReconcilerDeps } from './ItemReconciler'
 import type { SyncLogPullerDeps } from './SyncLogPuller'
 import type { SyncOrchestratorDeps } from './SyncOrchestrator'
 import type { SyncPollerDeps } from './SyncPoller'
@@ -81,7 +81,7 @@ beforeEach(() => {
     readManualRecoveryCount: vi.fn(async () => mockRecoveryEntries.size),
     removeManualRecoveryEntryById: vi.fn(async (_acc: string, id: string) => { mockRecoveryEntries.delete(id) }),
     removeManualRecoveryEntryByItemId: vi.fn(async (_acc: string, id: string) => { mockRecoveryEntries.delete(id) }),
-    removeManualRecoveryEntryIfKind: vi.fn(async (_acc: string, id: string, kinds: ReadonlySet<string>) => {
+    removeManualRecoveryEntryIfMatches: vi.fn(async (_acc: string, id: string, kinds: ReadonlySet<string>) => {
       const entry = mockRecoveryEntries.get(id)
       if (!entry || !kinds.has(entry.kind)) return false
       mockRecoveryEntries.delete(id)
@@ -216,7 +216,7 @@ describe('SyncWorkerContext', () => {
     const pollSpy = vi.spyOn(context.statusManager, 'handlePollResult')
     const degradedSpy = vi.spyOn(context.statusManager, 'setDegradedPull')
     depsOf<SyncOrchestratorDeps>(context.services.orchestrator).onPollResult!('failure')
-    depsOf<GapHealerDeps>(context.services.gapHealer).onHealingChange!(true)
+    depsOf<ItemReconcilerDeps>(context.services.itemReconciler).onHealingChange!(true)
     expect(pollSpy).toHaveBeenCalledWith('failure')
     expect(degradedSpy).toHaveBeenCalledWith(true)
   })

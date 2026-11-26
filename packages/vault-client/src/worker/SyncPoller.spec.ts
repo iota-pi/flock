@@ -24,7 +24,7 @@ describe('SyncPoller', () => {
     process: AnyMock
   }
   let outbox: { pushPending: AnyMock }
-  let healer: { runDue: AnyMock }
+  let reconciler: { runDue: AnyMock }
   let apiClient: { pollLog: AnyMock }
   let runManifestPhase: AnyMock
   let snapshots: { pushDue: AnyMock }
@@ -42,7 +42,7 @@ describe('SyncPoller', () => {
       process: vi.fn().mockResolvedValue(undefined),
     }
     outbox = { pushPending: vi.fn().mockResolvedValue(false) }
-    healer = { runDue: vi.fn().mockResolvedValue(undefined) }
+    reconciler = { runDue: vi.fn().mockResolvedValue(undefined) }
     apiClient = { pollLog: vi.fn().mockResolvedValue(response()) }
     runManifestPhase = vi.fn().mockResolvedValue(null)
     snapshots = { pushDue: vi.fn().mockResolvedValue({ persisted: 0, total: 0, success: true }) }
@@ -58,7 +58,7 @@ describe('SyncPoller', () => {
       puller: puller as unknown as SyncPollerDeps['puller'],
       exchange,
       outbox,
-      healer,
+      reconciler,
       runManifestPhase,
       snapshots,
       rewrites,
@@ -84,7 +84,7 @@ describe('SyncPoller', () => {
       order.push(`manifest ${stage}`)
       return null
     })
-    healer.runDue.mockImplementation(async () => { order.push('heal') })
+    reconciler.runDue.mockImplementation(async () => { order.push('heal') })
     snapshots.pushDue.mockImplementation(async () => { order.push('snapshots') })
     rewrites.runDue.mockImplementation(async () => { order.push('rewrites') })
 
@@ -155,7 +155,7 @@ describe('SyncPoller', () => {
       ['the push', () => outbox.pushPending],
       ['the request', () => apiClient.pollLog],
       ['processing the page', () => puller.process],
-      ['healing', () => healer.runDue],
+      ['healing', () => reconciler.runDue],
       ['uploading snapshots', () => snapshots.pushDue],
       ['rewriting snapshots', () => rewrites.runDue],
     ])('%s failing', async (_name, getStep) => {

@@ -3,7 +3,7 @@ import type { ItemId } from '@vault/shared'
 import type { AutomergeDocStore } from './docStore'
 import type { AutomergeRepoManager } from './AutomergeRepoManager'
 import type { ItemOperations } from './ItemOperations'
-import type { ManifestMode, ManifestPhaseResult } from './ManifestSyncManager'
+import type { ItemReconciler } from './ItemReconciler'
 import type { RecoveryManager } from './RecoveryManager'
 import type { SnapshotPusher } from './SnapshotPusher'
 import type { SnapshotSchedule } from './SnapshotSchedule'
@@ -16,8 +16,12 @@ export interface ItemRecoveryServiceDeps {
   recoveryManager: RecoveryManager
   snapshotSchedule: Pick<SnapshotSchedule, 'markItemDirty'>
   snapshotPusher: Pick<SnapshotPusher, 'flushPendingSnapshots' | 'clearOversized'>
-  /** Runs a poll whose manifest phase syncs at `mode`, returning that sync's result */
-  syncManifest: (mode: ManifestMode) => Promise<ManifestPhaseResult>
+  reconciler: Pick<ItemReconciler, 'reconcile'>
+  /**
+   * Runs a poll that fetches the item's snapshot, and returns whether the server's copy merged. False
+   * when the poll failed or didn't run.
+   */
+  reconcileItem: (itemId: ItemId) => Promise<boolean>
   itemOperations: ItemOperations
   /** Called once an unreadable document's local copy has been removed, so it's no longer reported unreadable */
   onLocalCopyDiscarded: (documentId: DocumentId) => void
@@ -41,20 +45,26 @@ export class ItemRecoveryService {
     await repoManager.storage.removeRange([documentId])
     this.deps.onLocalCopyDiscarded(documentId)
 
-    // A forced sync fetches quarantined items, and there's no longer a local copy to keep
-    const result = await this.deps.syncManifest('force')
-    if (!result.success || !(await docStore.hasDataInStorage(itemId))) {
+    // Fetched on its own, so other items failing to sync can't fail it. There's no longer a local copy
+    // to keep, and the hydrator merges into whatever arrived meanwhile rather than replace it (rule 2).
+    const settled = await this.deps.reconcileItem(itemId)
+    if (!settled || !(await docStore.hasDataInStorage(itemId))) {
       throw new Error(`The server's copy of ${itemId} could not be downloaded. Try again once sync has finished.`)
     }
     await recoveryManager.unquarantine(itemId)
   }
 
-  /** Releases a quarantined item and pushes its snapshot again */
+  /**
+   * Releases a quarantined item, pushes its snapshot again and fetches the server's. The fetch is a
+   * merge, so it's harmless where the server's copy was never the problem; where it was (a snapshot
+   * that didn't decrypt or hydrate), a fetch that fails again quarantines the item again.
+   */
   async retryRecoveryItem(itemId: ItemId): Promise<void> {
-    const { recoveryManager, snapshotSchedule, snapshotPusher } = this.deps
+    const { recoveryManager, snapshotSchedule, snapshotPusher, reconciler } = this.deps
     await recoveryManager.unquarantine(itemId)
     snapshotPusher.clearOversized(itemId)
     snapshotSchedule.markItemDirty(itemId)
+    reconciler.reconcile(itemId, { fetch: true })
     fireAndForget(
       snapshotPusher.flushPendingSnapshots(),
       'ItemRecoveryService:retryRecoveryItem:flushPendingSnapshots',

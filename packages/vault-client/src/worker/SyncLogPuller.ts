@@ -1,7 +1,7 @@
 import { debounce } from 'lodash-es'
 import type { ItemId, SyncLogEntry } from '@vault/shared'
 import type { KeyProvider } from '../keys/Keyring'
-import type { GapHealer, ParkReason } from './GapHealer'
+import type { ItemReconciler, ParkReason } from './ItemReconciler'
 import type { IncomingChanges } from './IncomingChanges'
 import type { AutomergeDocStore } from './docStore'
 import type { ItemSyncState } from './ItemSyncState'
@@ -47,7 +47,7 @@ export interface SyncLogPullerDeps {
   session: SyncSessionState
   /** Applies rows, and records which docs gained changes for snapshot coverage */
   incoming: Pick<IncomingChanges, 'apply' | 'readPending' | 'takeAddedChanges'>
-  healer: Pick<GapHealer, 'park' | 'onLogEntry'>
+  reconciler: Pick<ItemReconciler, 'park' | 'onLogEntry'>
   /** Runs the manifest syncs catching up and recovering lost rows need, which this places as demands */
   manifest: Pick<ManifestDemands, 'demand' | 'isDemanded'>
   /** Records pulled changes for snapshot coverage's S2, which has to be stored before the cursor moves past their rows */
@@ -351,11 +351,11 @@ export class SyncLogPuller {
       return false
     }
 
-    this.deps.healer.onLogEntry(itemId)
+    this.deps.reconciler.onLogEntry(itemId)
     return true
   }
 
   private async park(entry: SyncLogEntry, reason: ParkReason): Promise<void> {
-    await this.deps.healer.park(entry, reason)
+    await this.deps.reconciler.park(entry, reason)
   }
 }

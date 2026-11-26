@@ -359,16 +359,30 @@ export async function upsertManualRecoveryEntry(
   })
 }
 
-export async function removeManualRecoveryEntryIfKind(
+/** Which entries a removal applies to: those of the given kinds, or those the predicate accepts */
+export type ManualRecoveryMatch =
+  | ReadonlySet<ManualRecoveryKind>
+  | ((entry: Pick<ManualRecoveryEntry, 'kind' | 'detail'>) => boolean)
+
+/**
+ * Whether the entry quarantines the server's copy of an item (a snapshot that didn't decrypt, or kept
+ * failing to hydrate), which a later fetch of that copy that merges shows was transient
+ */
+export function isServerCopyQuarantine(entry: Pick<ManualRecoveryEntry, 'kind' | 'detail'>): boolean {
+  return entry.kind === 'snapshotDecryption' || entry.detail.code === 'hydrationFailed'
+}
+
+export async function removeManualRecoveryEntryIfMatches(
   accountId: string,
   itemId: ItemId,
-  kinds: ReadonlySet<ManualRecoveryKind>,
+  match: ManualRecoveryMatch,
 ): Promise<boolean> {
   if (!accountId) return false
+  const matches = typeof match === 'function' ? match : (entry: Pick<ManualRecoveryEntry, 'kind'>) => match.has(entry.kind)
   const storage = getManualRecoveryStorage(accountId)
   return entryMutex.runExclusive(entryLockKey(accountId, itemId), async () => {
     const existing = normalizeManualRecoveryEntry(await storage.getItem<unknown>(itemId))
-    if (!existing || !kinds.has(existing.kind)) return false
+    if (!existing || !matches(existing)) return false
     await runStorageOperation(() => storage.removeItem(itemId))
     return true
   })

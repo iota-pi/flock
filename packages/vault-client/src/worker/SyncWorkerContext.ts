@@ -18,7 +18,7 @@ import { ManifestSyncManager } from './ManifestSyncManager'
 import { ItemOperations } from './ItemOperations'
 import { INBOUND_MESSAGE_RESOLVABLE_KINDS, RecoveryManager } from './RecoveryManager'
 import { ChangeOutbox, readPendingMarks } from './ChangeOutbox'
-import { GapHealer } from './GapHealer'
+import { ItemReconciler } from './ItemReconciler'
 import { IncomingChanges } from './IncomingChanges'
 import { ItemSyncState } from './ItemSyncState'
 import { SyncLogPuller } from './SyncLogPuller'
@@ -46,6 +46,7 @@ import { SyncSignals } from './SyncSignals'
 import { DEFAULT_SYNC_DOMAIN, type LegacyHooks, type SyncDomain } from './domain'
 import { AccountSettings, withSettingsDocPassthrough } from './AccountSettings'
 import { getVaultStorageNames } from '../shared/storageNames'
+import { isServerCopyQuarantine } from '../shared/manualRecoveryStore'
 import { AbortError, untilAborted, withTimeout } from '../utils/abort'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { DSK_KEY, openLocalStorage, type LocalStorage } from './localEncryption/openLocalStorage'
@@ -142,7 +143,7 @@ export interface SyncWorkerServices {
   indexManager: AutomergeIndexManager
   recoveryManager: RecoveryManager
   changeOutbox: ChangeOutbox
-  gapHealer: GapHealer
+  itemReconciler: ItemReconciler
   puller: SyncLogPuller
   poller: SyncPoller
   snapshotSchedule: SnapshotSchedule
@@ -337,6 +338,10 @@ export class SyncWorkerContext {
         )
       },
       onItemSnapshotHydrated: advanceServerHeads,
+      onItemsSettled: itemIds => fireAndForget(
+        recoveryManager.resolveQuarantines(itemIds, isServerCopyQuarantine),
+        'SyncWorkerContext:resolveServerCopyQuarantines',
+      ),
       onLocalChangesFound: itemId => signals.raise.localChangesFound(itemId),
     })
 
@@ -347,7 +352,7 @@ export class SyncWorkerContext {
       onItemApplied: itemId => this.notifyDocumentReceived(itemId),
     })
 
-    const gapHealer = new GapHealer({
+    const itemReconciler = new ItemReconciler({
       db: syncLogDatabase,
       keys,
       docStore,
@@ -368,7 +373,7 @@ export class SyncWorkerContext {
       keys,
       session,
       incoming,
-      healer: gapHealer,
+      reconciler: itemReconciler,
       manifest: manifestDemands,
       itemSyncState,
       onKeyVersionMissing: this.emitKeyVersionMissing,
@@ -382,7 +387,7 @@ export class SyncWorkerContext {
       },
       // At start, so this is the one place the item records load
       onLoad: async () => {
-        const [flagged] = await Promise.all([itemSyncState.load(), gapHealer.load()])
+        const [flagged] = await Promise.all([itemSyncState.load(), itemReconciler.load()])
         await queueFlaggedItems(flagged, { recoveryManager, schedule: snapshotSchedule, session })
       },
     })
@@ -478,7 +483,7 @@ export class SyncWorkerContext {
       },
       onSnapshotCovered: advanceServerHeads,
       onManifestProcessed: async () => {
-        gapHealer.onManifestSynced()
+        itemReconciler.onManifestSynced()
       },
       itemSyncState,
     })
@@ -488,7 +493,7 @@ export class SyncWorkerContext {
       puller,
       exchange: logExchange,
       outbox: changeOutbox,
-      healer: gapHealer,
+      reconciler: itemReconciler,
       runManifestPhase: (stage, signal) => manifestSyncManager.runPhase(stage, signal),
       snapshots: snapshotPusher,
       rewrites: snapshotRewriter,
@@ -528,7 +533,11 @@ export class SyncWorkerContext {
       recoveryManager,
       snapshotSchedule,
       snapshotPusher,
-      syncManifest: mode => orchestrator.syncManifest(mode),
+      reconciler: itemReconciler,
+      reconcileItem: itemId => orchestrator.pollWithTicket(
+        () => itemReconciler.openTicket(itemId),
+        ticket => itemReconciler.closeTicket(ticket),
+      ),
       itemOperations,
       onLocalCopyDiscarded: documentId => this.unreadableDocuments.delete(documentId),
     })
@@ -543,7 +552,7 @@ export class SyncWorkerContext {
         storageRecoveryService.recordEdit(itemId)
       },
       localChangesFound: itemId => fireAndForget(changeOutbox.mark(itemId), 'SyncWorkerContext:markPending'),
-      localDataMissing: itemId => gapHealer.requestSnapshot(itemId),
+      localDataMissing: itemId => itemReconciler.reconcile(itemId, { fetch: true }),
       metadataUpdated: metadata => accountSettings.handleLocalMetadata(metadata),
     })
 
@@ -559,7 +568,7 @@ export class SyncWorkerContext {
       indexManager,
       recoveryManager,
       changeOutbox,
-      gapHealer,
+      itemReconciler,
       puller,
       poller,
       snapshotSchedule,
@@ -708,7 +717,7 @@ export class SyncWorkerContext {
 
   /** Tells the components waiting on a key that the keyring has changed */
   onKeyringUpdated(): void {
-    this.services.gapHealer.onKeyringUpdated()
+    this.services.itemReconciler.onKeyringUpdated()
   }
 
   async initialize(): Promise<void> {
