@@ -2,6 +2,7 @@ import { GetCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb'
 import { TransactionCanceledException } from '@aws-sdk/client-dynamodb'
 import { generateItemId, SYNC_LOG_TTL_DAYS, type SyncLogMessage } from '@vault/shared'
 import DynamoDriver from './driver'
+import { readLogHead } from './__test__/logHead'
 import { MAX_APPEND_ATTEMPTS } from './syncLog'
 import { generateAccountId } from '../../util'
 
@@ -51,7 +52,7 @@ describe('sync log', () => {
   })
 
   it('starts empty', async () => {
-    await expect(driver.readLogHead({ account })).resolves.toBe(0)
+    await expect(readLogHead(driver, account)).resolves.toBe(0)
     await expect(driver.readLog({ account, after: 0 })).resolves.toEqual({ entries: [], hasMore: false })
   })
 
@@ -66,7 +67,7 @@ describe('sync log', () => {
     await expect(driver.appendLog({ account, messages: second })).resolves.toEqual([
       { itemId: second[0].itemId, seq: 3 },
     ])
-    await expect(driver.readLogHead({ account })).resolves.toBe(3)
+    await expect(readLogHead(driver, account)).resolves.toBe(3)
   })
 
   it('keeps every field of the ciphertext, format included', async () => {
@@ -106,10 +107,9 @@ describe('sync log', () => {
   it('reads with strong consistency', async () => {
     const send = vi.spyOn(driver.client, 'send')
     await driver.readLog({ account, after: 0 })
-    await driver.readLogHead({ account })
 
     expect(send.mock.calls.map(([command]) => (command.input as { ConsistentRead?: boolean }).ConsistentRead))
-      .toEqual([true, true])
+      .toEqual([true])
   })
 
   it('pages through the log with hasMore', async () => {
@@ -125,7 +125,7 @@ describe('sync log', () => {
     const other = generateAccountId(10)
     await driver.appendLog({ account, messages: messages(2) })
     await expect(driver.appendLog({ account: other, messages: [message()] })).resolves.toMatchObject([{ seq: 1 }])
-    await expect(driver.readLogHead({ account })).resolves.toBe(2)
+    await expect(readLogHead(driver, account)).resolves.toBe(2)
   })
 
   it('keeps seqs contiguous when devices push at once', async () => {
@@ -136,7 +136,7 @@ describe('sync log', () => {
     const seqs = pushes.flat().map(result => result.seq).sort((a, b) => a - b)
     expect(seqs).toEqual([1, 2, 3, 4, 5, 6])
     expect((await readAll(account)).map(e => e.seq)).toEqual(seqs)
-    await expect(driver.readLogHead({ account })).resolves.toBe(6)
+    await expect(readLogHead(driver, account)).resolves.toBe(6)
     // A push's own rows stay next to each other, because each is one transaction
     for (const push of pushes) {
       expect(push.at(-1)!.seq - push[0].seq).toBe(push.length - 1)
@@ -196,7 +196,7 @@ describe('sync log', () => {
     await expect(driver.appendLog({ account, messages: [message()] })).rejects.toThrow('Transaction cancelled')
     expect(attempts).toBe(MAX_APPEND_ATTEMPTS)
     send.mockRestore()
-    await expect(driver.readLogHead({ account })).resolves.toBe(0)
+    await expect(readLogHead(driver, account)).resolves.toBe(0)
   }, 15_000)
 
   it('does not retry a transaction that can never succeed', async () => {

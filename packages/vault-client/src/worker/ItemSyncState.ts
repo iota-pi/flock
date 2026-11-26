@@ -5,7 +5,6 @@ import type { SyncLogDatabase } from './stores/SyncLogDatabase'
 import { readItemSyncRecords, updateItemSyncRecords, type ItemSyncRecord } from './stores/itemSyncRecords'
 import type { SyncSessionState } from './SyncSessionState'
 import { areHeadsEqual, frontierOf } from './utils/automerge'
-import { SYNC_LOG_STORES } from '../shared/syncLogStorage'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { AsyncMutex } from '../utils/AsyncMutex'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
@@ -19,17 +18,8 @@ type ItemSyncField = Exclude<keyof ItemSyncRecord, 'itemId'>
 
 type ItemState = Omit<ItemSyncRecord, 'itemId'>
 
-/**
- * A record of the store unconfirmed pulls were kept in before they moved into the items' records.
- * It's read only to migrate them, and can go a release after that.
- */
-interface LegacyUnconfirmedPull {
-  itemId: ItemId
-  firstSeenAt: number
-}
-
 export interface ItemSyncStateDeps {
-  db: Pick<SyncLogDatabase, 'getAll' | 'update' | 'delete'>
+  db: Pick<SyncLogDatabase, 'getAll' | 'update'>
   session: Pick<SyncSessionState, 'isShutdown'>
   now?: () => number
 }
@@ -55,8 +45,6 @@ export class ItemSyncState {
   private readonly unsaved = new Map<ItemId, Set<ItemSyncField>>()
   /** The fields a save in flight is writing, which a load treats as unsaved until it commits */
   private saving = new Map<ItemId, Set<ItemSyncField>>()
-  /** Items whose legacy unconfirmed pull was folded in, to delete from the old store once saved */
-  private readonly migratingPulls = new Set<ItemId>()
   /**
    * The items queued for a snapshot, each with the tick of its latest marking. It's kept for the
    * session only, apart from the records, so loads and saves never touch it: the stored `dirty` flag
@@ -97,10 +85,7 @@ export class ItemSyncState {
   }
 
   private async executeLoad(): Promise<void> {
-    const [records, legacyPulls] = await Promise.all([
-      readItemSyncRecords(this.deps.db),
-      this.deps.db.getAll<LegacyUnconfirmedPull>(SYNC_LOG_STORES.unconfirmedPulls),
-    ])
+    const records = await readItemSyncRecords(this.deps.db)
     // A session that stopped meanwhile has nothing to load into
     if (!this.isAlive()) return
 
@@ -133,20 +118,7 @@ export class ItemSyncState {
       }
     }
 
-    // Migration: unconfirmed pulls had their own store, which goes once they're in the records
-    const migrated: ItemId[] = []
-    for (const { itemId, firstSeenAt } of legacyPulls) {
-      if (this.migratingPulls.has(itemId)) continue
-      const entry = entryOf(itemId)
-      entry.pulledAt = Math.min(entry.pulledAt ?? firstSeenAt, firstSeenAt)
-      migrated.push(itemId)
-    }
-
     this.items = loaded
-    for (const itemId of migrated) {
-      this.migratingPulls.add(itemId)
-      this.markUnsaved(itemId, 'pulledAt')
-    }
   }
 
   private entry(itemId: ItemId): ItemState {
@@ -456,22 +428,7 @@ export class ItemSyncState {
       } finally {
         this.saving = new Map()
       }
-      await this.deleteMigratedPulls()
     })
-  }
-
-  /** Deletes legacy unconfirmed pulls whose records have been saved. A failure retries at the next save. */
-  private async deleteMigratedPulls(): Promise<void> {
-    const saved = Array.from(this.migratingPulls).filter(itemId => !this.isUnsaved(itemId, 'pulledAt'))
-    if (saved.length === 0) return
-    try {
-      await this.deps.db.delete(SYNC_LOG_STORES.unconfirmedPulls, ...saved)
-      for (const itemId of saved) {
-        this.migratingPulls.delete(itemId)
-      }
-    } catch (error) {
-      log.warn('Failed to delete migrated unconfirmed pulls', error)
-    }
   }
 
   /** Saves what this tab changed, unless local data is being cleared. Called once, by the context's lifecycle. */
@@ -485,7 +442,6 @@ export class ItemSyncState {
     this.saveDebounced.cancel()
     this.items.clear()
     this.unsaved.clear()
-    this.migratingPulls.clear()
     this.dirtyTicks.clear()
     this.loadGuard.clear()
   }

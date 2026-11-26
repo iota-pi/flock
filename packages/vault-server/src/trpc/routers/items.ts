@@ -9,7 +9,7 @@ export const itemsRouter = router({
   fetchManifest: protectedProcedure
     .query(async ({ ctx, input }) => {
       const manifest = await ctx.vault.fetchManifest({ account: input.account })
-      return { success: true, manifest, serverTime: Date.now() }
+      return { success: true, manifest }
     }),
 
   fetchSnapshotsByIds: protectedProcedure
@@ -17,10 +17,10 @@ export const itemsRouter = router({
     .query(async ({ ctx, input }) => {
       const items = (await ctx.vault.fetchByIds({ account: input.account, itemIds: input.itemIds })).map(toFetchedItem)
       if (input.maxResponseChars === undefined) {
-        return { success: true, items, serverTime: Date.now() }
+        return { success: true, items }
       }
       const limited = limitFetchedItems(items, input.maxResponseChars)
-      return { success: true, items: limited.items, deferred: limited.deferred, serverTime: Date.now() }
+      return { success: true, items: limited.items, deferred: limited.deferred }
     }),
 
   putSnapshots: protectedProcedure

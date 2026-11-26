@@ -160,7 +160,7 @@ export class FakeVaultServer implements VaultServerBackend {
       ...(item.deleted ? { isDeleted: true } : {}),
       ...(item.heads && !item.deleted ? { heads: item.heads } : {}),
     }))
-    return { success: true, manifest, serverTime: this.clock() }
+    return { success: true, manifest }
   }
 
   fetchSnapshotsByIds(rawInput: Inputs['items']['fetchSnapshotsByIds']): Outputs['items']['fetchSnapshotsByIds'] {
@@ -177,7 +177,7 @@ export class FakeVaultServer implements VaultServerBackend {
       } as FetchedItem]
     })
     if (input.maxResponseChars === undefined) {
-      return { success: true, items, serverTime: this.clock() }
+      return { success: true, items }
     }
     // Items in the order asked for, until the next would pass the limit (always at least one)
     let chars = 0
@@ -191,7 +191,6 @@ export class FakeVaultServer implements VaultServerBackend {
       success: true,
       items: items.slice(0, count),
       deferred: items.slice(count).map(item => item.item),
-      serverTime: this.clock(),
     }
   }
 

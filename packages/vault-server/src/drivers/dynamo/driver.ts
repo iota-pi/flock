@@ -207,10 +207,6 @@ export default class DynamoDriver implements VaultDriver {
     return syncLog.readLog(this.context, input)
   }
 
-  async readLogHead(data: BaseData): Promise<number> {
-    return syncLog.readLogHead(this.context, data)
-  }
-
   async deleteItems(data: BaseData & { limit: number }): Promise<DeleteBatchResult> {
     return accountDeletion.deleteItems(this.context, data)
   }

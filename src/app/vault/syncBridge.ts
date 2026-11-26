@@ -59,7 +59,7 @@ export const SyncBridge = createSyncBridge<Item, AccountMetadata>({
   // chunk, whose exports are renamed, so the function would be undefined in a production build.
   lockVault: () => lockVault(),
   // Tabs of builds before one active tab queue for the lock as followers, whose edits this tab's
-  // engine wouldn't hear, so they're asked to lock. Remove this with LegacyLeaderClaims' removal
-  // condition in docs/vault-extraction.md.
+  // engine wouldn't hear, so they're asked to lock. Remove this when the `takeover` message's row in
+  // docs/vault-extraction.md says it can go.
   onTakeOver: account => askOtherTabsToStop({ type: 'started', account, takeover: true }),
 })

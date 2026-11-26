@@ -522,13 +522,6 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     })
   }
 
-  /** The heads of the item's doc, or null when it can't be loaded */
-  async readHeads(itemId: ItemId): Promise<string[] | null> {
-    const handle = await this.findHandle(itemId)
-    const doc = handle?.isReady() ? handle.doc() : undefined
-    return doc ? Automerge.getHeads(doc) : null
-  }
-
   private buildHydrateResult(
     doc: RepoDoc | undefined,
     incomingHeads: string[],

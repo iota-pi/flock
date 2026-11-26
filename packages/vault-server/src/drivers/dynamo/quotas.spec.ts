@@ -1,6 +1,7 @@
 import { DeleteTableCommand, DescribeTableCommand } from '@aws-sdk/client-dynamodb'
 import { generateItemId, type SyncLogMessage } from '@vault/shared'
 import DynamoDriver from './driver'
+import { readLogHead } from './__test__/logHead'
 import { QuotaExceededError } from '../../errors'
 import { generateAccountId } from '../../util'
 
@@ -110,7 +111,7 @@ describe('log quota', () => {
     await expect(driver.appendLog({ account, messages: [message(1)], maxBytesPerDay }))
       .rejects.toBeInstanceOf(QuotaExceededError)
 
-    await expect(driver.readLogHead({ account })).resolves.toBe(2)
+    await expect(readLogHead(driver, account)).resolves.toBe(2)
   })
 
   it('starts each UTC day afresh', async () => {
@@ -125,7 +126,7 @@ describe('log quota', () => {
     vi.spyOn(Date, 'now').mockReturnValue(today + 2 * 60 * 1000)
     await driver.appendLog({ account, messages: [message(500)], maxBytesPerDay })
 
-    await expect(driver.readLogHead({ account })).resolves.toBe(2)
+    await expect(readLogHead(driver, account)).resolves.toBe(2)
   })
 })
 

@@ -1,4 +1,5 @@
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb'
+import * as Automerge from '@automerge/automerge/slim'
 import type { ItemId } from '@vault/shared'
 import { Keyring } from '../../keys/Keyring'
 import { generateVaultKey } from '../../keys/crypto'
@@ -154,7 +155,9 @@ export class Device {
 
   /** The heads of the item's doc, or null when this device has none */
   async heads(id: ItemId): Promise<string[] | null> {
-    return this.services.docStore.readHeads(id)
+    const handle = await this.services.docStore.findHandle(id)
+    const doc = handle?.isReady() ? handle.doc() : undefined
+    return doc ? Automerge.getHeads(doc) : null
   }
 
   async liveIds(): Promise<ItemId[]> {

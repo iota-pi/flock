@@ -1,9 +1,8 @@
 import { MAX_REWRITE_ATTEMPTS, SnapshotRewriter, type SnapshotRewriterOptions } from './SnapshotRewriter'
-import { SnapshotPusher } from './SnapshotPusher'
+import { SnapshotPusher, type StoredSnapshotDetails } from './SnapshotPusher'
 import { SnapshotSchedule } from './SnapshotSchedule'
 import type { ItemSyncState } from './ItemSyncState'
 import type { ItemId } from '@vault/shared'
-import type { StoredSnapshotDetails } from './snapshotUpload'
 import type { Mock } from 'vitest'
 import { RecoveryManager } from './RecoveryManager'
 import { ClientEventHub } from './SyncEventHub'
@@ -58,6 +57,11 @@ interface TestDeps extends Omit<SnapshotRewriterOptions, 'runPollNow' | 'uploade
   onSnapshotStored: Mock<(details: StoredSnapshotDetails) => void>
   maxPayloadBytes?: number
   runPollNow?: () => Promise<void>
+}
+
+/** How many items the rewrite still has to upload */
+function pendingCount(rewriter: SnapshotRewriter): number {
+  return (rewriter as unknown as { queue: unknown[] }).queue.length
 }
 
 /** The parts of the item sync state a rewrite reaches, with no item dirty */
@@ -240,7 +244,7 @@ describe('SnapshotRewriter.request', () => {
     expect(onProgress).toHaveBeenCalledWith(2, 2)
     await vi.waitFor(() => expect(outcomes).toEqual(['success']))
     expect(rewriter.stage).toBeNull()
-    expect(rewriter.pendingCount).toBe(0)
+    expect(pendingCount(rewriter)).toBe(0)
   })
 
   it('quarantines the items of a batch the server only partly stored, after its attempts', async () => {
@@ -512,7 +516,7 @@ describe('SnapshotRewriter.request', () => {
     expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
     await vi.waitFor(() => expect(outcomes).toEqual(['failure']))
-    expect(rewriter.pendingCount).toBe(20)
+    expect(pendingCount(rewriter)).toBe(20)
   })
 
   describe('request failures', () => {
@@ -531,7 +535,7 @@ describe('SnapshotRewriter.request', () => {
       expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
       expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
       await vi.waitFor(() => expect(outcomes).toEqual(['failure']))
-      expect(rewriter.pendingCount).toBe(20)
+      expect(pendingCount(rewriter)).toBe(20)
       expect(rewriter.stage).toBe('reencrypting')
     })
 
@@ -546,14 +550,14 @@ describe('SnapshotRewriter.request', () => {
       const { rewriter: resuming, outcomes: pollOutcomes, poll } = createRewriter(deps)
 
       await expect(resuming.request()).rejects.toThrow(/network error/)
-      expect(resuming.pendingCount).toBe(2)
+      expect(pendingCount(resuming)).toBe(2)
 
       await poll()
 
       await vi.waitFor(() => expect(pollOutcomes).toEqual(['failure', 'success']))
       expect(mockPutSnapshots).toHaveBeenCalledTimes(3)
       expect(mockPutSnapshots.mock.calls[2][0].snapshots.map((s: any) => s.itemId)).toEqual(['item-10', 'item-11'])
-      expect(resuming.pendingCount).toBe(0)
+      expect(pendingCount(resuming)).toBe(0)
       expect(resuming.stage).toBeNull()
     })
 
@@ -680,7 +684,7 @@ describe('SnapshotRewriter.request', () => {
 
     await expect(skipped.request()).rejects.toThrow('could not run')
 
-    expect(skipped.pendingCount).toBe(1)
+    expect(pendingCount(skipped)).toBe(1)
     skipped.cancel()
   })
 
@@ -694,7 +698,7 @@ describe('SnapshotRewriter.request', () => {
 
     await expect(stopped.request()).rejects.toThrow(/Re-encryption aborted: network error/)
 
-    expect(stopped.pendingCount).toBe(1)
+    expect(pendingCount(stopped)).toBe(1)
     expect(stopped.stage).toBe('reencrypting')
     stopped.cancel()
   })
@@ -734,7 +738,7 @@ describe('SnapshotRewriter at the storage quota', () => {
     await vi.waitFor(() => expect(outcomes).toEqual(['success']))
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
     expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
-    expect(rewriter.pendingCount).toBe(20)
+    expect(pendingCount(rewriter)).toBe(20)
     expect(rewriter.stage).toBe('reencrypting')
     expect(deps.schedule.isDeferred()).toBe(true)
   })
@@ -745,14 +749,14 @@ describe('SnapshotRewriter at the storage quota', () => {
 
     await poll()
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-    expect(rewriter.pendingCount).toBe(20)
+    expect(pendingCount(rewriter)).toBe(20)
 
     vi.setSystemTime(1000 + SYNC_TIMEOUTS.snapshotQuotaRetry)
     await poll()
 
     expect(outcomes).toEqual(['success', 'success', 'success'])
     expect(mockPutSnapshots).toHaveBeenCalledTimes(3)
-    expect(rewriter.pendingCount).toBe(0)
+    expect(pendingCount(rewriter)).toBe(0)
     expect(rewriter.stage).toBeNull()
   })
 
@@ -779,7 +783,7 @@ describe('SnapshotRewriter at the storage quota', () => {
     await expect(refused.request()).rejects.toThrow(/storage quota/)
 
     expect(mockPutSnapshots).not.toHaveBeenCalled()
-    expect(refused.pendingCount).toBe(20)
+    expect(pendingCount(refused)).toBe(20)
     refused.cancel()
   })
 })
@@ -802,7 +806,7 @@ describe('SnapshotRewriter.runDue', () => {
     const catchUp = { isCaughtUp: true, whenCaughtUp: vi.fn().mockResolvedValue(undefined) }
     const { rewriter } = createRewriter({ ...createDeps({ catchUp }), runPollNow: async () => {} })
     const request = rewriter.request()
-    await vi.waitFor(() => expect(rewriter.pendingCount).toBe(1))
+    await vi.waitFor(() => expect(pendingCount(rewriter)).toBe(1))
     catchUp.isCaughtUp = false
 
     await rewriter.runDue(new AbortController().signal)
@@ -811,14 +815,14 @@ describe('SnapshotRewriter.runDue', () => {
     catchUp.isCaughtUp = true
     await rewriter.runDue(new AbortController().signal)
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-    expect(rewriter.pendingCount).toBe(0)
+    expect(pendingCount(rewriter)).toBe(0)
     expect(await request).toEqual({ succeeded: ['item-1'], failed: [] })
   })
 
   it('stops when the poll is aborted, keeping the rest queued', async () => {
     const { rewriter } = createRewriter({ ...createDeps(), runPollNow: async () => {} })
     const request = rewriter.request()
-    await vi.waitFor(() => expect(rewriter.pendingCount).toBe(1))
+    await vi.waitFor(() => expect(pendingCount(rewriter)).toBe(1))
     const controller = new AbortController()
     controller.abort()
 
@@ -826,7 +830,7 @@ describe('SnapshotRewriter.runDue', () => {
 
     await expect(request).rejects.toThrow()
     expect(mockPutSnapshots).not.toHaveBeenCalled()
-    expect(rewriter.pendingCount).toBe(1)
+    expect(pendingCount(rewriter)).toBe(1)
     rewriter.cancel()
   })
 })
@@ -989,7 +993,7 @@ describe('SnapshotRewriter callers', () => {
     await vi.waitFor(() => expect(outcomes).toEqual(['success']))
     // The second chunk never went
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-    expect(cancelling.pendingCount).toBe(0)
+    expect(pendingCount(cancelling)).toBe(0)
     expect(cancelling.stage).toBeNull()
   })
 })

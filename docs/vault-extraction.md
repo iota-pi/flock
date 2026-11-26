@@ -63,7 +63,6 @@ Everything the engine keeps only for older data or older builds. Code tied to a 
 | `LegacyHooks.fetchManifestEverySync` | `worker/ManifestSyncManager.ts` | Levels 1 and up: seeing every legacy row | No level needs a full manifest any more |
 | `LegacyHooks.migrateLocalData` | `src/migrate/legacy/localData.ts` | Levels 1 and 4: older local layouts | The last level whose layout it reads is retired |
 | `LegacyHooks.syncResetDataVersion`, `resetSyncState`, `hasFinishedSyncReset` | `worker/syncReset.ts` | Level 4: the sync reset | Level 4 is retired (see Level 4) |
-| The `unconfirmed-pulls` fold in `ItemSyncState.load` and `deleteMigratedPulls` | `worker/ItemSyncState.ts` | Added 2026-11-23: devices that kept unconfirmed pulls in their own store | Any release after the one that shipped it, once devices have opened that release. One that hasn't only loses its pulls' ages. The store and its name stay. |
 | The `takeover` message a start sends (`SyncBridgeOptions.onTakeOver`, Flock's `askOtherTabsToStop` with `takeover: true`) | `client/WorkerLifecycleManager.ts`, `src/app/vault/syncBridge.ts` | Added with one active tab: tabs of builds with leader election, which queue for the lock as followers rather than show an overlay (see "One active tab" in [sync-design.md](sync-design.md)) | No tab of a build with leader election can be open. Those builds send protocol 5, so to force it, raise `VAULT_PROTOCOL_VERSION` and then `MIN_PROTOCOL_VERSION` past them. The `leaderLock` name stays: it's the active-tab lock. |
 
 ## Levels

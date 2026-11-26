@@ -217,20 +217,20 @@ describe('SyncApiClient', () => {
 
   describe('API Method Passthroughs', () => {
     it('passes through fetchManifest successfully', async () => {
-      mockFetchManifest.mockResolvedValue({ success: true, manifest: [{ itemId: 'i1', modifiedAt: 100 }], serverTime: 5000 })
+      mockFetchManifest.mockResolvedValue({ success: true, manifest: [{ itemId: 'i1', modifiedAt: 100 }] })
       const client = new SyncApiClient()
 
       const result = await client.fetchManifest({ account: 'acc-1' })
-      expect(result).toEqual({ manifest: [{ itemId: 'i1', modifiedAt: 100 }], serverTime: 5000 })
+      expect(result).toEqual({ manifest: [{ itemId: 'i1', modifiedAt: 100 }] })
       expect(mockFetchManifest).toHaveBeenCalledWith({ account: 'acc-1' }, undefined)
     })
 
     it('passes through fetchSnapshotsByIds successfully', async () => {
-      mockFetchSnapshotsByIds.mockResolvedValue({ success: true, items: [{ item: 'i1' }], serverTime: 5000 })
+      mockFetchSnapshotsByIds.mockResolvedValue({ success: true, items: [{ item: 'i1' }] })
       const client = new SyncApiClient()
 
       const result = await client.fetchSnapshotsByIds({ account: 'acc-1', itemIds: ['i1' as any] })
-      expect(result).toEqual({ items: [{ item: 'i1' }], serverTime: 5000, deferred: [] })
+      expect(result).toEqual({ items: [{ item: 'i1' }], deferred: [] })
       expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith(
         { account: 'acc-1', itemIds: ['i1'], maxResponseChars: MAX_FETCH_RESPONSE_CHARS },
         undefined,
@@ -238,7 +238,7 @@ describe('SyncApiClient', () => {
     })
 
     it('throws when fetchManifest reports failure', async () => {
-      mockFetchManifest.mockResolvedValue({ success: false, manifest: [], serverTime: 5000 })
+      mockFetchManifest.mockResolvedValue({ success: false, manifest: [] })
       const client = new SyncApiClient()
 
       await expect(client.fetchManifest({ account: 'acc-1' })).rejects.toThrow(
@@ -247,7 +247,7 @@ describe('SyncApiClient', () => {
     })
 
     it('throws when fetchSnapshotsByIds reports failure', async () => {
-      mockFetchSnapshotsByIds.mockResolvedValue({ success: false, items: [], serverTime: 5000 })
+      mockFetchSnapshotsByIds.mockResolvedValue({ success: false, items: [] })
       const client = new SyncApiClient()
 
       await expect(client.fetchSnapshotsByIds({ account: 'acc-1', itemIds: ['i1' as any] })).rejects.toThrow(

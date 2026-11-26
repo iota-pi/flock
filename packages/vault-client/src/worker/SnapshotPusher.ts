@@ -1,7 +1,7 @@
 import type { SnapshotPushResult } from './syncProtocol'
 import type { SyncApiClient } from './SyncApiClient'
 import { classifySyncError, isRequestFailure } from '../utils/errorClassifier'
-import { type ItemId, MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from '@vault/shared'
+import { type ItemId, MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB, type VaultSnapshotInput } from '@vault/shared'
 import type { ClientEventHub } from './SyncEventHub'
 import type { RecoveryManager } from './RecoveryManager'
 import { ConsecutiveFailureCounter } from '../utils/ConsecutiveFailureCounter'
@@ -16,18 +16,24 @@ import {
   toTombstoneSnapshot,
 } from './SnapshotBuilder'
 import { fireAndForget } from '../utils/fireAndForget'
-import {
-  uploadSnapshotBatch,
-  type SnapshotBatchResult,
-  type StoredSnapshotDetails,
-  type StoredSnapshotRecorder,
-  type UploadableSnapshot,
-} from './snapshotUpload'
 import { createLogger } from '../utils/logger'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import type { SyncSessionState } from './SyncSessionState'
 
 const log = createLogger('SnapshotPusher')
+
+/** A snapshot to upload. `tick` is the dirty tick it was built at, when it was built for a dirty item. */
+export interface UploadableSnapshot {
+  snapshot: VaultSnapshotInput
+  tick?: number
+  heads?: string[]
+}
+
+/** A snapshot the server stored, with the heads it holds */
+export interface StoredSnapshotDetails {
+  itemId: ItemId
+  heads: string[] | undefined
+}
 
 export interface SnapshotPusherOptions {
   accountId: string
@@ -128,7 +134,7 @@ export class SnapshotsRefusedError extends Error {
  * backoff. `uploadItems` is the one per-item pipeline (build after push, size limit, batching,
  * failure counting and quarantine), which `SnapshotRewriter` runs too.
  */
-export class SnapshotPusher implements StoredSnapshotRecorder {
+export class SnapshotPusher {
   private readonly maxPayloadBytes: number
 
   private readonly consecutiveFailures = new ConsecutiveFailureCounter<ItemId>(MAX_CONSECUTIVE_SNAPSHOT_FAILURES)
@@ -396,7 +402,7 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
   }
 
   /** Records snapshots the server stored, whichever upload sent them */
-  recordStoredSnapshots(stored: UploadableSnapshot[], versions: Map<ItemId, number>): void {
+  private recordStoredSnapshots(stored: UploadableSnapshot[], versions: Map<ItemId, number>): void {
     for (const item of stored) {
       const { itemId } = item.snapshot
       this.consecutiveFailures.reset(itemId)
@@ -435,14 +441,22 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
       return { success: false, persisted: 0 }
     }
 
-    let result: SnapshotBatchResult<UploadableSnapshot>
+    // The server stores each snapshot on its own, so a response can store some and reject others
+    let result: { success: boolean; persisted: number; stored: UploadableSnapshot[]; rejected: UploadableSnapshot[] }
     try {
-      result = await uploadSnapshotBatch(batch, {
-        accountId: this.deps.accountId,
-        apiClient: this.deps.apiClient,
-        recorder: this,
-        signal,
-      })
+      const response = await this.deps.apiClient.putSnapshots(
+        { account: this.deps.accountId, snapshots: batch.map(item => item.snapshot) },
+        { signal },
+      )
+      const versions = new Map(response.results.map(r => [r.itemId, r.version]))
+      const stored = batch.filter(item => versions.has(item.snapshot.itemId))
+      if (stored.length > 0) this.recordStoredSnapshots(stored, versions)
+      result = {
+        success: response.success && response.persisted === batch.length,
+        persisted: response.persisted,
+        stored,
+        rejected: batch.filter(item => !versions.has(item.snapshot.itemId)),
+      }
     } catch (error) {
       if (signal.aborted || isAbortError(error)) throw error
       if (classifySyncError(error).status === 429) {
