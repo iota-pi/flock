@@ -144,8 +144,7 @@ beforeEach(() => {
       constructor(readonly deps: unknown) {}
       nextDueAt: number | undefined = undefined
       markItemDirty = vi.fn()
-      load = vi.fn().mockResolvedValue(undefined)
-      shutdown = vi.fn().mockResolvedValue(undefined)
+      queueRestored = vi.fn().mockReturnValue(0)
     },
   })
   spyOnExports(snapshotPusherModule, {
@@ -229,7 +228,6 @@ describe('SyncWorkerContext', () => {
 
     expect(pullerShutdown).toHaveBeenCalledWith({ clearLocalData: true })
     expect(stateShutdown).toHaveBeenCalledWith({ clearLocalData: true })
-    expect(context.services.snapshotSchedule.shutdown).toHaveBeenCalled()
     expect(context.services.snapshotPusher.shutdown).toHaveBeenCalled()
     expect(context.services.orchestrator.shutdown).toHaveBeenCalled()
     expect(context.services.docStore.shutdown).toHaveBeenCalled()
@@ -237,14 +235,17 @@ describe('SyncWorkerContext', () => {
     expect(context.services.indexStore.clear).not.toHaveBeenCalled()
   })
 
-  it('loads the item records with the log state', async () => {
-    const { snapshotSchedule } = context.services
-    const loadsAtStart = vi.mocked(snapshotSchedule.load).mock.calls.length
-    expect(loadsAtStart).toBeGreaterThanOrEqual(1)
+  it('loads the item records with the log state, and queues the flagged items that are not quarantined', async () => {
+    const { itemSyncState, recoveryManager, snapshotSchedule } = context.services
+    const load = vi.spyOn(itemSyncState, 'load').mockResolvedValue(['item-flagged', 'item-quarantined'] as ItemId[])
+    vi.spyOn(recoveryManager, 'listRecoveryItems').mockResolvedValue([
+      { id: 'entry-1', itemId: 'item-quarantined' as ItemId, reason: 'Decryption failed', kind: 'pullDecryption', createdAt: 0 } as any,
+    ])
 
     await depsOf<SyncLogPullerDeps>(context.services.puller).onLoad!()
 
-    expect(snapshotSchedule.load).toHaveBeenCalledTimes(loadsAtStart + 1)
+    expect(load).toHaveBeenCalledTimes(1)
+    expect(snapshotSchedule.queueRestored).toHaveBeenCalledExactlyOnceWith(['item-flagged'])
   })
 
   it('shuts down cleanly without clearLocalData', async () => {
@@ -254,7 +255,6 @@ describe('SyncWorkerContext', () => {
 
     expect(pullerShutdown).toHaveBeenCalledWith(undefined)
     expect(stateShutdown).toHaveBeenCalledWith(undefined)
-    expect(context.services.snapshotSchedule.shutdown).toHaveBeenCalled()
     expect(context.services.snapshotPusher.shutdown).toHaveBeenCalled()
     expect(clearSyncMetadataStorage).not.toHaveBeenCalled()
     expect(context.services.indexStore.clear).not.toHaveBeenCalled()
@@ -406,7 +406,7 @@ describe('SyncWorkerContext', () => {
       vi.spyOn(context.services.changeOutbox, 'listMarks').mockResolvedValue(
         marked.map(itemId => ({ itemId, tick: 1, createdAt: options.markedAt ?? Date.now() })),
       )
-      vi.spyOn(context.services.itemSyncState, 'load').mockResolvedValue(undefined)
+      vi.spyOn(context.services.itemSyncState, 'load').mockResolvedValue([])
       vi.spyOn(context.services.itemSyncState, 'listFlagged').mockReturnValue(
         (options.dirty ?? []) as ItemId[],
       )
@@ -1127,7 +1127,6 @@ describe('SyncWorkerContext', () => {
       'IndexDocument',
       'RecoveryManager',
       'DocStore',
-      'SnapshotSchedule',
       'SnapshotPusher',
       'SyncLogPuller',
       'SyncOrchestrator',

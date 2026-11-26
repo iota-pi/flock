@@ -289,7 +289,8 @@ export class ManifestSyncManager {
     const { itemSyncState, snapshotSchedule, snapshotPusher } = this.deps
     if (itemSyncState.dirtyCount === 0) return
     try {
-      snapshotSchedule.requestNow()
+      // Not past a quota deferral, or every manifest sync of an account at its quota sends a batch to be refused
+      snapshotSchedule.requestNow({ pastQuota: false })
       await snapshotPusher.pushDue(signal)
     } catch (flushErr) {
       if (signal.aborted || isAbortError(flushErr) || isRequestFailure(flushErr)) throw flushErr

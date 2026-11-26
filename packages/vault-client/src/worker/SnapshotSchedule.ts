@@ -1,9 +1,15 @@
 import type { ItemId } from '@vault/shared'
 import type { ItemSyncState } from './ItemSyncState'
-import type { RecoveryManager } from './RecoveryManager'
 import type { SyncSessionState } from './SyncSessionState'
-import { checkAlive, isAbortError } from '../utils/abort'
-import { SingleFlightGuard } from '../utils/SingleFlightGuard'
+import {
+  INITIAL_SNAPSHOT_DUE_STATE,
+  isSnapshotDeferred,
+  isSnapshotDue,
+  snapshotDueAt,
+  transitionSnapshotDue,
+  type SnapshotDueEvent,
+  type SnapshotDueState,
+} from './snapshotDue'
 import { createLogger } from '../utils/logger'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 
@@ -11,107 +17,81 @@ const log = createLogger('SnapshotSchedule')
 
 export interface SnapshotScheduleOptions {
   /** The queue of dirty items, which the schedule marks and clears for its callers */
-  state: Pick<ItemSyncState, 'load' | 'markDirty' | 'clearDirty' | 'queueFlagged' | 'dirtyCount'>
-  recoveryManager: Pick<RecoveryManager, 'listRecoveryItems'>
-  debounceDelayMs?: number
-  maxWaitMs?: number
-  session: SyncSessionState
+  state: Pick<ItemSyncState, 'markDirty' | 'clearDirty' | 'queueFlagged' | 'dirtyCount'>
+  session: Pick<SyncSessionState, 'isShutdown'>
   /** Called when snapshots may be due sooner than before, so the next poll can be brought forward */
   onDueChanged?: () => void
   now?: () => number
 }
 
 /**
- * When the dirty items' snapshots are due. `ItemSyncState` holds which items are dirty, with their
- * ticks and stored flags; this holds only the session's due times, retry and quota deferral.
- *
- * Marking an item here queues it and makes it due: an edit is marked when the session records the
- * acknowledgement of its push. After the records load at start, the flagged items that aren't
- * quarantined are queued again and made due.
+ * When the dirty items' snapshots are due. `ItemSyncState` holds which items are dirty; this holds
+ * the session's due state (`snapshotDue.ts`) and applies its transitions, marking and clearing items
+ * in the state as it goes. It dies with the session, so it has nothing to load or stop.
  */
 export class SnapshotSchedule {
-  /**
-   * When the dirty items' snapshots are due. An edit puts `debounceDueAt` off again, and `maxWaitDueAt`
-   * bounds that for steady editing. A request with its own delay (`requestedDueAt`) isn't put off by edits.
-   */
-  private debounceDueAt: number | undefined
-  private maxWaitDueAt: number | undefined
-  private requestedDueAt: number | undefined
-  /** Set when an upload failed, so the next poll tries again without a poll being brought forward */
-  private retryAtNextPoll = false
-  /** Nothing is due before this, after the server turned uploads away for the account's quota */
-  private notBefore = 0
-  private readonly debounceDelayMs: number
-  private readonly maxWaitMs: number
-  private readonly loadGuard = new SingleFlightGuard<void>()
+  private due: SnapshotDueState = INITIAL_SNAPSHOT_DUE_STATE
 
-  constructor(private readonly deps: SnapshotScheduleOptions) {
-    this.debounceDelayMs = deps.debounceDelayMs ?? SYNC_TIMEOUTS.snapshotDebounce
-    this.maxWaitMs = deps.maxWaitMs ?? SYNC_TIMEOUTS.snapshotMaxWait
+  constructor(private readonly deps: SnapshotScheduleOptions) {}
+
+  private context() {
+    return { now: this.deps.now?.() ?? Date.now(), dirtyCount: this.deps.state.dirtyCount }
   }
 
-  private now(): number {
-    return this.deps.now?.() ?? Date.now()
+  private apply(event: SnapshotDueEvent): void {
+    this.due = transitionSnapshotDue(this.due, event, this.context())
   }
 
-  /** Queues the item and makes it due */
-  markItemDirty(itemId: ItemId, customDebounceDelayMs?: number): void {
+  /** Queues the item and makes it due, after `delayMs` if given however later edits come */
+  markItemDirty(itemId: ItemId, delayMs?: number): void {
     if (this.deps.session.isShutdown || !itemId) return
     this.deps.state.markDirty(itemId)
-    this.scheduleDue(customDebounceDelayMs)
-  }
-
-  /** Makes the dirty items due after the debounce, or after `customDelayMs` however later edits come */
-  private scheduleDue(customDelayMs?: number): void {
-    const now = this.now()
-    if (customDelayMs === undefined) {
-      this.debounceDueAt = now + this.debounceDelayMs
-    } else {
-      this.requestedDueAt = Math.min(this.requestedDueAt ?? Number.POSITIVE_INFINITY, now + customDelayMs)
-    }
-    this.maxWaitDueAt ??= now + this.maxWaitMs
+    this.apply({ type: 'marked', delayMs })
     this.deps.onDueChanged?.()
   }
 
-  /** Makes every dirty item due now, past any wait for the quota, such as when the page is closing */
-  requestNow(): void {
-    this.liftDeferral()
-    this.requestedDueAt = this.now()
+  /**
+   * Queues the items an earlier session left flagged, once the records have loaded, due after
+   * `restoredSnapshotDelay` however later edits come: a fresh debounce could put them off session
+   * after session. Returns how many it queued.
+   */
+  queueRestored(itemIds: Iterable<ItemId>): number {
+    if (this.deps.session.isShutdown) return 0
+    const count = this.deps.state.queueFlagged(itemIds)
+    if (count > 0) {
+      log.info(`Startup audit restored ${count} un-snapshotted items to dirty queue`)
+      this.apply({ type: 'marked', delayMs: SYNC_TIMEOUTS.restoredSnapshotDelay })
+      this.deps.onDueChanged?.()
+    }
+    return count
   }
 
   /**
-   * When the next upload is due, for scheduling a poll, or undefined if none is. An upload left to
-   * retry at the next poll doesn't count: it waits for the poll's own cadence or backoff.
+   * Makes every dirty item due now. `pastQuota` lifts a quota deferral too, which only the page
+   * closing or the user asking should: a request from inside sync would send another batch to be refused.
    */
+  requestNow(options: { pastQuota: boolean }): void {
+    this.apply({ type: 'requestNow', pastQuota: options.pastQuota })
+  }
+
+  /** When the next upload is due, for scheduling a poll, or undefined if none is */
   get nextDueAt(): number | undefined {
-    if (this.deps.state.dirtyCount === 0) return undefined
-    const dueAt = Math.min(
-      this.debounceDueAt ?? Number.POSITIVE_INFINITY,
-      this.maxWaitDueAt ?? Number.POSITIVE_INFINITY,
-      this.requestedDueAt ?? Number.POSITIVE_INFINITY,
-    )
-    return Number.isFinite(dueAt) ? Math.max(dueAt, this.notBefore) : undefined
+    return snapshotDueAt(this.due, this.context())
   }
 
   /** Whether a poll now should upload the dirty items' snapshots */
-  isDue(now = this.now()): boolean {
-    if (this.deps.state.dirtyCount === 0) return false
-    if (this.retryAtNextPoll && now >= this.notBefore) return true
-    const dueAt = this.nextDueAt
-    return dueAt !== undefined && dueAt <= now
+  isDue(): boolean {
+    return isSnapshotDue(this.due, this.context())
   }
 
   /** Called as an upload starts: it takes every dirty item, so nothing stays due */
   clearDue(): void {
-    this.debounceDueAt = undefined
-    this.maxWaitDueAt = undefined
-    this.requestedDueAt = undefined
-    this.retryAtNextPoll = false
+    this.apply({ type: 'uploadStarted' })
   }
 
   /** Called after an upload failed, so the items it left dirty go up at the next poll */
   retryNextPoll(): void {
-    this.retryAtNextPoll = true
+    this.apply({ type: 'uploadFailed' })
   }
 
   /**
@@ -119,80 +99,24 @@ export class SnapshotSchedule {
    * in the snapshot phase or the rewrite phase
    */
   deferUntil(time: number): void {
-    this.notBefore = time
-    this.retryAtNextPoll = true
+    this.apply({ type: 'refused', until: time })
   }
 
   /** Whether uploads are waiting out the quota delay that `deferUntil` set */
-  isDeferred(now = this.now()): boolean {
-    return now < this.notBefore
+  isDeferred(): boolean {
+    return isSnapshotDeferred(this.due, this.context().now)
   }
 
   /** Ends the quota delay, so the next poll tries the uploads again, such as for a new rewrite */
   liftDeferral(): void {
-    this.notBefore = 0
-  }
-
-  /**
-   * Loads the item records and queues the items they flag, at start. Concurrent callers share one load.
-   */
-  async load(): Promise<void> {
-    if (this.deps.session.isShutdown) return
-    await this.loadGuard.run(async () => {
-      await this.deps.state.load()
-      await this.restoreFlagged()
-    })
-  }
-
-  /**
-   * The startup audit, run once the item records have loaded: queues every flagged item
-   * that isn't quarantined, due after `restoredSnapshotDelay` however later edits come.
-   */
-  private async restoreFlagged(): Promise<void> {
-    if (this.deps.session.isShutdown) return
-    try {
-      const quarantinedIds = new Set<ItemId>()
-      try {
-        const recoveryEntries = await this.deps.recoveryManager.listRecoveryItems()
-        checkAlive(null, () => !this.deps.session.isShutdown)
-        for (const entry of recoveryEntries) {
-          quarantinedIds.add(entry.itemId)
-        }
-      } catch (recoveryErr) {
-        if (isAbortError(recoveryErr)) throw recoveryErr
-        log.error('Failed to read manual recovery entries during startup audit', recoveryErr)
-      }
-
-      const auditCount = this.deps.state.queueFlagged(quarantinedIds)
-      if (auditCount > 0) {
-        log.info(`Startup audit restored ${auditCount} un-snapshotted items to dirty queue`)
-        // Due soon, however later edits come: a fresh debounce could put them off session after session
-        this.scheduleDue(Math.min(SYNC_TIMEOUTS.restoredSnapshotDelay, this.debounceDelayMs))
-      }
-    } catch (error) {
-      if (isAbortError(error) || this.deps.session.isShutdown) return
-      log.error('Failed to restore flagged items', error)
-    }
+    this.apply({ type: 'deferralLifted' })
   }
 
   /** Takes the item out of the queue, clearing its flag, and nothing stays due once none is left */
   deleteDirtyItem(itemId: ItemId): boolean {
     if (this.deps.session.isShutdown || !itemId) return false
     const deleted = this.deps.state.clearDirty(itemId)
-    if (this.deps.state.dirtyCount === 0) {
-      this.clearDue()
-    }
+    this.apply({ type: 'dequeued' })
     return deleted
-  }
-
-  /**
-   * Forgets the session's due times, once a load in flight has finished. Called once, as the session
-   * stops and after polling has. The queue goes, and the item records save, as `ItemSyncState` stops.
-   */
-  async shutdown(): Promise<void> {
-    await this.loadGuard.waitForRunning()
-    this.clearDue()
-    this.notBefore = 0
-    this.loadGuard.clear()
   }
 }

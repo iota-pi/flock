@@ -670,11 +670,7 @@ describe('SnapshotPusher', () => {
     function createPusher(options: { maxPayloadBytes?: number } = {}): void {
       session = new SyncSessionState()
       state = new ItemSyncState({ db: records.db, session })
-      tracker = new SnapshotSchedule({
-        state,
-        recoveryManager: mockRecoveryManager,
-        session,
-      })
+      tracker = new SnapshotSchedule({ state, session })
       pusher = new SnapshotPusher({
         accountId: 'test-account',
         session,
@@ -696,7 +692,7 @@ describe('SnapshotPusher', () => {
 
     /** Makes every dirty item due and runs the snapshot phase, as a flush does */
     function uploadNow() {
-      tracker.requestNow()
+      tracker.requestNow({ pastQuota: true })
       return push()
     }
 
@@ -704,7 +700,6 @@ describe('SnapshotPusher', () => {
     async function restart(): Promise<void> {
       session.markShutdown()
       pusher.shutdown()
-      await tracker.shutdown()
       await state.shutdown({ clearLocalData: true })
       createPusher()
     }
@@ -1455,7 +1450,7 @@ describe('SnapshotPusher', () => {
         await restart()
         expect(state.listDirty()).not.toContain('item-1')
 
-        await tracker.load()
+        tracker.queueRestored(await state.load())
         expect(state.listDirty()).toContain('item-1')
       })
     })

@@ -7,6 +7,7 @@ import { LogCursorStore } from './stores/LogCursorStore'
 import { SyncLogDatabase } from './stores/SyncLogDatabase'
 import { SnapshotPusher } from './SnapshotPusher'
 import { SnapshotSchedule } from './SnapshotSchedule'
+import { queueFlaggedItems } from './startupAudit'
 import { SnapshotBuilder } from './SnapshotBuilder'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { SyncPoller } from './SyncPoller'
@@ -271,7 +272,6 @@ export class SyncWorkerContext {
 
     const snapshotSchedule = new SnapshotSchedule({
       state: itemSyncState,
-      recoveryManager,
       session,
       onDueChanged: () => signals.raise.snapshotDue(),
     })
@@ -383,7 +383,8 @@ export class SyncWorkerContext {
       },
       // At start, so this is the one place the item records load
       onLoad: async () => {
-        await Promise.all([snapshotSchedule.load(), gapHealer.load()])
+        const [flagged] = await Promise.all([itemSyncState.load(), gapHealer.load()])
+        await queueFlaggedItems(flagged, { recoveryManager, schedule: snapshotSchedule, session })
       },
     })
 
@@ -629,7 +630,7 @@ export class SyncWorkerContext {
   private registerLifecycleServices(services: SyncWorkerServices): void {
     const {
       activeTabLock, repoManager, syncLogDatabase, storageRecoveryService, indexManager, recoveryManager,
-      docStore, snapshotSchedule, snapshotPusher, itemSyncState, puller, orchestrator, snapshotRewriter, snapshotFormatUpgrade, syncProgress,
+      docStore, snapshotPusher, itemSyncState, puller, orchestrator, snapshotRewriter, snapshotFormatUpgrade, syncProgress,
     } = services
 
     // Teardown runs in LIFO order (reverse registration order).
@@ -663,7 +664,6 @@ export class SyncWorkerContext {
       { name: 'IndexDocument', onStart: () => indexManager.ensureIndexDocument() },
       { name: 'RecoveryManager', onStop: () => recoveryManager.resetRecoveryState() },
       { name: 'DocStore', onStop: () => docStore.shutdown() },
-      { name: 'SnapshotSchedule', onStop: () => snapshotSchedule.shutdown() },
       { name: 'SnapshotPusher', onStop: () => snapshotPusher.shutdown() },
       {
         name: 'SyncLogPuller',

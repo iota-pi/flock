@@ -150,7 +150,7 @@ function createDeps(overrides: Partial<TestDeps> = {}): TestDeps {
     pushToLog: vi.fn().mockResolvedValue(undefined),
     state,
     // A rewrite never loads or marks items, the parts of the state the test one lacks
-    schedule: new SnapshotSchedule({ state: state as unknown as ItemSyncState, recoveryManager, session }),
+    schedule: new SnapshotSchedule({ state: state as unknown as ItemSyncState, session }),
     onSnapshotStored: vi.fn(),
     ...overrides,
   }

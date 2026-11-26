@@ -87,11 +87,13 @@ export class ItemSyncState {
 
   /**
    * Loads the stored records, at start. Fields this session hasn't saved yet keep its values, and
-   * base versions keep the higher. Concurrent callers share one load.
+   * base versions keep the higher. Concurrent callers share one load. Returns the items the records
+   * flag that aren't queued yet, for the startup audit (`queueFlagged`).
    */
-  async load(): Promise<void> {
-    if (!this.isAlive()) return
-    return this.loadGuard.run(() => this.executeLoad())
+  async load(): Promise<ItemId[]> {
+    if (!this.isAlive()) return []
+    await this.loadGuard.run(() => this.executeLoad())
+    return this.listFlagged().filter(itemId => !this.dirtyTicks.has(itemId))
   }
 
   private async executeLoad(): Promise<void> {
@@ -278,15 +280,16 @@ export class ItemSyncState {
   }
 
   /**
-   * The startup audit, once the records have loaded: queues every item they flag that
-   * isn't queued already or in `skip` (the quarantined items). Those flagged only `snapshotOnly`, which
-   * a dirty flag should have gone with, get their flag. Returns how many it queued.
+   * The startup audit, once the records have loaded: queues each of the items that its record flags
+   * and isn't queued already. Those flagged only `snapshotOnly`, which a dirty flag should have gone
+   * with, get their flag. Returns how many it queued.
    */
-  queueFlagged(skip: ReadonlySet<ItemId>): number {
+  queueFlagged(itemIds: Iterable<ItemId>): number {
     if (this.stopped) return 0
     let count = 0
-    for (const [itemId, { dirty, snapshotOnly }] of this.items) {
-      if (!(dirty || snapshotOnly) || skip.has(itemId) || this.dirtyTicks.has(itemId)) continue
+    for (const itemId of itemIds) {
+      const { dirty, snapshotOnly } = this.items.get(itemId) ?? {}
+      if (!(dirty || snapshotOnly) || this.dirtyTicks.has(itemId)) continue
       this.queue(itemId)
       if (!dirty) this.writeDirtyFlag(itemId, true)
       count += 1
