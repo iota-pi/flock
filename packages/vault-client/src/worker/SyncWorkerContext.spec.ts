@@ -2,7 +2,7 @@ import { SyncWorkerContext } from './SyncWorkerContext'
 import { SyncApiClient } from './SyncApiClient'
 import { INBOUND_MESSAGE_RESOLVABLE_KINDS } from './RecoveryManager'
 import { ClientEventHub } from './SyncEventHub'
-import { createFakeRealtimeBus, createMockKeyProvider, type FakeRealtimeBus } from './__test__/testUtils'
+import { createMockKeyProvider } from './__test__/testUtils'
 import { spyOnExports } from '../../test/moduleMocks'
 import type { ItemId } from '@vault/shared'
 import type { DocumentId } from '@automerge/automerge-repo/slim'
@@ -37,7 +37,6 @@ import * as snapshotScheduleModule from './SnapshotSchedule'
 import * as snapshotPusherModule from './SnapshotPusher'
 import * as syncOrchestrator from './SyncOrchestrator'
 import * as itemOperationsModule from './ItemOperations'
-import * as realtimeBusModule from './RealtimeBus'
 import * as manifestSyncManagerModule from './ManifestSyncManager'
 import * as openLocalStorageModule from './localEncryption/openLocalStorage'
 import * as dataVersionTrackerModule from './DataVersionTracker'
@@ -58,9 +57,6 @@ const mockOpenLocalStorage = vi.fn(async (_: unknown): Promise<any> => ({
 }))
 
 // ── Context-owned manager mocks ──────────────────────────────────────────────
-
-/** The bus the latest context created */
-let realtimeBus: FakeRealtimeBus
 
 // The real RecoveryManager is used (backed by the in-memory store mock above) so that
 // event handling can be verified end to end
@@ -150,7 +146,6 @@ beforeEach(() => {
       markItemDirty = vi.fn()
       load = vi.fn().mockResolvedValue(undefined)
       shutdown = vi.fn().mockResolvedValue(undefined)
-      onLeaderChange = vi.fn()
     },
   })
   spyOnExports(snapshotPusherModule, {
@@ -167,14 +162,6 @@ beforeEach(() => {
       shutdown = vi.fn().mockResolvedValue(undefined)
       onOnlineStateChange = vi.fn()
       constructor(readonly deps: SyncOrchestratorDeps) {}
-      claimLeader = vi.fn(async () => {
-        this.deps.session.setLeader(true)
-        return true
-      })
-
-      followVisibleTab = vi.fn()
-
-      settleLeadership = vi.fn(async () => this.deps.session.isLeader)
       flush = vi.fn()
       onForeground = vi.fn()
       onActivity = vi.fn()
@@ -187,14 +174,6 @@ beforeEach(() => {
   spyOnExports(itemOperationsModule, {
     ItemOperations: class MockItemOperations {
       constructor(public deps: { markDocumentDirty: (id: ItemId) => void }) {}
-    },
-  })
-  spyOnExports(realtimeBusModule, {
-    RealtimeBus: class MockRealtimeBus {
-      constructor() {
-        realtimeBus = createFakeRealtimeBus()
-        return realtimeBus.bus
-      }
     },
   })
   spyOnExports(manifestSyncManagerModule, {
@@ -258,16 +237,14 @@ describe('SyncWorkerContext', () => {
     expect(context.services.indexStore.clear).not.toHaveBeenCalled()
   })
 
-  it('loads the item records with the log state, and only there, at start and on promotion', async () => {
+  it('loads the item records with the log state', async () => {
     const { snapshotSchedule } = context.services
     const loadsAtStart = vi.mocked(snapshotSchedule.load).mock.calls.length
     expect(loadsAtStart).toBeGreaterThanOrEqual(1)
 
     await depsOf<SyncLogPullerDeps>(context.services.puller).onLoad!()
-    depsOf<SyncOrchestratorDeps>(context.services.orchestrator).onLeaderChange!(true)
 
     expect(snapshotSchedule.load).toHaveBeenCalledTimes(loadsAtStart + 1)
-    expect(snapshotSchedule.onLeaderChange).toHaveBeenCalled()
   })
 
   it('shuts down cleanly without clearLocalData', async () => {
@@ -292,32 +269,21 @@ describe('SyncWorkerContext', () => {
     expect(markSpy).toHaveBeenCalledWith('edited-item')
     expect(recordEdit).toHaveBeenCalledWith('edited-item')
     expect(context.services.snapshotSchedule.markItemDirty).not.toHaveBeenCalled()
-    expect(realtimeBus.publishSyncPing).not.toHaveBeenCalled()
   })
 
-  it("asks for restored items' snapshots only on the leader, and marks them pending on every tab", async () => {
+  it("asks for restored items' snapshots and marks them pending", async () => {
     const markAll = vi.spyOn(context.services.changeOutbox, 'markAll').mockResolvedValue(undefined)
-    const { markItemDirty } = context.services.snapshotSchedule
 
-    context.session.setLeader(false)
     await context.markRestored(['restored-1' as ItemId])
-    expect(markItemDirty).not.toHaveBeenCalled()
 
-    context.session.setLeader(true)
-    await context.markRestored(['restored-2' as ItemId])
-    expect(markItemDirty).toHaveBeenCalledWith('restored-2', 0)
-    expect(markAll.mock.calls).toEqual([[['restored-1']], [['restored-2']]])
+    expect(context.services.snapshotSchedule.markItemDirty).toHaveBeenCalledWith('restored-1', 0)
+    expect(markAll).toHaveBeenCalledWith(['restored-1'])
   })
 
-  it('marks an item dirty when the leader records the acknowledgement of its push', () => {
+  it('marks an item dirty when it records the acknowledgement of its push', () => {
     depsOf<ChangeOutboxDeps>(context.services.changeOutbox).onAcknowledged('pushed-item' as ItemId)
 
     expect(context.services.snapshotSchedule.markItemDirty).toHaveBeenCalledWith('pushed-item')
-  })
-
-  it('closes its realtime bus on shutdown', async () => {
-    await context.shutdown()
-    expect(realtimeBus.close).toHaveBeenCalledTimes(1)
   })
 
   it('marks the session shut down before stopping any component', async () => {
@@ -327,47 +293,6 @@ describe('SyncWorkerContext', () => {
     })
     await context.shutdown()
     expect(shutDownFirst).toBe(true)
-  })
-
-  it('tells the snapshot schedule about leaderChange', () => {
-    depsOf<SyncOrchestratorDeps>(context.services.orchestrator).onLeaderChange!(true)
-    expect(context.services.snapshotSchedule.onLeaderChange).toHaveBeenCalledTimes(1)
-  })
-
-  it('tells the other tabs when it starts or stops leading, while visible', () => {
-    context.setVisibility(true)
-    context.session.setLeader(true)
-    depsOf<SyncOrchestratorDeps>(context.services.orchestrator).onLeaderChange!(true)
-    expect(realtimeBus.publishTabVisibility).toHaveBeenLastCalledWith(expect.objectContaining({ visible: true, leader: true }))
-  })
-
-  describe('following the visible tab', () => {
-    it('takes over when the user comes back while no visible tab leads', () => {
-      context.setVisibility(false)
-      context.setVisibility(true, true)
-      expect(context.services.orchestrator.followVisibleTab).toHaveBeenCalledTimes(1)
-    })
-
-    it('leaves a visible leader alone', () => {
-      context.setVisibility(false)
-      realtimeBus.receiveTabVisibility({ tabId: 'leader-tab', visible: true, returned: false, leader: true })
-      context.setVisibility(true, true)
-      expect(context.services.orchestrator.followVisibleTab).not.toHaveBeenCalled()
-    })
-
-    it("takes over when the leader's report that it's hidden comes just after", () => {
-      context.setVisibility(false)
-      realtimeBus.receiveTabVisibility({ tabId: 'leader-tab', visible: true, returned: false, leader: true })
-      context.setVisibility(true, true)
-      realtimeBus.receiveTabVisibility({ tabId: 'leader-tab', visible: false, returned: false, leader: true })
-      expect(context.services.orchestrator.followVisibleTab).toHaveBeenCalledTimes(1)
-    })
-
-    it('does not take over when it already leads', () => {
-      context.session.setLeader(true)
-      context.setVisibility(true, true)
-      expect(context.services.orchestrator.followVisibleTab).not.toHaveBeenCalled()
-    })
   })
 
   it('tells the orchestrator when the online state changes', () => {
@@ -398,36 +323,19 @@ describe('SyncWorkerContext', () => {
     expect(orchestratorDeps.getSnapshotDueAt!()).toBe(1234)
   })
 
-  it('tells the other tabs its visibility, and polls when the user comes back', () => {
+  it('polls at the hidden rate while hidden, and polls when the user comes back', () => {
     context.setVisibility(false)
-    expect(realtimeBus.publishTabVisibility).toHaveBeenLastCalledWith(expect.objectContaining({ visible: false }))
     expect(depsOf<SyncOrchestratorDeps>(context.services.orchestrator).getCadence!()).toBe('hidden')
     expect(context.services.orchestrator.onForeground).not.toHaveBeenCalled()
 
     context.setVisibility(true, true)
-    expect(realtimeBus.publishTabVisibility).toHaveBeenLastCalledWith(expect.objectContaining({ visible: true, returned: true }))
     expect(depsOf<SyncOrchestratorDeps>(context.services.orchestrator).getCadence!()).toBe('idle')
     expect(context.services.orchestrator.onForeground).toHaveBeenCalledTimes(1)
   })
 
-  it('polls when another tab of the account comes into view', () => {
-    context.setVisibility(false)
-    realtimeBus.receiveTabVisibility({ tabId: 'other-tab', visible: true, returned: true })
-    expect(depsOf<SyncOrchestratorDeps>(context.services.orchestrator).getCadence!()).toBe('idle')
-    expect(context.services.orchestrator.onForeground).toHaveBeenCalledTimes(1)
-  })
-
-  it('polls at the active rate after input here, tells the other tabs, and tells the orchestrator', () => {
+  it('polls at the active rate after input here, and tells the orchestrator', () => {
     context.setVisibility(true)
     context.reportActivity()
-    expect(realtimeBus.publishTabVisibility).toHaveBeenLastCalledWith(expect.objectContaining({ active: true }))
-    expect(depsOf<SyncOrchestratorDeps>(context.services.orchestrator).getCadence!()).toBe('active')
-    expect(context.services.orchestrator.onActivity).toHaveBeenCalledTimes(1)
-  })
-
-  it('polls at the active rate after input in another tab', () => {
-    context.setVisibility(false)
-    realtimeBus.receiveTabVisibility({ tabId: 'other-tab', visible: true, returned: false, active: true })
     expect(depsOf<SyncOrchestratorDeps>(context.services.orchestrator).getCadence!()).toBe('active')
     expect(context.services.orchestrator.onActivity).toHaveBeenCalledTimes(1)
   })
@@ -522,13 +430,6 @@ describe('SyncWorkerContext', () => {
       expect(context.services.snapshotPusher.flushPendingSnapshots).toHaveBeenCalled()
     })
 
-    it("reloads the item records before counting, so a follower sees the leader's dirty flags", async () => {
-      stubPending({ dirty: ['item-1'] })
-
-      expect(await context.getUnsyncedChanges()).toEqual({ pendingItems: 1, quarantinedItems: 0 })
-      expect(context.services.itemSyncState.load).toHaveBeenCalled()
-    })
-
     it('counts each item with a pending mark or a pending snapshot once, and quarantined items apart', async () => {
       stubPending({
         marked: ['item-1', 'item-2'],
@@ -601,10 +502,8 @@ describe('SyncWorkerContext', () => {
     expect((context.services.orchestrator as any).deps.manifestSyncManager).toBe(context.services.manifestSyncManager)
   })
 
-  describe('server I/O stays with the leader', () => {
-    it('loads items at session start in the leader', async () => {
-      context.session.setLeader(true)
-
+  describe('loading from the server', () => {
+    it('loads items at session start', async () => {
       await context.bootstrapItems()
 
       expect(context.services.orchestrator.syncManifest).toHaveBeenCalledWith('due')
@@ -612,7 +511,6 @@ describe('SyncWorkerContext', () => {
 
     describe('when the manifest could not be fetched at session start', () => {
       beforeEach(() => {
-        context.session.setLeader(true)
         vi.mocked(context.services.orchestrator.syncManifest)
           .mockResolvedValue({ added: [], success: false, fetchedManifest: false })
       })
@@ -637,35 +535,11 @@ describe('SyncWorkerContext', () => {
       })
     })
 
-    it('leaves loading items to the leader in another tab', async () => {
-      await context.bootstrapItems()
-
-      expect(context.services.orchestrator.settleLeadership).toHaveBeenCalledTimes(1)
-      expect(context.services.orchestrator.syncManifest).not.toHaveBeenCalled()
-    })
-
-    it('takes over syncing before a full resync', async () => {
+    it('forces a manifest sync for a full resync, and pushes after it', async () => {
       expect(await context.fullResync()).toBe(true)
 
-      expect(context.services.orchestrator.claimLeader).toHaveBeenCalledTimes(1)
-      expect(context.session.isLeader).toBe(true)
       expect(context.services.orchestrator.syncManifest).toHaveBeenCalledWith('force')
       expect(context.services.orchestrator.flush).toHaveBeenCalled()
-    })
-
-    it('does not claim leadership it already has', async () => {
-      context.session.setLeader(true)
-
-      await context.becomeLeader()
-
-      expect(context.services.orchestrator.claimLeader).not.toHaveBeenCalled()
-    })
-
-    it('fails when the claim does not make this tab the leader', async () => {
-      vi.mocked(context.services.orchestrator.claimLeader).mockResolvedValue(false)
-
-      await expect(context.fullResync()).rejects.toThrow(/could not take over/)
-      expect(context.services.orchestrator.syncManifest).not.toHaveBeenCalled()
     })
   })
 
@@ -1245,19 +1119,16 @@ describe('SyncWorkerContext', () => {
 
     const serviceNames = registerSpy.mock.calls.map(([registration]) => registration.name)
     expect(serviceNames).toEqual([
-      'RealtimeBus',
-      'ForegroundTracker',
+      'ActiveTabLock',
       'SyncLogDatabase',
       'RepoManager',
       'ItemSyncState',
       'StorageRecoveryService',
-      'IndexManager',
       'IndexDocument',
       'RecoveryManager',
       'DocStore',
       'SnapshotSchedule',
       'SnapshotPusher',
-      'ChangeOutbox',
       'SyncLogPuller',
       'SyncOrchestrator',
       'SnapshotRewriter',

@@ -82,8 +82,6 @@ export interface AutomergeDocStoreOptions {
   repo: Repo
   /** Called when a find or create puts a new handle in place of an item's old one, so its listeners can move */
   onHandleReplaced?: (itemId: ItemId, handle: DocHandle<RepoDoc>) => void
-  /** Called with every handle a find, create or import gives this, so the engine can listen to its changes */
-  watchHandle?: (handle: DocHandle<RepoDoc>) => void
   storageAdapter: DocStorageChecker
   codec: DocCodec
   /** Called when an indexed item turns out to have no local data, which only the server can restore */
@@ -181,9 +179,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     itemId: ItemId,
     options: Pick<ChangeDocumentOptions, 'knownToExist'> = {},
   ): Promise<RepoDocHandle> {
-    const handle = await this.lookUpHandle(itemId, options)
-    if (handle) this.deps.watchHandle?.(handle)
-    return handle
+    return this.lookUpHandle(itemId, options)
   }
 
   private async lookUpHandle(
@@ -575,7 +571,6 @@ export class AutomergeDocStore implements ItemLockCoordinator {
   }
 
   private handleReplaced(itemId: ItemId, handle: DocHandle<RepoDoc>): void {
-    this.deps.watchHandle?.(handle)
     this.deps.onHandleReplaced?.(itemId, handle)
   }
 

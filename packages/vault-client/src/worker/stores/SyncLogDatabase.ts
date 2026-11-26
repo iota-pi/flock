@@ -25,7 +25,7 @@ const KEY_PATHS: Record<SyncLogStoreName, string> = {
 /**
  * The account's sync log database, opened on first use. It talks to IndexedDB directly rather than
  * through localforage, because clearing a pending mark must compare and delete in one transaction:
- * other tabs write marks too.
+ * a displaced (frozen) session can still write one.
  */
 export class SyncLogDatabase {
   private dbPromise: Promise<IDBDatabase> | null = null

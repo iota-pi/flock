@@ -7,7 +7,7 @@ import { ItemSyncState } from './ItemSyncState'
 import { SyncLogDatabase } from './stores/SyncLogDatabase'
 import { SyncSessionState } from './SyncSessionState'
 import { SYNC_LOG_STORES } from '../shared/syncLogStorage'
-import { SYNC_BATCH_SIZES, SYNC_TIMEOUTS } from '../shared/syncConfig'
+import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
 import type { KeyProvider } from '../keys/Keyring'
 
 type AnyMock = Mock<(...args: any[]) => any>
@@ -41,11 +41,10 @@ describe('ChangeOutbox', () => {
   beforeEach(() => {
     vi.stubGlobal('indexedDB', new IDBFactory())
     db = new SyncLogDatabase('account-1')
-    session = new SyncSessionState({ isLeader: true })
+    session = new SyncSessionState()
     itemSyncState = new ItemSyncState({ db, session })
     docStore = {
       readChangesSince: vi.fn().mockResolvedValue({ changes: [bytes(10)], heads: ['head-2'] }),
-      hasChangesSince: vi.fn().mockReturnValue(false),
       hasDataInStorage: vi.fn().mockResolvedValue(true),
       flushToStorage: vi.fn().mockResolvedValue(undefined),
     }
@@ -71,7 +70,6 @@ describe('ChangeOutbox', () => {
   })
 
   afterEach(async () => {
-    outbox.shutdown()
     await itemSyncState.shutdown({ clearLocalData: true })
     await db.close()
   })
@@ -388,7 +386,6 @@ describe('ChangeOutbox', () => {
     expect(itemSyncState.isSnapshotOnly(ITEM)).toBe(true)
     expect(docStore.readChangesSince).not.toHaveBeenCalled()
     expect(exchange).not.toHaveBeenCalled()
-    reloaded.shutdown()
   })
 
   describe('filling requests', () => {
@@ -557,68 +554,5 @@ describe('ChangeOutbox', () => {
 
     expect(exchange).toHaveBeenCalledTimes(1)
     expect(itemSyncState.getServerHeads(ITEM)).toEqual(['head-2'])
-  })
-
-  describe('doc changes', () => {
-    beforeEach(() => {
-      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
-    })
-
-    afterEach(() => {
-      vi.useRealTimers()
-    })
-
-    async function settleCheck() {
-      await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.docChangeCheck)
-      vi.useRealTimers()
-      await new Promise(resolve => setTimeout(resolve, 10))
-    }
-
-    it('marks an item the leader finds unpushed, such as a follower\'s change arriving late', async () => {
-      docStore.hasChangesSince.mockReturnValue(true)
-
-      outbox.onDocChanged(ITEM)
-      await settleCheck()
-
-      expect(await outbox.listPending()).toEqual([ITEM])
-    })
-
-    it('leaves an item with nothing unpushed', async () => {
-      outbox.onDocChanged(ITEM)
-      await settleCheck()
-
-      expect(await outbox.listPending()).toEqual([])
-    })
-
-    it('does nothing in a follower', async () => {
-      session.setLeader(false)
-      docStore.hasChangesSince.mockReturnValue(true)
-
-      outbox.onDocChanged(ITEM)
-      await settleCheck()
-
-      expect(docStore.hasChangesSince).not.toHaveBeenCalled()
-    })
-
-    it('leaves the mark an item already has, so its tick stays, but still wakes the push', async () => {
-      await db.put(SYNC_LOG_STORES.outbox, { itemId: ITEM, tick: 5 })
-      docStore.hasChangesSince.mockReturnValue(true)
-
-      outbox.onDocChanged(ITEM)
-      await settleCheck()
-
-      expect(await db.get(SYNC_LOG_STORES.outbox, ITEM)).toEqual({ itemId: ITEM, tick: 5 })
-      // A follower's mark reached the leader before its change, so this is what pushes it
-      expect(onMarked).toHaveBeenCalledTimes(1)
-    })
-
-    it("doesn't wake the push for an item with nothing unpushed", async () => {
-      await db.put(SYNC_LOG_STORES.outbox, { itemId: ITEM, tick: 5 })
-
-      outbox.onDocChanged(ITEM)
-      await settleCheck()
-
-      expect(onMarked).not.toHaveBeenCalled()
-    })
   })
 })

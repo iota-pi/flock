@@ -3,6 +3,7 @@ import { loadAccount } from './vault/session'
 import { useAppStore } from '../state/store'
 import { useLoggedIn } from '../state/selectors'
 import useSyncCoordinatorLifecycle from './vault/useSyncCoordinatorLifecycle'
+import { SyncBridge } from './vault/syncBridge'
 import useAccountLevelCheck from './vault/useAccountLevelCheck'
 import { prefetchSyncWorker } from './vault/prefetchSyncWorker'
 import { failCypressTestOnRequestError, isCypress } from './vault/cypress'
@@ -57,6 +58,12 @@ export default function AppInitializer() {
 
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'NOTIFICATION_CLICK_NAVIGATE') {
+        // The user chose this tab, so it takes the account back from whichever tab has it
+        const { displaced, account: current, setDisplaced } = useAppStore.getState()
+        if (displaced && current) {
+          setDisplaced(false)
+          void SyncBridge.takeOverHere(current).catch(log.error)
+        }
         navigate(getNotificationTarget(event.data.url, window.location.origin))
       }
     }

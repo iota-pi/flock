@@ -21,6 +21,10 @@ export default function useSyncCoordinatorLifecycle(
       }
 
       clearFatalError()
+      // Another tab has the account; only the user's "Use here" takes it back
+      if (useAppStore.getState().displaced) {
+        return
+      }
       SyncBridge.initialize(account)
         .then(() => {
           fireAndForget(resumePendingReencryption(SyncBridge, account), 'useSyncCoordinatorLifecycle:resumePendingReencryption')

@@ -43,7 +43,6 @@ export function installLocalStorage(): MockLocalForagePool {
 const SYNC_RESET_TEST_LEVEL = 1
 
 export interface DeviceOptions {
-  isLeader?: boolean
   config?: Partial<SyncWorkerContextConfig>
 }
 
@@ -78,9 +77,6 @@ export class Device {
       ...this.options.config,
     })
     await this.context.initialize()
-    if (this.options.isLeader !== false) {
-      this.context.session.setLeader(true)
-    }
     return this
   }
 
@@ -94,32 +90,20 @@ export class Device {
   }
 
   /**
-   * Another tab of this device: a follower on the same storage and account, which reaches this tab's
-   * docs over the broadcast adapter. It starts with this tab's online state.
+   * Another tab of this device takes the account over (see "One active tab" in docs/sync-design.md):
+   * this tab's engine stops as a displaced one does, and a new one starts on the same storage with the
+   * same online state. With `clean: false`, the old tab was frozen and is closed before it handles the
+   * displacement, so whatever it hadn't stored is lost, as in a crash of that tab alone.
    */
-  async openTab(): Promise<Device> {
-    const tab = await new Device(this.name, this.server, this.keys, { ...this.options, isLeader: false }).start()
-    tab.setOnline(this.isOnline)
-    return tab
-  }
-
-  /**
-   * Makes this tab the leader, as a granted lock does through `SyncOrchestrator.setLeader`, without
-   * starting the orchestrator's timers: the schedule hears of it, and the log state and item records
-   * load again, which runs the promotion audit. A restart keeps the tab leading.
-   */
-  async promote(): Promise<void> {
-    this.options.isLeader = true
-    if (!this.context.session.setLeader(true)) return
-    this.services.snapshotSchedule.onLeaderChange()
-    await this.services.puller.loadState()
-  }
-
-  /** Stops this tab leading, as losing the lock does. A restart keeps it following. */
-  demote(): void {
-    this.options.isLeader = false
-    if (!this.context.session.setLeader(false)) return
-    this.services.snapshotSchedule.onLeaderChange()
+  async takeOver({ clean }: { clean: boolean }): Promise<void> {
+    const isOnline = this.isOnline
+    if (clean) {
+      await this.stop()
+    } else {
+      await this.crash()
+    }
+    await this.start()
+    this.setOnline(isOnline)
   }
 
   /** Makes the next save of the item sync records fail, as a full disk would, while the tab carries on */
@@ -141,17 +125,15 @@ export class Device {
 
   /**
    * Stops the device as a dying browser does: nothing it hasn't stored yet reaches its storage, including
-   * whatever `inFlight` (an operation it was in the middle of) goes on to write. Its other open `tabs`
-   * die with it. `start` brings it back on whatever it had stored.
+   * whatever `inFlight` (an operation it was in the middle of) goes on to write. `start` brings it back
+   * on whatever it had stored.
    */
-  async crash(inFlight?: Promise<unknown>, tabs: Device[] = []): Promise<void> {
+  async crash(inFlight?: Promise<unknown>): Promise<void> {
     fence(this.name)
-    for (const device of [this, ...tabs]) {
-      try {
-        await device.context.shutdown()
-      } catch {
-        // Its writes fail now, which is all a crash needs of it
-      }
+    try {
+      await this.context.shutdown()
+    } catch {
+      // Its writes fail now, which is all a crash needs of it
     }
     try {
       await inFlight

@@ -12,8 +12,6 @@ import type { ItemId } from '@vault/shared'
 import type { SyncLogDatabase } from '../stores/SyncLogDatabase'
 import type { ItemSyncRecord } from '../stores/itemSyncRecords'
 import { SYNC_LOG_STORES } from '../../shared/syncLogStorage'
-import type { RealtimeBus, TabVisibility } from '../RealtimeBus'
-import type { VaultMetadata } from '../../shared/types'
 
 /** Snapshot coverage that lets every snapshot be built */
 export const noLogCoverage = { isCovered: () => true }
@@ -396,56 +394,4 @@ export function createMemoryItemRecords(initial: ItemSyncRecord[] = []) {
     records,
     get: (itemId: string) => records.get(itemId as ItemId),
   }
-}
-
-/** A realtime bus that records what's published and lets a test deliver other tabs' messages */
-export interface FakeRealtimeBus {
-  bus: RealtimeBus
-  publishSyncPing: Mock<(itemIds: ItemId[]) => void>
-  publishIndexUpdated: Mock<(itemIds: ItemId[]) => void>
-  publishMetadataUpdated: Mock<(metadata: VaultMetadata) => void>
-  publishTabVisibility: Mock<(visibility: TabVisibility) => void>
-  close: Mock<() => void>
-  /** Delivers messages as if another tab had published them */
-  receiveSyncPing(itemIds: ItemId[]): void
-  receiveIndexUpdated(itemIds: ItemId[]): void
-  receiveMetadataUpdated(metadata: VaultMetadata): void
-  receiveTabVisibility(visibility: TabVisibility): void
-}
-
-export function createFakeRealtimeBus(): FakeRealtimeBus {
-  const syncPing = new Set<(itemIds: ItemId[]) => void>()
-  const index = new Set<(itemIds: ItemId[]) => void>()
-  const metadata = new Set<(metadata: VaultMetadata) => void>()
-  const tabVisibility = new Set<(visibility: TabVisibility) => void>()
-  const subscribe = <T>(listeners: Set<T>) => (listener: T) => {
-    listeners.add(listener)
-    return () => {
-      listeners.delete(listener)
-    }
-  }
-  const fake = {
-    publishSyncPing: vi.fn(),
-    publishIndexUpdated: vi.fn(),
-    publishMetadataUpdated: vi.fn(),
-    publishTabVisibility: vi.fn(),
-    close: vi.fn(() => {
-      syncPing.clear()
-      index.clear()
-      metadata.clear()
-      tabVisibility.clear()
-    }),
-    receiveSyncPing: (itemIds: ItemId[]) => syncPing.forEach(listener => listener(itemIds)),
-    receiveIndexUpdated: (itemIds: ItemId[]) => index.forEach(listener => listener(itemIds)),
-    receiveMetadataUpdated: (value: VaultMetadata) => metadata.forEach(listener => listener(value)),
-    receiveTabVisibility: (value: TabVisibility) => tabVisibility.forEach(listener => listener(value)),
-  }
-  const bus = {
-    ...fake,
-    subscribeSyncPing: subscribe(syncPing),
-    subscribeIndexUpdated: subscribe(index),
-    subscribeMetadataUpdated: subscribe(metadata),
-    subscribeTabVisibility: subscribe(tabVisibility),
-  } as unknown as RealtimeBus
-  return { ...fake, bus }
 }

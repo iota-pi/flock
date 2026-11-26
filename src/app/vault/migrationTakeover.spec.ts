@@ -21,6 +21,11 @@ describe('handleMigrationMessage', () => {
     expect(session.lockVault).not.toHaveBeenCalled()
   })
 
+  it('ignores another tab of this build taking the account over, which has already displaced this one', async () => {
+    await handleMigrationMessage({ type: 'started', account: 'acct-1', takeover: true })
+    expect(session.lockVault).not.toHaveBeenCalled()
+  })
+
   it('ignores other messages', async () => {
     await handleMigrationMessage({ type: 'finished', account: 'acct-1' })
     await handleMigrationMessage(undefined)

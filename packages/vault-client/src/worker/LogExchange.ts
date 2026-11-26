@@ -33,8 +33,8 @@ export function createLogExchange(deps: LogExchangeDeps): LogExchange {
     checkAlive(signal, () => session.isOperational)
     const response = await apiClient.pollLog({ account: accountId, push, after: puller.cursor }, { signal })
 
-    // The server stored the pushes even if the exchange was aborted meanwhile (leadership moved, or
-    // the device went offline), so record them first: otherwise the marks stay and the next poll
+    // The server stored the pushes even if the exchange was aborted meanwhile (the device went
+    // offline), so record them first: otherwise the marks stay and the next poll
     // pushes them again, and the rows come back as another device's. A session that is shutting
     // down records nothing, since it can no longer mark the items dirty, and resends them next time.
     checkAlive(null, !session.isShutdown, 'Sync session is shut down')

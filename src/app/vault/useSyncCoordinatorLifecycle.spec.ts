@@ -20,7 +20,7 @@ describe('useSyncCoordinatorLifecycle', () => {
     vi.clearAllMocks()
     initializeSpy = vi.spyOn(SyncBridge, 'initialize').mockResolvedValue(undefined)
     shutdownSpy = vi.spyOn(SyncBridge, 'shutdown').mockResolvedValue(undefined)
-    useAppStore.setState({ fatalError: null, syncWarning: null })
+    useAppStore.setState({ fatalError: null, syncWarning: null, displaced: false })
   })
 
   afterEach(() => {
@@ -64,5 +64,13 @@ describe('useSyncCoordinatorLifecycle', () => {
     const addEventListenerSpy = vi.spyOn(window, 'addEventListener')
     renderHook(() => useSyncCoordinatorLifecycle('test-acc-4', true))
     expect(addEventListenerSpy).not.toHaveBeenCalledWith('online', expect.any(Function))
+  })
+
+  it('does not take the account back while another tab has it', () => {
+    useAppStore.setState({ displaced: true })
+
+    renderHook(() => useSyncCoordinatorLifecycle('test-acc-5', true))
+
+    expect(initializeSpy).not.toHaveBeenCalled()
   })
 })

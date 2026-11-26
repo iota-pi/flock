@@ -6,7 +6,6 @@ import type { RepoDoc } from './docStore/AutomergeDocStore'
 import { generateItemId, settingsDocId, type ItemId } from '@vault/shared'
 import { MAX_ITEM_CONTENT_BYTES, MAX_ITEM_CONTENT_KB } from '@vault/shared'
 import { applyItemUpdatesToDraft, mutateDraftToMatchSnapshot } from './utils/crdtReconcile'
-import type { RealtimeBus } from './RealtimeBus'
 import type { RecoveryManager } from './RecoveryManager'
 import { KeyedSingleFlightGuard } from '../utils/SingleFlightGuard'
 import { createLogger } from '../utils/logger'
@@ -21,8 +20,6 @@ export interface ItemOperationsDeps {
   eventHub: ClientEventHub
   markDocumentDirty: (itemId: ItemId) => void
   recoveryManager: RecoveryManager
-  /** Tells the account's other tabs which items changed */
-  bus?: RealtimeBus
   hooks?: SyncDomainHooks
   mergedTextFields?: readonly string[]
 }
@@ -140,7 +137,6 @@ export class ItemOperations {
     await this.deps.docStore.flushToStorage([item.id])
     await this.deps.indexManager.addItemIds([item.id])
     this.deps.markDocumentDirty(item.id)
-    this.deps.bus?.publishSyncPing([item.id])
   }
 
   async createItem(item: VaultDoc): Promise<void> {
@@ -201,7 +197,6 @@ export class ItemOperations {
 
     if (succeededActiveIds.length > 0) {
       await this.deps.indexManager.addItemIds(succeededActiveIds)
-      this.deps.bus?.publishSyncPing(succeededActiveIds)
     }
 
     for (const item of failedItems) {
@@ -258,7 +253,6 @@ export class ItemOperations {
     }
 
     await this.releaseRecoveredItem(itemId, 'add')
-    this.deps.bus?.publishSyncPing([itemId])
   }
 
   async forceDeleteRecoveryItem(itemId: ItemId): Promise<void> {
@@ -383,8 +377,6 @@ export class ItemOperations {
     }
     await this.releaseRecoveredItem(oldItemId, 'remove')
 
-    // 4. Notify subscribers & ping bus
-    this.deps.bus?.publishSyncPing([oldItemId, newItemId])
     this.deps.eventHub.emit({ type: 'itemUpdated', id: oldItemId, item: null })
     this.deps.eventHub.emit({ type: 'itemUpdated', id: newItemId, item: newItem })
 

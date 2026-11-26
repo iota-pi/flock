@@ -21,6 +21,11 @@ export type LifecyclePhase =
   | { kind: 'halted'; accountId: string }
   /** A shutdown is closing the worker. An `initialize` may take over, and waits for it to finish. */
   | { kind: 'shuttingDown' }
+  /**
+   * Another tab took over the account, so this tab's worker has closed, leaving what the app shows in
+   * place. Only an `initialize` (taking over again) starts sync again.
+   */
+  | { kind: 'displaced'; accountId: string }
 
 export interface LifecycleState {
   phase: LifecyclePhase
@@ -41,6 +46,8 @@ export type LifecycleEvent =
   | { type: 'shutdown' }
   /** A shutdown closed the worker, before it clears any local data */
   | { type: 'shutdownFinished' }
+  /** Another tab took over the account: the ready worker's session stopped, or a run couldn't take the lock */
+  | { type: 'displaced' }
 
 export type LifecycleEffect =
   | { type: 'startRun'; run: number; accountId: string; clearLocalData: boolean }
@@ -54,6 +61,8 @@ export type LifecycleEffect =
   /** Starting failed too often, so sync is offline until something initializes again */
   | { type: 'reportFatal' }
   | { type: 'reportOffline' }
+  /** Close the worker without resetting what the app shows, then tell the app it was displaced */
+  | { type: 'closeDisplaced'; accountId: string }
 
 export interface LifecycleTransition {
   state: LifecycleState
@@ -182,5 +191,12 @@ export function transitionLifecycle(state: LifecycleState, event: LifecycleEvent
       // An initialize during the shutdown took over, and reports its own status
       if (phase.kind !== 'shuttingDown') return unchanged(state)
       return { state: { ...state, phase: { kind: 'idle' } }, effects: [{ type: 'reportOffline' }] }
+
+    case 'displaced':
+      if (phase.kind !== 'ready' && phase.kind !== 'starting') return unchanged(state)
+      return {
+        state: { ...state, phase: { kind: 'displaced', accountId: phase.accountId }, initFailures: 0 },
+        effects: [...leave(phase), { type: 'closeDisplaced', accountId: phase.accountId }],
+      }
   }
 }

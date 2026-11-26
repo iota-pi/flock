@@ -95,7 +95,7 @@ describe('SnapshotPusher', () => {
 
     pusher = new SnapshotPusher({
       accountId: 'test-acc',
-      session: new SyncSessionState({ isLeader: true }),
+      session: new SyncSessionState(),
       schedule: mockTracker as unknown as SnapshotSchedule,
       state: mockTracker,
       runPollNow: vi.fn().mockResolvedValue(undefined),
@@ -134,29 +134,6 @@ describe('SnapshotPusher', () => {
     expect(mockTracker.clearDue).not.toHaveBeenCalled()
     expect(mockBuilder.build).not.toHaveBeenCalled()
     expect(mockApiClient.putSnapshots).not.toHaveBeenCalled()
-  })
-
-  it('does nothing in a tab that is not the leader', async () => {
-    pusher = new SnapshotPusher({
-      accountId: 'test-acc',
-      session: new SyncSessionState({ isLeader: false }),
-      schedule: mockTracker as unknown as SnapshotSchedule,
-      state: mockTracker,
-      runPollNow: vi.fn().mockResolvedValue(undefined),
-      isCaughtUp: () => true,
-      hasPendingMarks: vi.fn().mockResolvedValue(false),
-      builder: mockBuilder as unknown as SnapshotBuilder,
-      pushToLog: mockPushToLog,
-      storeDocs: mockStoreDocs,
-      onSnapshotStored: mockOnSnapshotStored,
-      apiClient: mockApiClient,
-      recoveryManager: mockRecoveryManager,
-      eventHub: mockEventHub,
-    })
-
-    await push()
-
-    expect(mockBuilder.build).not.toHaveBeenCalled()
   })
 
   it('clears the due time as it takes the dirty items', async () => {
@@ -582,7 +559,7 @@ describe('SnapshotPusher', () => {
 
       pusher = new SnapshotPusher({
         accountId: 'test-acc',
-        session: new SyncSessionState({ isLeader: true }),
+        session: new SyncSessionState(),
         schedule: mockTracker as unknown as SnapshotSchedule,
         state: mockTracker,
         runPollNow: vi.fn().mockResolvedValue(undefined),
@@ -691,7 +668,7 @@ describe('SnapshotPusher', () => {
 
     /** Replaces `tracker` and `pusher` with a real tracker wired to a pusher, as the context wires them */
     function createPusher(options: { maxPayloadBytes?: number } = {}): void {
-      session = new SyncSessionState({ isLeader: true })
+      session = new SyncSessionState()
       state = new ItemSyncState({ db: records.db, session })
       tracker = new SnapshotSchedule({
         state,

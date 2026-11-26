@@ -42,8 +42,6 @@ export interface Model {
   durableEdits: Map<ItemId, Set<string>>
   durableCreates: Set<ItemId>
   durableDeletes: Set<ItemId>
-  /** The devices with a follower tab open */
-  tabs: Set<number>
 }
 
 type Change =
@@ -55,10 +53,8 @@ type Change =
 export interface World {
   server: FakeVaultServer
   keys: Keyring
-  /** Each device's leading tab */
+  /** Each device's active tab, the only one whose engine runs */
   devices: Device[]
-  /** Each device's follower tab, when one is open. It shares the device's storage. */
-  tabs: Array<Device | undefined>
   /** Added to real time, to jump the clock forward */
   clockOffset: number
 }
@@ -125,15 +121,15 @@ function markStored(model: Model, device: number, itemIds?: ItemId[]): void {
 }
 
 /**
- * Runs an operation as the device's leader (see `as`), and counts the changes to each item whose mark
+ * Runs an operation as the device (see `as`), and counts the changes to each item whose mark
  * it cleared as stored: a push clears a mark only once the item's doc is stored, since nothing would
  * bring an acknowledged change back to the device after that
  */
-async function asLeader<T>(model: Model, world: World, device: number, operation: (leader: Device) => Promise<T>): Promise<T> {
-  const leader = world.devices[device]
-  const before = await leader.pending()
-  const result = await as(world, leader, () => operation(leader))
-  const after = new Set(await leader.pending())
+async function asDevice<T>(model: Model, world: World, device: number, operation: (active: Device) => Promise<T>): Promise<T> {
+  const active = world.devices[device]
+  const before = await active.pending()
+  const result = await as(world, active, () => operation(active))
+  const after = new Set(await active.pending())
   markStored(model, device, before.filter(itemId => !after.has(itemId)))
   return result
 }
@@ -162,69 +158,32 @@ function pickItem(model: Readonly<Model>, index: number): ItemId {
   return model.items[index % model.items.length]
 }
 
-/** The tab a command acts in: the device's leader, or its follower tab when `inTab` */
-function actor(world: World, device: number, inTab: boolean): Device {
-  const tab = world.tabs[device]
-  if (inTab && !tab) throw new Error(`${deviceName(device)} has no tab open`)
-  return inTab ? tab! : world.devices[device]
-}
-
-function actorName(device: number, inTab: boolean): string {
-  return inTab ? `${deviceName(device)} tab` : deviceName(device)
-}
-
-/**
- * Waits until the device's leader has a change its follower tab made, as the broadcast adapter
- * delivers it. A leader that pushed before it arrived would clear the tab's mark with nothing sent,
- * and only its re-mark when the doc changes would send it, at a time the commands don't control.
- */
-async function reachLeader(
-  world: World,
-  device: number,
-  itemId: ItemId,
-  hasArrived: (doc: Record<string, unknown> | null) => boolean,
-): Promise<void> {
-  const leader = world.devices[device]
-  await vi.waitFor(async () => {
-    if (!hasArrived(await leader.read(itemId))) throw new Error(`The tab's change to ${itemId} hasn't reached the leader`)
-  })
-}
-
 export class Create extends DeviceCommand {
-  constructor(device: number, readonly inTab = false) {
-    super(device)
-  }
-
-  check(model: Readonly<Model>): boolean {
-    return super.check(model) && (!this.inTab || model.tabs.has(this.device))
-  }
-
   async run(model: Model, world: World): Promise<void> {
-    const device = actor(world, this.device, this.inTab)
+    const device = world.devices[this.device]
     const itemId = `item-${model.nextItem}` as ItemId
     model.nextItem += 1
     await as(world, device, () => device.create(itemId))
     model.items.push(itemId)
     record(model, this.device, { kind: 'create', itemId })
-    if (this.inTab) await reachLeader(world, this.device, itemId, doc => doc !== null)
   }
 
   toString(): string {
-    return `create(${actorName(this.device, this.inTab)})`
+    return `create(${deviceName(this.device)})`
   }
 }
 
 export class Edit extends DeviceCommand {
-  constructor(device: number, readonly item: number, readonly inTab = false) {
+  constructor(device: number, readonly item: number) {
     super(device)
   }
 
   check(model: Readonly<Model>): boolean {
-    return super.check(model) && model.items.length > 0 && (!this.inTab || model.tabs.has(this.device))
+    return super.check(model) && model.items.length > 0
   }
 
   async run(model: Model, world: World): Promise<void> {
-    const device = actor(world, this.device, this.inTab)
+    const device = world.devices[this.device]
     const itemId = pickItem(model, this.item)
     // Only an item the device holds, and hasn't deleted, can be edited
     if (!(await device.liveIds()).includes(itemId)) return
@@ -232,11 +191,10 @@ export class Edit extends DeviceCommand {
     model.nextEdit += 1
     await as(world, device, () => device.edit(itemId, { [key]: model.nextEdit }))
     record(model, this.device, { kind: 'edit', itemId, key })
-    if (this.inTab) await reachLeader(world, this.device, itemId, doc => doc?.[key] !== undefined)
   }
 
   toString(): string {
-    return `edit(${actorName(this.device, this.inTab)}, item#${this.item})`
+    return `edit(${deviceName(this.device)}, item#${this.item})`
   }
 }
 
@@ -264,7 +222,7 @@ export class Delete extends DeviceCommand {
 
 export class Poll extends DeviceCommand {
   async run(model: Model, world: World): Promise<void> {
-    await asLeader(model, world, this.device, device => device.poll())
+    await asDevice(model, world, this.device, device => device.poll())
   }
 
   toString(): string {
@@ -274,7 +232,7 @@ export class Poll extends DeviceCommand {
 
 export class UploadSnapshots extends DeviceCommand {
   async run(model: Model, world: World): Promise<void> {
-    await asLeader(model, world, this.device, device => device.uploadSnapshots())
+    await asDevice(model, world, this.device, device => device.uploadSnapshots())
   }
 
   toString(): string {
@@ -286,7 +244,7 @@ export class ManifestSync extends DeviceCommand {
   async run(model: Model, world: World): Promise<void> {
     const device = world.devices[this.device]
     try {
-      await asLeader(model, world, this.device, leader => leader.manifestSync())
+      await asDevice(model, world, this.device, active => active.manifestSync())
     } catch (error) {
       // A device that knows no items yet has no local data to fall back on, so it throws offline
       if (device.isOnline) throw error
@@ -318,7 +276,6 @@ export class SetOnline extends DeviceCommand {
 
   async run(_model: Model, world: World): Promise<void> {
     world.devices[this.device].setOnline(this.isOnline)
-    world.tabs[this.device]?.setOnline(this.isOnline)
   }
 
   toString(): string {
@@ -347,8 +304,6 @@ export class Restart extends DeviceCommand {
  */
 export class ResetSync extends DeviceCommand {
   async run(model: Model, world: World): Promise<void> {
-    // The migration app is a page of its own, so the device's other tab is closed first
-    await closeTab(model, world, this.device)
     const device = world.devices[this.device]
     const isOnline = device.isOnline
     await device.rewindToOldBuild()
@@ -378,11 +333,7 @@ export class Crash extends DeviceCommand {
     for (let i = 0; i < this.ticks; i += 1) {
       await new Promise(resolve => setTimeout(resolve, 0))
     }
-    // The whole browser dies, so the device's other tab goes too
-    const tab = world.tabs[this.device]
-    world.tabs[this.device] = undefined
-    model.tabs.delete(this.device)
-    await device.crash(operation, tab ? [tab] : [])
+    await device.crash(operation)
     world.server.isDown = false
     // Whatever it hadn't stored may be lost, so nothing more is known of it
     model.unstored.delete(this.device)
@@ -405,67 +356,28 @@ export class Crash extends DeviceCommand {
   }
 }
 
-/** Closes the device's follower tab, which stores what it changed as it stops */
-async function closeTab(model: Model, world: World, device: number): Promise<void> {
-  const tab = world.tabs[device]
-  if (!tab) return
-  world.tabs[device] = undefined
-  model.tabs.delete(device)
-  await tab.stop()
-}
-
-/** Opens a second tab of the app on the device, which follows its leader */
-export class OpenTab extends DeviceCommand {
-  check(model: Readonly<Model>): boolean {
-    return super.check(model) && !model.tabs.has(this.device)
-  }
-
-  async run(model: Model, world: World): Promise<void> {
-    world.tabs[this.device] = await world.devices[this.device].openTab()
-    model.tabs.add(this.device)
-  }
-
-  toString(): string {
-    return `openTab(${deviceName(this.device)})`
-  }
-}
-
-export class CloseTab extends DeviceCommand {
-  check(model: Readonly<Model>): boolean {
-    return super.check(model) && model.tabs.has(this.device)
-  }
-
-  async run(model: Model, world: World): Promise<void> {
-    await closeTab(model, world, this.device)
-  }
-
-  toString(): string {
-    return `closeTab(${deviceName(this.device)})`
-  }
-}
-
 /**
- * The follower tab steals leadership, as the tab the user comes back to does. Both tabs lead until
- * the old leader handles its rejected lock request, and each polls in that window.
+ * The user switches to another tab of the app on the device, which takes the account over (see "One
+ * active tab" in docs/sync-design.md). The old tab's engine stops, storing what it changed, unless
+ * it was frozen and is closed before it handles the takeover (`clean: false`), when whatever it hadn't
+ * stored may be lost. The new tab's engine starts on the same storage.
  */
-export class Steal extends DeviceCommand {
-  check(model: Readonly<Model>): boolean {
-    return super.check(model) && model.tabs.has(this.device)
+export class SwitchTab extends DeviceCommand {
+  constructor(device: number, readonly clean: boolean) {
+    super(device)
   }
 
-  async run(_model: Model, world: World): Promise<void> {
-    const leader = world.devices[this.device]
-    const tab = world.tabs[this.device]!
-    await tab.promote()
-    await as(world, tab, () => tab.poll())
-    await as(world, leader, () => leader.poll())
-    leader.demote()
-    world.devices[this.device] = tab
-    world.tabs[this.device] = leader
+  async run(model: Model, world: World): Promise<void> {
+    await world.devices[this.device].takeOver({ clean: this.clean })
+    if (this.clean) {
+      markStored(model, this.device)
+    } else {
+      model.unstored.delete(this.device)
+    }
   }
 
   toString(): string {
-    return `steal(${deviceName(this.device)})`
+    return `switchTab(${deviceName(this.device)}${this.clean ? '' : ', frozen'})`
   }
 }
 
@@ -626,10 +538,8 @@ export function commandArbitrary(deviceCount: number): fc.Arbitrary<SyncCommand>
   const device = fc.nat({ max: deviceCount - 1 })
   const item = fc.nat({ max: 31 })
   return fc.oneof(
-    { weight: 5, arbitrary: device.map(d => new Create(d)) },
-    { weight: 1, arbitrary: device.map(d => new Create(d, true)) },
-    { weight: 12, arbitrary: fc.tuple(device, item).map(([d, i]) => new Edit(d, i)) },
-    { weight: 4, arbitrary: fc.tuple(device, item).map(([d, i]) => new Edit(d, i, true)) },
+    { weight: 6, arbitrary: device.map(d => new Create(d)) },
+    { weight: 16, arbitrary: fc.tuple(device, item).map(([d, i]) => new Edit(d, i)) },
     { weight: 1, arbitrary: fc.tuple(device, item).map(([d, i]) => new Delete(d, i)) },
     { weight: 10, arbitrary: device.map(d => new Poll(d)) },
     { weight: 3, arbitrary: device.map(d => new UploadSnapshots(d)) },
@@ -652,9 +562,7 @@ export function commandArbitrary(deviceCount: number): fc.Arbitrary<SyncCommand>
     { weight: 1, arbitrary: fc.nat({ max: 63 }).map(row => new LoseRow(row)) },
     { weight: 1, arbitrary: device.map(d => new PollWithHiddenHead(d)) },
     { weight: 1, arbitrary: fc.tuple(device, device).map(([a, b]) => new RaceSnapshots(a, b)) },
-    { weight: 1, arbitrary: device.map(d => new OpenTab(d)) },
-    { weight: 1, arbitrary: device.map(d => new CloseTab(d)) },
-    { weight: 1, arbitrary: device.map(d => new Steal(d)) },
+    { weight: 2, arbitrary: fc.tuple(device, fc.boolean()).map(([d, clean]) => new SwitchTab(d, clean)) },
     { weight: 1, arbitrary: fc.constant(new LoseResponse()) },
     { weight: 1, arbitrary: device.map(d => new FailStateSave(d)) },
     { weight: 1, arbitrary: fc.constant(new Idle()) },
@@ -671,7 +579,6 @@ export async function createWorld(deviceCount: number): Promise<{ model: Model; 
     server: new FakeVaultServer(),
     keys: await createAccountKeys(),
     devices: [],
-    tabs: [],
     clockOffset: 0,
   }
   vi.spyOn(Date, 'now').mockImplementation(() => now(world))
@@ -693,15 +600,13 @@ export async function createWorld(deviceCount: number): Promise<{ model: Model; 
     durableEdits: new Map(),
     durableCreates: new Set(),
     durableDeletes: new Set(),
-    tabs: new Set(),
   }
   return { model, real: world }
 }
 
 export async function destroyWorld(world: World, observers: Device[] = []): Promise<void> {
   world.server.isDown = false
-  const tabs = world.tabs.filter(tab => tab !== undefined)
-  await Promise.all([...world.devices, ...tabs, ...observers].map(device => (
+  await Promise.all([...world.devices, ...observers].map(device => (
     device.context?.session.isShutdown === false ? device.stop() : null
   )))
 }
@@ -748,8 +653,8 @@ export async function quiesce(world: World, model: Model): Promise<void> {
   world.server.isDown = false
   world.server.loseNextResponse = false
   world.server.hiddenSeqs.clear()
-  for (const device of [...world.devices, ...world.tabs]) {
-    device?.setOnline(true)
+  for (const device of world.devices) {
+    device.setOnline(true)
   }
   await syncRounds(world, model, trace)
   await assertAuthorsUploaded(world, model)
@@ -842,10 +747,6 @@ export async function assertConverged(world: World, model: Model, observers: Dev
   const [reference] = views
 
   for (const other of views.slice(1)) expectSameAs(reference, other)
-  // A follower tab gets everything from its leader, over the broadcast adapter
-  for (const tab of world.tabs) {
-    if (tab) await vi.waitFor(async () => expectSameAs(reference, await view(tab)))
-  }
 
   for (const deviceView of views) {
     expect(deviceView.quarantined, `${deviceView.name}: quarantined`).toEqual([])

@@ -39,7 +39,7 @@ export class StorageRecoveryService {
   private unregisterQuotaReporter: (() => void) | null = null
   /**
    * Items edited in this tab since the last successful retry. An edit's doc and pending mark can both
-   * fail to save while storage is full, and only the leader's acknowledged pushes queue snapshots, so
+   * fail to save while storage is full, and only acknowledged pushes queue snapshots, so
    * the dirty queue alone would miss them.
    */
   private readonly editedItems = new Set<ItemId>()

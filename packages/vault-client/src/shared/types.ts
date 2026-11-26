@@ -74,15 +74,15 @@ export interface ReencryptResult {
 }
 
 /**
- * What a re-encryption is doing: waiting for this tab to lead (only the leader pushes), waiting for
- * catch-up's manifest sync to merge the server's snapshots, or rewriting snapshots
+ * What a re-encryption is doing: waiting for catch-up's manifest sync to merge the server's
+ * snapshots, or rewriting snapshots
  */
-export type ReencryptStage = 'waitingForLeader' | 'waitingForSync' | 'reencrypting'
+export type ReencryptStage = 'waitingForSync' | 'reencrypting'
 
 /** Options for a re-encryption run, or for preparing one */
 export interface ReencryptOptions {
   /**
-   * How long to wait for leadership and for catch-up before giving up with a
+   * How long to wait for catch-up before giving up with a
    * `ReencryptionWaitError`. Without it, a run waits as long as it takes.
    */
   waitTimeoutMs?: number
@@ -98,7 +98,6 @@ export interface ReencryptCallOptions extends ReencryptOptions {
 
 /** What the worker's session is waiting on, for a migration app to report when it stalls */
 export interface SyncDiagnostics {
-  isLeader: boolean
   isOnline: boolean
   /** Whether this device has caught up with the server, so rewrites can go ahead (see `SyncLogPuller.isCaughtUp`) */
   caughtUp: boolean

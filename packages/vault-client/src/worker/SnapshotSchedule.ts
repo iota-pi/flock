@@ -25,10 +25,9 @@ export interface SnapshotScheduleOptions {
  * When the dirty items' snapshots are due. `ItemSyncState` holds which items are dirty, with their
  * ticks and stored flags; this holds only the session's due times, retry and quota deferral.
  *
- * Marking an item here queues it and makes it due. Only the leader marks items: an edit is marked
- * when the leader records the acknowledgement of its push, and the leader alone uploads and so clears
- * them. After the records load, at start and on promotion, the flagged items that aren't quarantined
- * are queued again and made due.
+ * Marking an item here queues it and makes it due: an edit is marked when the session records the
+ * acknowledgement of its push. After the records load at start, the flagged items that aren't
+ * quarantined are queued again and made due.
  */
 export class SnapshotSchedule {
   /**
@@ -55,24 +54,7 @@ export class SnapshotSchedule {
     return this.deps.now?.() ?? Date.now()
   }
 
-  /** Makes the pending uploads due when this tab becomes the leader, and drops them when it stops being one */
-  onLeaderChange(): void {
-    if (this.deps.session.isShutdown) return
-    if (this.deps.session.isLeader) {
-      if (this.deps.state.dirtyCount > 0) {
-        this.scheduleDue()
-      }
-    } else {
-      this.clearDue()
-    }
-  }
-
-  /**
-   * Queues the item and makes it due. Call it only on the leader, whose queue alone uploads: a
-   * follower's marking writes the flag but goes no further until a later load. It doesn't check, since
-   * a tab that stopped leading while its push was in flight must still record the acknowledged item
-   * dirty, in the same save as its server heads, for the next leader's audit to find.
-   */
+  /** Queues the item and makes it due */
   markItemDirty(itemId: ItemId, customDebounceDelayMs?: number): void {
     if (this.deps.session.isShutdown || !itemId) return
     this.deps.state.markDirty(itemId)
@@ -152,8 +134,7 @@ export class SnapshotSchedule {
   }
 
   /**
-   * Loads the item records and queues the items they flag, at start and when this tab becomes the
-   * leader. Concurrent callers share one load.
+   * Loads the item records and queues the items they flag, at start. Concurrent callers share one load.
    */
   async load(): Promise<void> {
     if (this.deps.session.isShutdown) return
@@ -164,7 +145,7 @@ export class SnapshotSchedule {
   }
 
   /**
-   * The startup and promotion audit, run once the item records have loaded: queues every flagged item
+   * The startup audit, run once the item records have loaded: queues every flagged item
    * that isn't quarantined, due after `restoredSnapshotDelay` however later edits come.
    */
   private async restoreFlagged(): Promise<void> {

@@ -78,6 +78,13 @@ function sync(manager: ManifestSyncManager, mode: ManifestMode = 'due', signal =
   return manager.runPhase('afterRead', signal)
 }
 
+/** A session that has shut down, in which nothing may reach the server */
+function shutDownSession(): SyncSessionState {
+  const session = new SyncSessionState()
+  session.markShutdown()
+  return session
+}
+
 describe('ManifestSyncManager', () => {
   let manifestSyncManager: ManifestSyncManager
   let storeItemsSpy: any
@@ -127,7 +134,7 @@ describe('ManifestSyncManager', () => {
 
     depsObj = {
       accountId: 'acc-123',
-      session: new SyncSessionState({ isLeader: true }),
+      session: new SyncSessionState(),
       demands: new ManifestDemands(),
       docStore: mockDocStore,
       indexManager: mockIndexManager,
@@ -169,9 +176,9 @@ describe('ManifestSyncManager', () => {
     mockReadManualRecoveryEntries.mockResolvedValue([])
   })
 
-  describe('outside the leader', () => {
+  describe('once the session has shut down', () => {
     it('never talks to the server', async () => {
-      const manager = createManager({ ...depsObj, session: new SyncSessionState() })
+      const manager = createManager({ ...depsObj, session: shutDownSession() })
       manager.request('force')
 
       expect(await sync(manager, 'force')).toBeNull()
@@ -398,8 +405,8 @@ describe('ManifestSyncManager', () => {
         expect(depsObj.demands.isDemanded(recovery)).toBe(true)
       })
 
-      it('fails the phase outside the leader, so the poll cannot report success without it', async () => {
-        const manager = createManager({ ...depsObj, session: new SyncSessionState() })
+      it('fails the phase once the session has shut down, so the poll cannot report success without it', async () => {
+        const manager = createManager({ ...depsObj, session: shutDownSession() })
         depsObj.demands.demand(beforeRead())
 
         await expect(manager.runPhase('beforeRead', signal())).rejects.toThrow('Catching up')

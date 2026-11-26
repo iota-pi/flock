@@ -1,8 +1,6 @@
 import { MAX_INCREMENTAL_MESSAGE_BYTES, type ItemId } from '@vault/shared'
 import type { Keyring } from '../keys/Keyring'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
-import { SnapshotBuilder } from './SnapshotBuilder'
-import { MAX_CONSECUTIVE_SNAPSHOT_FAILURES } from './SnapshotPusher'
 import { FakeVaultServer } from './__test__/FakeVaultServer'
 import { createAccountKeys, Device, installLocalStorage } from './__test__/syncLogHarness'
 
@@ -288,192 +286,96 @@ describe('sync log', () => {
     })
   })
 
-  it('pushes a follower\'s edit from its persisted mark after the leader goes', async () => {
-    const a = await startDevice('device-a')
-    const b = await startDevice('device-b')
-    await b.poll()
-    await a.poll()
-    const itemId = await a.create('item-1', { title: 'first' })
-    await a.poll()
-    a.context.session.setLeader(false)
-
-    await a.edit(itemId, { title: 'from a follower' })
-    await a.settle()
-    expect(await a.pending()).toEqual([itemId])
-
-    a.context.session.setLeader(true)
-    await a.poll()
-    await b.poll()
-
-    expect((await b.read(itemId))?.title).toBe('from a follower')
-    expect(await a.pending()).toEqual([])
-  })
-
-  describe('a leader and a follower on one device', () => {
-    /** Two tabs of device A, sharing its storage and talking over the broadcast adapter, and device B */
-    async function startTabs() {
-      const leader = await startDevice('device-a')
-      const follower = await startDevice('device-a', { isLeader: false })
+  describe('switching tabs', () => {
+    it.each([
+      { clean: true, label: 'stops' },
+      { clean: false, label: 'was frozen' },
+    ])('pushes an edit made just before the switch from the new tab, when the old one $label', async ({ clean }) => {
+      const a = await startDevice('device-a')
       const b = await startDevice('device-b')
-      const itemId = await leader.create('item-1', { title: 'first' })
-      await leader.sync()
-      await b.sync()
-      await vi.waitFor(async () => expect((await follower.read(itemId))?.title).toBe('first'))
-      return { leader, follower, b, itemId }
-    }
-
-    it('pushes a follower\'s edit from the leader, which learns of it over the broadcast adapter', async () => {
-      const { leader, follower, b, itemId } = await startTabs()
-
-      await follower.edit(itemId, { title: 'from the follower' })
-      await follower.settle()
-      await vi.waitFor(async () => expect((await leader.read(itemId))?.title).toBe('from the follower'))
-      expect(await follower.poll()).toBe('no-poll')
-      expect(server.rows).toHaveLength(1)
-      // Neither tab owes a snapshot until the leader's push is acknowledged
-      expect(leader.services.itemSyncState.isDirty(itemId)).toBe(false)
-      expect(follower.services.itemSyncState.isDirty(itemId)).toBe(false)
-
-      await leader.poll()
-      expect(leader.services.itemSyncState.isDirty(itemId)).toBe(true)
-      expect(follower.services.itemSyncState.isDirty(itemId)).toBe(false)
-      await leader.sync()
-      await b.poll()
-
-      expect((await b.read(itemId))?.title).toBe('from the follower')
-      expect(await leader.pending()).toEqual([])
-      expect(server.items.get(itemId)?.version).toBe(2)
-    })
-
-    it(`wakes the leader to push a follower's edit, though the follower marked it first`, async () => {
-      const { leader, follower, itemId } = await startTabs()
-      const flush = vi.mocked(leader.services.orchestrator.flush)
-      flush.mockClear()
-
-      await follower.edit(itemId, { title: 'from the follower' })
-      await vi.waitFor(async () => expect(await leader.pending()).toEqual([itemId]))
-      await vi.waitFor(async () => expect((await leader.read(itemId))?.title).toBe('from the follower'))
-
-      // The follower's own flush can't push, so the leader must queue a poll once the change reaches it
-      await vi.waitFor(() => expect(flush.mock.contexts).toContain(leader.services.orchestrator))
-    })
-
-    it('counts on a follower an item the leader has pushed but not yet uploaded a snapshot of', async () => {
-      const { leader, follower, itemId } = await startTabs()
-
-      await follower.edit(itemId, { title: 'from the follower' })
-      await vi.waitFor(async () => expect((await leader.read(itemId))?.title).toBe('from the follower'))
-      await leader.poll()
-      expect(await leader.pending()).toEqual([])
-
-      expect(await follower.context.getUnsyncedChanges()).toEqual({ pendingItems: 1, quarantinedItems: 0 })
-
-      await leader.uploadSnapshots()
-      // The leader saves the cleared flag after its usual delay
-      await leader.services.itemSyncState.save()
-      expect(await follower.context.getUnsyncedChanges()).toEqual({ pendingItems: 0, quarantinedItems: 0 })
-    })
-
-    it('re-marks a follower\'s edit that reaches the leader after its push cleared the mark', async () => {
-      const { leader, follower, b, itemId } = await startTabs()
-      // Holds what the follower sends the leader's Repo, so the leader pushes before the edit arrives
-      const network = leader.services.repo.networkSubsystem as unknown as {
-        emit: (event: string, ...args: unknown[]) => boolean
-      }
-      const emit = network.emit.bind(network)
-      const held: unknown[] = []
-      let isHolding = true
-      vi.spyOn(network, 'emit').mockImplementation((event, ...args) => {
-        if (isHolding && event === 'message') {
-          held.push(args[0])
-          return true
-        }
-        return emit(event, ...args)
-      })
-
-      await follower.edit(itemId, { title: 'from the follower' })
-      await vi.waitFor(async () => expect(await leader.pending()).toEqual([itemId]))
-      await vi.waitFor(() => expect(held.length).toBeGreaterThan(0))
-      // The leader's doc has nothing new, so its push clears the follower's mark and sends nothing
-      await leader.poll()
-      expect(await leader.pending()).toEqual([])
-      expect(server.rows).toHaveLength(1)
-
-      isHolding = false
-      for (const message of held.splice(0)) emit('message', message)
-      await vi.waitFor(async () => expect((await leader.read(itemId))?.title).toBe('from the follower'))
-      // The engine's listener on the leader's handle marks the item again, though nothing subscribed to it
-      await vi.waitFor(async () => expect(await leader.pending()).toEqual([itemId]))
-
-      await leader.poll()
-      await b.poll()
-
-      expect(server.rows).toHaveLength(2)
-      expect((await b.read(itemId))?.title).toBe('from the follower')
-      expect(await leader.pending()).toEqual([])
-    })
-
-    it('hands a change the leader pulls to the follower, which never polls', async () => {
-      const { leader, follower, b, itemId } = await startTabs()
-
-      await b.edit(itemId, { title: 'from device b' })
-      await b.poll()
-      await leader.poll()
-
-      await vi.waitFor(async () => expect((await follower.read(itemId))?.title).toBe('from device b'))
-      expect(await leader.pending()).toEqual([])
-      expect(server.rows).toHaveLength(2)
-    })
-
-    it('converges while both tabs lead, as they may just after one steals the lock', async () => {
-      const { leader, follower, b, itemId } = await startTabs()
-      follower.context.session.setLeader(true)
-
-      await leader.edit(itemId, { title: 'from the old leader' })
-      await follower.edit(itemId, { notes: 'from the new leader' })
-      await leader.settle()
-      await vi.waitFor(async () => expect((await follower.read(itemId))?.title).toBe('from the old leader'))
-      await vi.waitFor(async () => expect((await leader.read(itemId))?.notes).toBe('from the new leader'))
-      // Both push what they have, and each pulls the other's rows
-      await Promise.all([leader.sync(), follower.sync()])
-      leader.context.session.setLeader(false)
-      await follower.sync()
+      const itemId = await a.create('item-1', { title: 'first' })
+      await a.sync()
       await b.sync()
 
-      for (const device of [leader, follower, b]) {
-        expect(await device.read(itemId)).toMatchObject({ title: 'from the old leader', notes: 'from the new leader' })
-      }
-      expect(await follower.heads(itemId)).toEqual(await b.heads(itemId))
-      expect(await leader.pending()).toEqual([])
-      expect(await follower.quarantined()).toEqual([])
-      expect(await b.quarantined()).toEqual([])
+      await a.edit(itemId, { title: 'just before the switch' })
+      await a.settle()
+      // A frozen tab is closed with only what it had stored: the doc, and the mark written with the edit
+      if (!clean) await a.flushDocs([itemId])
+      expect(await a.pending()).toEqual([itemId])
+
+      await a.takeOver({ clean })
+      await a.poll()
+      await b.poll()
+
+      expect((await b.read(itemId))?.title).toBe('just before the switch')
+      expect(await a.pending()).toEqual([])
     })
 
-    it('takes over syncing to upload an item a follower retries from recovery', async () => {
-      const { leader, follower, itemId } = await startTabs()
-      await leader.edit(itemId, { title: 'stuck' })
-      await leader.poll()
-      expect(leader.services.itemSyncState.isDirty(itemId)).toBe(true)
-
-      const build = vi.spyOn(SnapshotBuilder.prototype, 'build').mockResolvedValue({ type: 'error', reason: 'test' })
-      for (let attempt = 0; attempt < MAX_CONSECUTIVE_SNAPSHOT_FAILURES; attempt += 1) {
-        await leader.uploadSnapshots()
-      }
-      build.mockRestore()
-      expect(await follower.quarantined()).toEqual([itemId])
+    it.each([
+      { clean: true, label: 'stops' },
+      { clean: false, label: 'was frozen' },
+    ])('uploads the snapshots the old tab owed, when it $label', async ({ clean }) => {
+      const a = await startDevice('device-a')
+      const itemId = await a.create('item-1', { title: 'first' })
+      await a.sync()
+      await a.edit(itemId, { title: 'second' })
+      await a.poll()
+      expect(a.services.itemSyncState.isDirty(itemId)).toBe(true)
       expect(server.items.get(itemId)?.version).toBe(1)
 
-      // As a granted lock does: the old leader loses it as the follower takes it
-      vi.spyOn(follower.services.orchestrator, 'claimLeader').mockImplementation(async () => {
-        leader.demote()
-        await follower.promote()
-        return true
-      })
-      await follower.services.itemRecoveryService.retryRecoveryItem(itemId)
-      await follower.sync()
+      await a.takeOver({ clean })
 
-      expect(await follower.quarantined()).toEqual([])
+      // The new tab's startup audit finds the dirty flag the acknowledgement saved
+      expect(a.services.itemSyncState.isDirty(itemId)).toBe(true)
+      await a.uploadSnapshots()
       expect(server.items.get(itemId)?.version).toBe(2)
+      expect(a.services.itemSyncState.isDirty(itemId)).toBe(false)
+    })
+
+    it(`keeps the new tab's cursor and base versions through a late write from the displaced one`, async () => {
+      const displaced = await startDevice('device-a')
+      const b = await startDevice('device-b')
+      const itemId = await displaced.create('item-1', { title: 'first' })
+      await displaced.sync()
+      await b.sync()
+      await new Promise(resolve => setTimeout(resolve, LOG_CURSOR_SAVE_DELAY_MS))
+
+      // The old tab pulls a row, and is frozen before its debounced save of the cursor runs
+      await b.edit(itemId, { title: 'second' })
+      await b.poll()
+      await displaced.poll()
+      const staleCursor = displaced.services.puller.cursor
+
+      // The new tab takes over on the same storage and moves on past the old one
+      const active = await startDevice('device-a')
+      await b.edit(itemId, { title: 'third' })
+      await b.sync()
+      await active.poll()
+      await active.manifestSync()
+      await new Promise(resolve => setTimeout(resolve, LOG_CURSOR_SAVE_DELAY_MS))
+      const cursor = active.services.puller.cursor
+      const baseVersion = active.services.itemSyncState.getBaseVersion(itemId)
+      expect(cursor).toBeGreaterThan(staleCursor)
+      expect(baseVersion).toBe(server.items.get(itemId)?.version)
+
+      // The old tab thaws, handles the takeover, and saves what it had as it stops
+      await displaced.stop()
+
+      expect(active.services.puller.cursor).toBe(cursor)
+      expect(active.services.itemSyncState.getBaseVersion(itemId)).toBe(baseVersion)
+      await active.services.itemSyncState.save()
+      // The next row moves the stored cursor past the stale one again
+      await b.edit(itemId, { title: 'fourth' })
+      await b.poll()
+      await active.poll()
+      await active.stop()
+
+      const reopened = await startDevice('device-a')
+      expect(reopened.services.puller.cursor).toBe(server.head)
+      expect(reopened.services.itemSyncState.getBaseVersion(itemId)).toBe(baseVersion)
+      expect((await reopened.read(itemId))?.title).toBe('fourth')
+      expect(await reopened.pending()).toEqual([])
+      expect(await reopened.quarantined()).toEqual([])
     })
   })
 

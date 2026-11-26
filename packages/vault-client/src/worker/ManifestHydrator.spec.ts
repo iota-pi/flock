@@ -71,14 +71,14 @@ describe('ManifestHydrator', () => {
       snapshotSchedule: mockSnapshotSchedule,
       keys,
       storeItems: storeItemsSpy,
-      session: { isLeader: true, isShutdown: false },
+      session: { isShutdown: false },
       onDecryptionFailure: onDecryptionFailureSpy,
       onItemSnapshotHydrated: onItemSnapshotHydratedSpy,
     })
   })
 
   describe('fetchSnapshots', () => {
-    function createHydrator(session: { isLeader: boolean, isShutdown: boolean }) {
+    function createHydrator(session: { isShutdown: boolean }) {
       return new ManifestHydrator({
         accountId: 'acc-test',
         apiClient: mockApiClient,
@@ -109,11 +109,8 @@ describe('ManifestHydrator', () => {
       )
     })
 
-    it.each([
-      ['outside the leader', { isLeader: false, isShutdown: false }],
-      ['once the session is shutting down', { isLeader: true, isShutdown: true }],
-    ])('never talks to the server %s', async (_name, session) => {
-      await createHydrator(session).fetchSnapshots(['item-known' as ItemId])
+    it('never talks to the server once the session is shutting down', async () => {
+      await createHydrator({ isShutdown: true }).fetchSnapshots(['item-known' as ItemId])
 
       expect(mockApiClient.fetchSnapshotsByIds).not.toHaveBeenCalled()
     })
@@ -276,7 +273,7 @@ describe('ManifestHydrator', () => {
         snapshotSchedule: mockSnapshotSchedule,
         keys,
         storeItems: storeItemsSpy,
-        session: { isLeader: true, isShutdown: false },
+        session: { isShutdown: false },
         onDecryptionFailure: onDecryptionFailureSpy,
         decodeLegacyItem,
       })
@@ -337,7 +334,7 @@ describe('ManifestHydrator', () => {
         snapshotSchedule: mockSnapshotSchedule,
         keys,
         storeItems: storeItemsSpy,
-        session: { isLeader: true, isShutdown: false },
+        session: { isShutdown: false },
         onKeyVersionMissing,
         decodeLegacyItem,
       })
@@ -377,7 +374,7 @@ describe('ManifestHydrator', () => {
         snapshotSchedule: mockSnapshotSchedule,
         keys,
         storeItems: storeItemsSpy,
-        session: { isLeader: true, isShutdown: false },
+        session: { isShutdown: false },
         onDecryptionFailure: onDecryptionFailureSpy,
         onMigrationRequired,
       })
@@ -562,7 +559,7 @@ describe('ManifestHydrator', () => {
           snapshotSchedule: mockSnapshotSchedule,
           keys,
           storeItems: storeItemsSpy,
-          session: { isLeader: true, isShutdown: false },
+          session: { isShutdown: false },
           onRepeatedHydrationError,
         })
         mockApiClient.fetchSnapshotsByIds.mockResolvedValue({
@@ -690,7 +687,7 @@ describe('ManifestHydrator', () => {
         snapshotSchedule: mockSnapshotSchedule,
         keys,
         storeItems: storeItemsSpy,
-        session: { isLeader: true, isShutdown: false },
+        session: { isShutdown: false },
         hydrationConcurrency: concurrencyLimit,
       })
 

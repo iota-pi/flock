@@ -27,6 +27,12 @@ export interface SyncBridgeOptions<TDoc extends VaultDoc, TMeta extends VaultMet
   telemetry?: SyncTelemetry
   /** Locks the vault, for example after the password was changed on another device */
   lockVault: () => Promise<void>
+  /**
+   * Called when this tab has just taken the account over from whichever tab had it (at every start,
+   * see "One active tab" in docs/sync-design.md). Tabs of older builds queue for the active-tab lock
+   * rather than show that another tab has the account, so this is where the app asks them to stop.
+   */
+  onTakeOver?: (accountId: string) => void
 }
 
 /**
@@ -61,6 +67,9 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
       },
       onActivity: () => {
         this.lifecycleManager.recordWorkerActivity()
+      },
+      onDisplaced: () => {
+        this.lifecycleManager.markDisplaced()
       },
     }, this.telemetry)
 
@@ -97,6 +106,12 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
         this.sink.setFatalError(error)
       },
       getAccountId: options.getAccountId,
+      onDisplaced: () => {
+        this.sink.onDisplaced?.()
+      },
+      onTakeOver: accountId => {
+        options.onTakeOver?.(accountId)
+      },
       onReady: () => {
         this.localDataFailures.clear()
         this.stopLateSessionListener ??= onLateSession(() => {
@@ -150,7 +165,7 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
     this.reconnectSequence += 1
     const currentSeq = this.reconnectSequence
     const account = this.lifecycleManager.getCurrentAccountId()
-    if (!account) return
+    if (!account || this.lifecycleManager.isDisplaced()) return
 
     let recovered = false
     try {
@@ -318,10 +333,34 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
     await this.lifecycleManager.ensureReady()
   }
 
+  /**
+   * Starts sync for the account in this tab, which takes the account over from any other tab (see
+   * "One active tab" in docs/sync-design.md)
+   */
   initialize(accountId: string, options?: { clearLocalData?: boolean }): Promise<void> {
     this.telemetry.setUser(accountId)
     this.telemetry.setTag('accountId', accountId)
     return this.lifecycleManager.initialize(accountId, options)
+  }
+
+  /** Whether another tab took over the account, so sync has stopped here until `takeOverHere` */
+  isDisplaced(): boolean {
+    return this.lifecycleManager.isDisplaced()
+  }
+
+  /**
+   * Takes the account back from the tab that displaced this one. While displaced, this tab heard no
+   * key rotation or password change, so the keyring is read again from storage first. If it no longer
+   * opens, the password changed elsewhere: the vault is locked instead, as for any password change.
+   */
+  async takeOverHere(accountId: string): Promise<void> {
+    const result = await reloadKeyringFromStorage()
+    if (result.passwordChanged) {
+      log.warn('Password changed while another tab had the account. Locking vault.')
+      await this.options.lockVault()
+      return
+    }
+    await this.initialize(accountId)
   }
 
   async shutdown(options?: WorkerShutdownOptions): Promise<void> {

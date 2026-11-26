@@ -108,7 +108,6 @@ export class SyncWorker implements SyncApi {
   private isOnline = true
   /** Whether this tab is visible, kept between sessions like `isOnline` */
   private isVisible = true
-  private unsubscribeRealtimeBus: (() => void) | null = null
   private readonly subscriptions = new ItemSubscriptions(
     () => this.context.services.repo,
     (itemId, handle) => this.handleItemChange(itemId, handle.doc() || null),
@@ -174,9 +173,6 @@ export class SyncWorker implements SyncApi {
   private async teardownSession(options?: { clearLocalData?: boolean }): Promise<void> {
     this.resolveTokenRefresh(null)
     this.subscriptions.clear()
-    // The context closes its bus when it stops, but pings mustn't reach the subscriptions before then
-    this.unsubscribeRealtimeBus?.()
-    this.unsubscribeRealtimeBus = null
     await this._context?.shutdown(options)
     this._context = null
   }
@@ -237,18 +233,18 @@ export class SyncWorker implements SyncApi {
     }
   }
 
-  private setupRealtimeBus(context: SyncWorkerContext): void {
-    this.unsubscribeRealtimeBus = context.services.realtimeBus.subscribeSyncPing(itemIds => {
-      this.subscriptions.subscribe(itemIds)
-      if (this._context) {
-        // Pings also name deleted items, which mustn't come back. A deliberate restore reaches this
-        // tab as a doc change, which re-indexes the item.
-        fireAndForget(
-          this._context.services.indexManager.addItemIds(itemIds, { skipTombstoned: true }),
-          'SyncWorker:addItemIds',
-        )
-      }
-    })
+  /**
+   * Forgets a session another tab displaced, which has already stopped itself. Calls wait for the next
+   * `initRepo`, as after a shutdown, while the main thread closes this worker.
+   */
+  private onDisplaced(context: SyncWorkerContext): void {
+    if (this._context !== context) return
+    this.isShutDown = true
+    this.resolveTokenRefresh(null)
+    this.subscriptions.clear()
+    this._context = null
+    this.ready.reject(new Error(NOT_INITIALIZED_MESSAGE))
+    this.ready = createReady()
   }
 
   async initRepo(
@@ -286,6 +282,7 @@ export class SyncWorker implements SyncApi {
         onIndexUpdated: itemIds => {
           if (this._context === context) this.subscriptions.update(itemIds)
         },
+        onDisplaced: () => this.onDisplaced(context),
         ...this.sessionConfig,
         keys: this.keyring,
         localKeys: this.keyring,
@@ -294,7 +291,6 @@ export class SyncWorker implements SyncApi {
       this.subscribeClientEvents(context)
 
       await this.initializeAccountSession(context)
-      this.setupRealtimeBus(context)
 
       this.clientEventHub.emit({ type: 'ready' })
       context.statusManager.reset()

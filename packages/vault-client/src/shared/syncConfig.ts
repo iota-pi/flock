@@ -22,34 +22,20 @@ export const SYNC_TIMEOUTS = {
   recoveryCooldown: 60_000,
   /** Timeout for deleting IndexedDB databases during account data wipe */
   localDataCleanup: 5000,
-  /** Least interval between polls while the user is active (`activityWindow`) in a visible tab */
+  /** Least interval between polls while the user is active (`activityWindow`) in the visible tab */
   activePollMin: 10_000,
   /** Most interval between polls while the user is active. Each poll picks at random in between. */
   activePollMax: 15_000,
-  /** Least interval between polls while none of the account's tabs on this device is visible */
+  /** Least interval between polls while the tab isn't visible */
   hiddenPollMin: 5 * 60 * 1000,
-  /** Most interval between polls while no tab is visible. Each poll picks at random in between. */
+  /** Most interval between polls while the tab isn't visible. Each poll picks at random in between. */
   hiddenPollMax: 10 * 60 * 1000,
-  /** How long input in a tab, or changes pulled from another device, keep polls at the active rate */
+  /** How long input in the tab, or changes pulled from another device, keep polls at the active rate */
   activityWindow: 2 * 60 * 1000,
-  /** The most often a tab reports the user's input, to the worker and to the account's other tabs */
+  /** The most often the page reports the user's input to the worker */
   activityReportThrottle: 5000,
   /** A tab coming back into view polls only if the last poll finished at least this long ago */
   foregroundPollMinGap: 10_000,
-  /** How often a visible tab tells the account's other tabs that it's still visible */
-  foregroundPingInterval: 30_000,
-  /**
-   * How long a starting tab waits to learn whether it leads, while no other tab holds the leader lock
-   * (its own request is about to be granted, or is retrying after a lock error)
-   */
-  leadershipSettle: 5000,
-  /**
-   * A tab the user comes back to takes over syncing if the leader's tab is hidden when it returns, or
-   * reports that it's hidden within this long (switching tabs, the old one's report can come second)
-   */
-  leaderHandoffWindow: 2000,
-  /** The most often a tab takes over syncing because the user came back to it, so tabs can't thrash */
-  leaderHandoffMinGap: 10_000,
   /**
    * The poll's manifest phase runs at most this often unasked, counting from the last sync that
    * fetched the manifest, so one with item failures retries hourly rather than at every poll
@@ -68,7 +54,7 @@ export const SYNC_TIMEOUTS = {
   unsyncedChangesFlush: 5000,
   /** Debounce before recounting the changes waiting to sync, after something that may have changed them */
   syncProgressDebounce: 300,
-  /** How often the changes waiting to sync are recounted anyway, so a tab sees what the account's other tabs pushed */
+  /** How often the changes waiting to sync are recounted anyway, so items that have waited too long are reported */
   syncProgressInterval: 15000,
   /** How long snapshot uploads wait after the server turns them away for the account's storage quota */
   snapshotQuotaRetry: 10 * 60 * 1000,
@@ -77,7 +63,7 @@ export const SYNC_TIMEOUTS = {
   /** The longest steady editing can put dirty items' snapshots off, unless the schedule is given its own */
   snapshotMaxWait: 60 * 60 * 1000,
   /**
-   * How soon after startup (or promotion to leader) the items an earlier session left dirty are due.
+   * How soon after startup the items an earlier session left dirty are due.
    * Short, so a device whose sessions end before `snapshotDebounce` can't put an upload off forever.
    */
   restoredSnapshotDelay: 60_000,
@@ -97,8 +83,6 @@ export const SYNC_TIMEOUTS = {
   pulledChangesGrace: 24 * 60 * 60 * 1000,
   /** How long an item may wait on changes from another device before the user is told */
   missingChangesQuarantine: 24 * 60 * 60 * 1000,
-  /** Debounce before checking whether doc changes (from other tabs, say) need pushing */
-  docChangeCheck: 200,
   /** How long an item's changes may wait to be pushed before the sync status reports it as stuck */
   stuckPendingAge: 24 * 60 * 60 * 1000,
 } as const

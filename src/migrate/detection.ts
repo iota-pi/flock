@@ -13,7 +13,14 @@ export const MIGRATE_PATH = '/migrate/'
 /** Announces the migration app taking over the vault, so the main app's tabs lock themselves */
 export const MIGRATION_CHANNEL = 'flock-migration'
 
-export type MigrationChannelMessage = { type: 'started', account: string } | { type: 'finished', account: string }
+/**
+ * `takeover` marks a `started` a main-app tab sends when it takes the account over (see "One active
+ * tab" in docs/sync-design.md). Tabs of older builds lock on it as on any `started`; current ones
+ * ignore it, since the takeover has already displaced them.
+ */
+export type MigrationChannelMessage =
+  | { type: 'started', account: string, takeover?: boolean }
+  | { type: 'finished', account: string }
 
 /** The account the main app sent to the migration app, kept for this tab only */
 const HANDOFF_KEY = 'flock-migration-account'

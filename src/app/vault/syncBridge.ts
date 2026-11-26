@@ -25,11 +25,13 @@ export const storeSink: SyncStateSink<Item, AccountMetadata> = {
     useAppStore.getState().reset()
     // The next session may be another account's
     useAppStore.getState().setSyncProgress(null)
+    useAppStore.getState().setDisplaced(false)
   },
   onDataRestored: () => useAppStore.getState().incrementGeneration(),
   // Other tabs still syncing would hold on to the plaintext stores the worker is about to delete
   beforeRetiringLegacyStores: account => askOtherTabsToStop({ type: 'started', account }),
   onLocalDataUnavailable: details => useAppStore.getState().setLocalDataUnavailable(details),
+  onDisplaced: () => useAppStore.getState().setDisplaced(true),
   onMigrationRequired: () => {
     const { account } = useAppStore.getState()
     void (async () => {
@@ -56,4 +58,8 @@ export const SyncBridge = createSyncBridge<Item, AccountMetadata>({
   // session.ts imports this module too. A dynamic import here would resolve to the bundle's entry
   // chunk, whose exports are renamed, so the function would be undefined in a production build.
   lockVault: () => lockVault(),
+  // Tabs of builds before one active tab queue for the lock as followers, whose edits this tab's
+  // engine wouldn't hear, so they're asked to lock. Remove this with LegacyLeaderClaims' removal
+  // condition in docs/vault-extraction.md.
+  onTakeOver: account => askOtherTabsToStop({ type: 'started', account, takeover: true }),
 })

@@ -50,13 +50,12 @@ describe('SyncLogPuller', () => {
   let addedChanges: Set<ItemId>
   let healer: { park: AnyMock; onLogEntry: AnyMock }
   let itemSyncState: { recordPulledChanges: AnyMock; save: AnyMock }
-  let bus: { publishSyncPing: AnyMock }
   let onRemoteChangesApplied: AnyMock
   let manifest: FakeManifest
   let puller: SyncLogPuller
 
   beforeEach(async () => {
-    session = new SyncSessionState({ isLeader: true })
+    session = new SyncSessionState()
     stored = { cursor: 0, lastPullAt: NOW - 1000 }
     cursorStore = {
       load: vi.fn(async () => stored),
@@ -85,7 +84,6 @@ describe('SyncLogPuller', () => {
       recordPulledChanges: vi.fn().mockResolvedValue(undefined),
       save: vi.fn().mockResolvedValue(undefined),
     }
-    bus = { publishSyncPing: vi.fn() }
     onRemoteChangesApplied = vi.fn()
     manifest = new FakeManifest()
     puller = new SyncLogPuller({
@@ -97,7 +95,6 @@ describe('SyncLogPuller', () => {
       healer: healer as unknown as SyncLogPullerDeps['healer'],
       manifest,
       itemSyncState: itemSyncState as unknown as SyncLogPullerDeps['itemSyncState'],
-      bus: bus as unknown as SyncLogPullerDeps['bus'],
       onRemoteChangesApplied,
     })
     await puller.loadState()
@@ -114,7 +111,6 @@ describe('SyncLogPuller', () => {
     expect(keys.decryptBytes).toHaveBeenCalledWith(expect.anything(), ITEM, undefined)
     expect(puller.cursor).toBe(2)
     expect(onRemoteChangesApplied).toHaveBeenCalledExactlyOnceWith([ITEM])
-    expect(bus.publishSyncPing).toHaveBeenCalledWith([ITEM])
   })
 
   it('reads the pending marks once a page and gives every row the same set', async () => {

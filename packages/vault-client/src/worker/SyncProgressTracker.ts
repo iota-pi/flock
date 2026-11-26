@@ -30,8 +30,7 @@ export interface SyncProgressTrackerDeps {
 /**
  * Tells the app how many items have changes the server doesn't have yet, how many of those are stuck,
  * and when this device last synced, emitting `syncProgress` whenever either changes. It recounts shortly after anything that may
- * have changed the counts, and every so often anyway: pending marks, the recovery store and the last sync
- * time are shared by the account's tabs, so this is how a tab that isn't the leader sees its pushes.
+ * have changed the counts, and every so often anyway, so items that have waited too long are reported.
  */
 export class SyncProgressTracker {
   private lastSyncedAt: number | null = null
@@ -111,7 +110,7 @@ export class SyncProgressTracker {
     }
     if (this.stopped) return
 
-    // Another tab may have synced since
+    // Another session (an earlier tab's) may have synced since
     if (stored !== null && (this.lastSyncedAt === null || stored > this.lastSyncedAt)) {
       this.lastSyncedAt = stored
     }

@@ -6,10 +6,7 @@ import { settingsDocId, type ItemId } from '@vault/shared'
 import { MAX_ITEM_CONTENT_BYTES, MAX_ITEM_CONTENT_KB } from '@vault/shared'
 import * as manualRecoveryStoreModule from '../shared/manualRecoveryStore'
 import { spyOnExports } from '../../test/moduleMocks'
-import { createFakeRealtimeBus } from './__test__/testUtils'
 
-const realtimeBus = createFakeRealtimeBus()
-const mockPublishRealtimeBusSyncPing = realtimeBus.publishSyncPing
 const mockReadManualRecoveryEntries = vi.fn()
 const mockReadManualRecoveryCount = vi.fn()
 const mockRemoveManualRecoveryEntryById = vi.fn()
@@ -39,7 +36,6 @@ describe('ItemOperations', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    mockPublishRealtimeBusSyncPing.mockClear()
     mockReadManualRecoveryEntries.mockResolvedValue([])
     mockReadManualRecoveryCount.mockResolvedValue(0)
     mockRemoveManualRecoveryEntryById.mockResolvedValue(undefined)
@@ -55,7 +51,6 @@ describe('ItemOperations', () => {
 
     deps = {
       accountId: 'account-1',
-      bus: realtimeBus.bus,
       docStore: {
         changeDocument: changeDocumentMock,
         getAutomergeItem: getAutomergeItemMock,
@@ -97,7 +92,6 @@ describe('ItemOperations', () => {
 
       expect(addItemIdsMock).toHaveBeenCalledWith(['item-1'])
       expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-1')
-      expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['item-1'])
       expect(emitMock).not.toHaveBeenCalled()
     })
 
@@ -440,7 +434,6 @@ describe('ItemOperations', () => {
 
       expect(removeItemIdsMock).toHaveBeenCalledWith(['item-deleted'])
       expect(addItemIdsMock).toHaveBeenCalledWith(['item-active'])
-      expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['item-active'])
       expect(markDocumentDirtyMock).toHaveBeenCalledTimes(2)
       expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-active')
       expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-deleted')
@@ -583,7 +576,6 @@ describe('ItemOperations', () => {
         )
         expect(addItemIdsMock).toHaveBeenCalledWith(['item-3'])
         expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-3')
-        expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['item-3'])
 
         // Verify the document was mutated properly
         expect(capturedDoc).toEqual({
@@ -619,7 +611,6 @@ describe('ItemOperations', () => {
         expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
         expect(addItemIdsMock).not.toHaveBeenCalled()
         expect(markDocumentDirtyMock).not.toHaveBeenCalled()
-        expect(mockPublishRealtimeBusSyncPing).not.toHaveBeenCalled()
       })
     })
 

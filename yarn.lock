@@ -17,15 +17,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@automerge/automerge-repo-network-broadcastchannel@npm:2.6.0-alpha.3":
-  version: 2.6.0-alpha.3
-  resolution: "@automerge/automerge-repo-network-broadcastchannel@npm:2.6.0-alpha.3"
-  dependencies:
-    "@automerge/automerge-repo": "npm:2.6.0-alpha.3"
-  checksum: 10c0/415bb9377afa5181a5a8858efdbc0b17a1c7b55ee452711f964113c3e8b66866d5ef49fa5fdd26351b68f1836cfc08b88dbc45e44f967b924636114e152727fd
-  languageName: node
-  linkType: hard
-
 "@automerge/automerge-repo@npm:2.6.0-alpha.3":
   version: 2.6.0-alpha.3
   resolution: "@automerge/automerge-repo@npm:2.6.0-alpha.3"
@@ -5105,7 +5096,6 @@ __metadata:
   dependencies:
     "@automerge/automerge": "npm:^3.5.0"
     "@automerge/automerge-repo": "npm:2.6.0-alpha.3"
-    "@automerge/automerge-repo-network-broadcastchannel": "npm:2.6.0-alpha.3"
     "@trpc/client": "npm:^11.28.2"
     "@trpc/server": "npm:^11.28.2"
     "@vault/server": "workspace:*"

@@ -814,6 +814,59 @@ describe('SyncBridge', () => {
     })
   })
 
+  describe('another tab taking over', () => {
+    it('closes the worker without resetting what the app shows, and tells the app', async () => {
+      await SyncBridge.initialize('test-account')
+      sink.reset.mockClear()
+
+      lastEventPort!.postMessage({ type: 'displaced' })
+
+      await vi.waitFor(() => {
+        expect(sink.onDisplaced).toHaveBeenCalledTimes(1)
+      })
+      expect(SyncBridge.isDisplaced()).toBe(true)
+      expect(mockSyncApi.shutdown).toHaveBeenCalled()
+      expect(sink.reset).not.toHaveBeenCalled()
+    })
+
+    it('reloads the keyring before taking the account back', async () => {
+      const { reloadKeyringFromStorage, exportKeyringData } = await import('../keys/vault')
+      await SyncBridge.initialize('test-account')
+      lastEventPort!.postMessage({ type: 'displaced' })
+      await vi.waitFor(() => expect(SyncBridge.isDisplaced()).toBe(true))
+      mockSyncApi.initRepo.mockClear()
+      const order: string[] = []
+      vi.mocked(reloadKeyringFromStorage).mockImplementationOnce(async () => {
+        order.push('reload')
+        return { success: true, keyringData: 'reloaded-key' }
+      })
+      vi.mocked(exportKeyringData).mockImplementationOnce(async () => {
+        order.push('export')
+        return 'reloaded-key'
+      })
+
+      await SyncBridge.takeOverHere('test-account')
+
+      expect(order).toEqual(['reload', 'export'])
+      expect(mockSyncApi.initRepo).toHaveBeenCalledTimes(1)
+      expect(SyncBridge.isDisplaced()).toBe(false)
+    })
+
+    it('locks the vault instead when the password changed while displaced', async () => {
+      const { reloadKeyringFromStorage } = await import('../keys/vault')
+      await SyncBridge.initialize('test-account')
+      lastEventPort!.postMessage({ type: 'displaced' })
+      await vi.waitFor(() => expect(SyncBridge.isDisplaced()).toBe(true))
+      mockSyncApi.initRepo.mockClear()
+      vi.mocked(reloadKeyringFromStorage).mockResolvedValueOnce({ success: false, passwordChanged: true })
+
+      await SyncBridge.takeOverHere('test-account')
+
+      expect(lockVault).toHaveBeenCalled()
+      expect(mockSyncApi.initRepo).not.toHaveBeenCalled()
+    })
+  })
+
   describe('proxied worker methods', () => {
     it('throws an error if proxied methods are called before initialization', async () => {
       await expect(SyncBridge.mutateItem('item-1' as ItemId, { name: 'Test' })).rejects.toThrow(

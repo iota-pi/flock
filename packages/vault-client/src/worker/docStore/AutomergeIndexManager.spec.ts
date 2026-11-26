@@ -2,33 +2,9 @@ import { AutomergeIndexManager, mergeIndexDocuments } from './AutomergeIndexMana
 import type { IndexStore } from '../stores/IndexStore'
 import type { AutomergeIndexDocument } from './AutomergeDocStore'
 import type { ItemId } from '@vault/shared'
-import { RealtimeBus } from '../RealtimeBus'
 
 /** Yields to other tasks, so concurrent operations interleave as they would against IndexedDB */
 const storeLatency = () => new Promise(resolve => setTimeout(resolve, 0))
-
-class MockBroadcastChannel {
-  name: string
-  onmessage: ((ev: MessageEvent) => any) | null = null
-  static channels = new Set<MockBroadcastChannel>()
-
-  constructor(name: string) {
-    this.name = name
-    MockBroadcastChannel.channels.add(this)
-  }
-
-  postMessage(data: any): void {
-    for (const ch of Array.from(MockBroadcastChannel.channels)) {
-      if (ch !== this && ch.name === this.name && ch.onmessage) {
-        ch.onmessage({ data } as MessageEvent)
-      }
-    }
-  }
-
-  close(): void {
-    MockBroadcastChannel.channels.delete(this)
-  }
-}
 
 class MockLockManager {
   private activeLocks = new Map<string, Promise<void>>()
@@ -147,17 +123,6 @@ describe('AutomergeIndexManager', () => {
     await manager.addItemIds(['item-a' as ItemId])
     expect(await manager.listTombstoneIds()).toEqual([])
     expect(await manager.listItemIds()).toEqual(['item-b', 'item-a'])
-  })
-
-  it('leaves tombstoned IDs alone when adding with skipTombstoned', async () => {
-    const manager = new AutomergeIndexManager({ accountId, indexStore })
-
-    await manager.addItemIds(['item-a' as ItemId])
-    await manager.removeItemIds(['item-a' as ItemId])
-    await manager.addItemIds(['item-a' as ItemId, 'item-new' as ItemId], { skipTombstoned: true })
-
-    expect(await manager.listTombstoneIds()).toEqual(['item-a'])
-    expect(await manager.listItemIds()).toEqual(['item-new'])
   })
 
   it('should update metadata and notify listener', async () => {
@@ -291,13 +256,11 @@ describe('AutomergeIndexManager', () => {
     expect(items).toEqual(['item-concurrent'])
   })
 
-  describe('Cross-Tab Concurrency & Web Locks (H11)', () => {
+  describe('Web Locks (H11)', () => {
     let mockLockManager: MockLockManager
     let originalNavigatorLocks: any
 
     beforeEach(() => {
-      MockBroadcastChannel.channels.clear()
-      vi.stubGlobal('BroadcastChannel', MockBroadcastChannel)
       mockLockManager = new MockLockManager()
 
       originalNavigatorLocks = (global.navigator as any)?.locks
@@ -314,8 +277,6 @@ describe('AutomergeIndexManager', () => {
         writable: true,
         configurable: true,
       })
-      MockBroadcastChannel.channels.clear()
-      vi.unstubAllGlobals()
     })
 
     it('prevents cross-tab item ID loss when two managers write concurrently (H11)', async () => {
@@ -346,8 +307,6 @@ describe('AutomergeIndexManager', () => {
       expect(snapshot.itemIds).toContain('item-Y')
       expect(snapshot.itemIds).toHaveLength(2)
 
-      managerA.close()
-      managerB.close()
     })
 
     it('preserves items during concurrent add and remove across two tabs', async () => {
@@ -381,8 +340,6 @@ describe('AutomergeIndexManager', () => {
       expect(snapshot.itemIds).not.toContain('item-1')
       expect(snapshot.itemIds).toHaveLength(2)
 
-      managerA.close()
-      managerB.close()
     })
 
     it('serializes concurrent metadata update and item addition across two tabs', async () => {
@@ -415,47 +372,6 @@ describe('AutomergeIndexManager', () => {
       expect(snapshot.itemIds).toEqual(['item-1', 'item-2'])
       expect(snapshot.metadata).toEqual({ prayerGoal: 10 })
 
-      managerA.close()
-      managerB.close()
-    })
-
-    it('broadcasts index updates to peer tabs via BroadcastChannel', async () => {
-      const onIndexUpdatedB = vi.fn()
-      const busA = new RealtimeBus(accountId)
-      const busB = new RealtimeBus(accountId)
-      const managerA = new AutomergeIndexManager({ accountId, indexStore, bus: busA })
-      const managerB = new AutomergeIndexManager({ accountId, indexStore, bus: busB, onIndexUpdated: onIndexUpdatedB })
-
-      await managerA.addItemIds(['item-broadcast-1' as ItemId])
-
-      expect(onIndexUpdatedB).toHaveBeenCalledWith(['item-broadcast-1'])
-
-      managerA.close()
-      managerB.close()
-      busA.close()
-      busB.close()
-    })
-
-    it('broadcasts metadata updates to peer tabs via BroadcastChannel', async () => {
-      const onMetadataUpdatedB = vi.fn()
-      const busA = new RealtimeBus(accountId)
-      const busB = new RealtimeBus(accountId)
-      const managerA = new AutomergeIndexManager({ accountId, indexStore, bus: busA })
-      const managerB = new AutomergeIndexManager({
-        accountId,
-        indexStore,
-        bus: busB,
-        onMetadataUpdated: onMetadataUpdatedB,
-      })
-
-      await managerA.updateMetadata({ prayerGoal: 25 })
-
-      expect(onMetadataUpdatedB).toHaveBeenCalledWith({ prayerGoal: 25 })
-
-      managerA.close()
-      managerB.close()
-      busA.close()
-      busB.close()
     })
 
     it('handles aborted lock request cleanly and does not deadlock queue', async () => {
@@ -475,7 +391,6 @@ describe('AutomergeIndexManager', () => {
       const snapshot = await manager.getIndexSnapshot()
       expect(snapshot.itemIds).toContain('item-success')
 
-      manager.close()
     })
 
     it('acquires cross-tab Web Lock for getIndexSnapshot and listItemIds preventing concurrent reads during remote write (M-6)', async () => {
@@ -499,21 +414,6 @@ describe('AutomergeIndexManager', () => {
         expect.any(Function)
       )
 
-      manager.close()
-    })
-
-    it('stops receiving messages after close()', async () => {
-      const onIndexUpdatedB = vi.fn()
-      const managerA = new AutomergeIndexManager({ accountId, indexStore })
-      const managerB = new AutomergeIndexManager({ accountId, indexStore, onIndexUpdated: onIndexUpdatedB })
-
-      managerB.close()
-
-      await managerA.addItemIds(['item-after-close' as ItemId])
-
-      expect(onIndexUpdatedB).not.toHaveBeenCalled()
-
-      managerA.close()
     })
   })
 })

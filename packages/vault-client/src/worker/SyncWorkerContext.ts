@@ -38,8 +38,8 @@ import { SnapshotRewriter } from './SnapshotRewriter'
 import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
 import { DataVersionTracker, MigrationRequiredError, readDeviceDataVersion } from './DataVersionTracker'
 import { fireAndForget } from '../utils/fireAndForget'
-import { RealtimeBus } from './RealtimeBus'
 import { ForegroundTracker } from './ForegroundTracker'
+import { ActiveTabLock } from './ActiveTabLock'
 import { SyncSessionState } from './SyncSessionState'
 import { SyncSignals } from './SyncSignals'
 import { DEFAULT_SYNC_DOMAIN, type LegacyHooks, type SyncDomain } from './domain'
@@ -99,6 +99,11 @@ export interface SyncWorkerContextConfig extends SyncSessionConfig {
   /** Whether this tab is visible when the session starts (default true) */
   isVisible?: boolean
   /**
+   * Called once another tab has taken over the account and this session has stopped (see "One active
+   * tab" in docs/sync-design.md). The context has already emitted `displaced` to the app.
+   */
+  onDisplaced?: () => void
+  /**
    * Called when a document arrives from the network, as a new document in the repo or a message
    * pulled for it, so the Comlink layer can subscribe to change events on its handle
    */
@@ -125,7 +130,7 @@ export interface SyncWorkerContextConfig extends SyncSessionConfig {
 
 /** The components `initialize` builds once local storage is open */
 export interface SyncWorkerServices {
-  realtimeBus: RealtimeBus
+  activeTabLock: ActiveTabLock
   foregroundTracker: ForegroundTracker
   repo: Repo
   repoManager: AutomergeRepoManager
@@ -160,7 +165,7 @@ export class SyncWorkerContext {
   public readonly clientEventHub: ClientEventHub
   public readonly apiClient: SyncApiClient
   public readonly domain: SyncDomain
-  /** Online, leader and shutdown state, shared by every component of this session */
+  /** Online and shutdown state, shared by every component of this session */
   public readonly session: SyncSessionState
   /** Works out the sync status the app shows */
   public readonly statusManager: SyncStatusManager
@@ -221,26 +226,17 @@ export class SyncWorkerContext {
     const { accountId, keys, clientEventHub } = this.config
     const { session } = this
     const signals = new SyncSignals()
-    const realtimeBus = new RealtimeBus(accountId)
+    const activeTabLock = new ActiveTabLock(accountId, { onDisplaced: () => this.onDisplaced() })
     const foregroundTracker = new ForegroundTracker({
-      bus: realtimeBus,
       isVisible: this.isVisible,
-      onPeerReturned: () => signals.raise.foreground(),
       onActivity: () => signals.raise.activity(),
-      isLeader: () => session.isLeader,
-      onLeaderAway: () => signals.raise.leaderAway(),
     })
     const cipherOptions = local.cipher ? { cipher: local.cipher } : undefined
     const indexStore = new IndexStore(accountId, cipherOptions)
     const syncLogDatabase = new SyncLogDatabase(accountId)
     const itemSyncState = new ItemSyncState({ db: syncLogDatabase, session })
 
-    const repoManager = new AutomergeRepoManager(accountId, keys, local.storage, {
-      bus: realtimeBus,
-      onKeyVersionMissing: this.emitKeyVersionMissing,
-      onDocumentReceived: docId => this.notifyDocumentReceived(toVaultItemIdFromAutomergeId(docId)),
-      // The leader's backstop for follower changes that arrive after their marks were cleared
-      onDocChanged: itemId => signals.raise.docChanged(itemId),
+    const repoManager = new AutomergeRepoManager(accountId, local.storage, {
       saveDebounceRate: this.config.repoSaveDebounceMs,
     })
     const { repo } = repoManager
@@ -248,7 +244,6 @@ export class SyncWorkerContext {
     const docStore = new AutomergeDocStore({
       repo,
       onHandleReplaced: this.config.onDocHandleReplaced,
-      watchHandle: handle => repoManager.watchHandle(handle),
       storageAdapter: repoManager.storage,
       codec: this.domain.codec,
       isLocallyUnreadable: documentId => this.unreadableDocuments.has(documentId),
@@ -259,7 +254,6 @@ export class SyncWorkerContext {
     const indexManager = new AutomergeIndexManager({
       accountId,
       indexStore,
-      bus: realtimeBus,
       onIndexUpdated: itemIds => {
         this.config.onIndexUpdated?.(itemIds)
         clientEventHub.emit({ type: 'indexUpdated', itemIds: itemIds.filter(id => id !== settingsId) })
@@ -284,7 +278,7 @@ export class SyncWorkerContext {
 
     const snapshotBuilder = new SnapshotBuilder(repo, keys, this.domain.codec, itemSyncState)
 
-    // Only the mark: the leader's push acknowledgement marks the item dirty for its snapshot
+    // Only the mark: the push's acknowledgement marks the item dirty for its snapshot
     const markDocumentDirty = (itemId: ItemId) => signals.raise.edited(itemId)
 
     const itemOperations = new ItemOperations({
@@ -294,7 +288,6 @@ export class SyncWorkerContext {
       eventHub: clientEventHub,
       markDocumentDirty,
       recoveryManager,
-      bus: realtimeBus,
       hooks: this.domain.hooks,
       mergedTextFields: this.domain.mergedTextFields,
     })
@@ -305,7 +298,6 @@ export class SyncWorkerContext {
       indexManager,
       eventHub: clientEventHub,
       markDocumentDirty,
-      bus: realtimeBus,
       syncedKeys: this.domain.syncedMetadataKeys,
       legacySettings: this.legacy.legacySettings,
       withAuth: request => this.apiClient.executeWithAuth(request),
@@ -380,7 +372,6 @@ export class SyncWorkerContext {
       healer: gapHealer,
       manifest: manifestDemands,
       itemSyncState,
-      bus: realtimeBus,
       onKeyVersionMissing: this.emitKeyVersionMissing,
       onRemoteChangesApplied: itemIds => {
         // Someone is using another device, so poll at the active rate while a tab is visible
@@ -390,7 +381,7 @@ export class SyncWorkerContext {
           'SyncWorkerContext:resolveQuarantines',
         )
       },
-      // At start and on promotion, so this is the one place the item records load
+      // At start, so this is the one place the item records load
       onLoad: async () => {
         await Promise.all([snapshotSchedule.load(), gapHealer.load()])
       },
@@ -411,7 +402,7 @@ export class SyncWorkerContext {
         signals.raise.workDue()
         syncProgress.scheduleRecount()
       },
-      // The leader's acknowledgement is the one place an edit makes its item dirty
+      // The acknowledgement is the one place an edit makes its item dirty
       onAcknowledged: itemId => snapshotSchedule.markItemDirty(itemId),
     })
 
@@ -440,7 +431,6 @@ export class SyncWorkerContext {
       indexManager,
       apiClient: this.apiClient,
       session,
-      claimLeader: () => signals.raise.claimLeader(),
       catchUp: puller,
       runPollNow: () => signals.raise.pollNow(),
       onStage: stage => this.clientEventHub.emit({ type: 'reencryptStage', stage }),
@@ -456,7 +446,6 @@ export class SyncWorkerContext {
     const snapshotFormatUpgrade = this.legacy.upgradeSnapshotFormat
       ? new SnapshotFormatUpgrade({
         accountId,
-        session,
         onUpgraded: () => fireAndForget(
           dataVersionTracker.onSnapshotsUpgraded(),
           'SyncWorkerContext:raiseAccountDataVersion',
@@ -489,8 +478,6 @@ export class SyncWorkerContext {
       },
       onSnapshotCovered: advanceServerHeads,
       onManifestProcessed: async () => {
-        // A sync that began before this tab stopped leading can still finish here
-        if (!session.isLeader) return
         gapHealer.onManifestSynced()
       },
       itemSyncState,
@@ -508,25 +495,17 @@ export class SyncWorkerContext {
     })
 
     const orchestrator = new SyncOrchestrator({
-      accountId,
       session,
       poller,
       clientEventHub,
       puller,
       manifestSyncManager,
-      onLeaderChange: () => {
-        // The session already holds the new leadership
-        // The records load with the log state, which the first poll waits for (see `puller`'s onLoad)
-        snapshotSchedule.onLeaderChange()
-        snapshotFormatUpgrade?.onLeaderChange()
-        foregroundTracker.onLeaderChange()
-      },
       onPollResult: outcome => {
         this.statusManager.handlePollResult(outcome)
         syncProgress.onPollResult(outcome)
       },
       getCadence: () => {
-        if (!foregroundTracker.isAnyVisible) return 'hidden'
+        if (!foregroundTracker.isVisible) return 'hidden'
         return foregroundTracker.isActive ? 'active' : 'idle'
       },
       getSnapshotDueAt: () => snapshotSchedule.nextDueAt,
@@ -551,7 +530,6 @@ export class SyncWorkerContext {
       snapshotPusher,
       syncManifest: mode => orchestrator.syncManifest(mode),
       itemOperations,
-      becomeLeader: () => this.becomeLeader(),
       onLocalCopyDiscarded: documentId => this.unreadableDocuments.delete(documentId),
     })
 
@@ -559,11 +537,7 @@ export class SyncWorkerContext {
       workDue: () => orchestrator.flush(),
       snapshotDue: () => orchestrator.onSnapshotDue(),
       pollNow: () => orchestrator.pollNow(),
-      foreground: () => orchestrator.onForeground(),
       activity: () => orchestrator.onActivity(),
-      leaderAway: () => orchestrator.followVisibleTab(),
-      claimLeader: () => fireAndForget(orchestrator.claimLeader(), 'SyncWorkerContext:claimLeader'),
-      docChanged: itemId => changeOutbox.onDocChanged(itemId),
       edited: itemId => {
         fireAndForget(changeOutbox.mark(itemId), 'SyncWorkerContext:markPending')
         storageRecoveryService.recordEdit(itemId)
@@ -574,7 +548,7 @@ export class SyncWorkerContext {
     })
 
     return {
-      realtimeBus,
+      activeTabLock,
       foregroundTracker,
       repo,
       repoManager,
@@ -654,8 +628,8 @@ export class SyncWorkerContext {
 
   private registerLifecycleServices(services: SyncWorkerServices): void {
     const {
-      realtimeBus, foregroundTracker, repoManager, syncLogDatabase, storageRecoveryService, indexManager, recoveryManager,
-      docStore, snapshotSchedule, snapshotPusher, itemSyncState, changeOutbox, puller, orchestrator, snapshotRewriter, snapshotFormatUpgrade, syncProgress,
+      activeTabLock, repoManager, syncLogDatabase, storageRecoveryService, indexManager, recoveryManager,
+      docStore, snapshotSchedule, snapshotPusher, itemSyncState, puller, orchestrator, snapshotRewriter, snapshotFormatUpgrade, syncProgress,
     } = services
 
     // Teardown runs in LIFO order (reverse registration order).
@@ -669,11 +643,12 @@ export class SyncWorkerContext {
     // Each component is stopped here and only here, once. A service with `onStart` is only stopped if
     // that succeeded, so releasing a component that holds work before starting is registered apart.
     const registrations: ServiceRegistration<{ clearLocalData?: boolean }>[] = [
-      { name: 'RealtimeBus', onStop: () => realtimeBus.close() },
+      // First, so nothing else starts unless this tab is the account's active tab, and released last,
+      // once everything else has stopped
       {
-        name: 'ForegroundTracker',
-        onStart: () => foregroundTracker.start(),
-        onStop: () => foregroundTracker.stop(),
+        name: 'ActiveTabLock',
+        onStart: () => activeTabLock.acquire(),
+        onStop: () => activeTabLock.release(),
       },
       // Closed after everything that writes to it, because an open connection blocks a data clear
       { name: 'SyncLogDatabase', onStop: () => syncLogDatabase.close() },
@@ -685,13 +660,11 @@ export class SyncWorkerContext {
         onStart: () => storageRecoveryService.start(),
         onStop: () => storageRecoveryService.stop(),
       },
-      { name: 'IndexManager', onStop: () => indexManager.close() },
       { name: 'IndexDocument', onStart: () => indexManager.ensureIndexDocument() },
       { name: 'RecoveryManager', onStop: () => recoveryManager.resetRecoveryState() },
       { name: 'DocStore', onStop: () => docStore.shutdown() },
       { name: 'SnapshotSchedule', onStop: () => snapshotSchedule.shutdown() },
       { name: 'SnapshotPusher', onStop: () => snapshotPusher.shutdown() },
-      { name: 'ChangeOutbox', onStop: () => changeOutbox.shutdown() },
       {
         name: 'SyncLogPuller',
         onStart: () => puller.loadState(),
@@ -726,12 +699,11 @@ export class SyncWorkerContext {
   }
 
   /**
-   * Marks restored items pending, so whatever they hold that the server lacks gets pushed, and on the
-   * leader asks for their snapshots. A follower's restored items become dirty when the leader's push
-   * is acknowledged.
+   * Marks restored items pending, so whatever they hold that the server lacks gets pushed, and asks
+   * for their snapshots
    */
   async markRestored(itemIds: ItemId[]): Promise<void> {
-    if (this.session.isLeader) this.requestSnapshot(itemIds)
+    this.requestSnapshot(itemIds)
     await this.services.changeOutbox.markAll(itemIds)
   }
 
@@ -840,7 +812,7 @@ export class SyncWorkerContext {
   /**
    * Runs `task` while holding the account's local data Web Lock. Otherwise a tab could copy an old
    * value over one another tab's engine has already written since migrating, two tabs could each
-   * create a device storage key, or a late tab could reset sync state the leader has moved on from.
+   * create a device storage key, or a late tab could reset sync state the active tab has moved on from.
    */
   private async withLocalDataLock<T>(task: () => Promise<T>): Promise<T> {
     if (typeof navigator !== 'undefined' && navigator?.locks?.request) {
@@ -848,6 +820,21 @@ export class SyncWorkerContext {
       return navigator.locks.request(lockName, { mode: 'exclusive' }, task)
     }
     return task()
+  }
+
+  /**
+   * Another tab stole the active-tab lock: stops this session as a shutdown would, then tells the app,
+   * which closes the worker without resetting what it shows
+   */
+  private onDisplaced(): void {
+    fireAndForget((async () => {
+      try {
+        await this.shutdown()
+      } finally {
+        this.clientEventHub.emit({ type: 'displaced' })
+        this.config.onDisplaced?.()
+      }
+    })(), 'SyncWorkerContext:onDisplaced')
   }
 
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
@@ -911,27 +898,12 @@ export class SyncWorkerContext {
   }
 
   /**
-   * Makes this tab the leader, which talks to the server, for a user action that has to. It steals
-   * the leader lock, and the tab that held it stops leading.
-   */
-  async becomeLeader(): Promise<void> {
-    if (this.session.isLeader) return
-    await this.services.orchestrator.claimLeader()
-    if (!this.session.isLeader) {
-      throw new Error('This tab could not take over syncing')
-    }
-  }
-
-  /**
    * Loads the account's items from the server when a session starts, with a poll that runs a manifest
-   * sync. Only the leader talks to the server, so another tab has nothing to do: the leader's docs
-   * reach it through shared storage and the broadcast channel. A tab that becomes the leader later
-   * syncs then. Throws if a device with no items couldn't fetch the manifest, unless the session has
+   * sync. Throws if a device with no items couldn't fetch the manifest, unless the session has
    * expired, so that starting up is retried; a device with items carries on with them.
    */
   async bootstrapItems(): Promise<void> {
     const { orchestrator, indexManager } = this.services
-    if (!(await orchestrator.settleLeadership())) return
     const result = await orchestrator.syncManifest('due')
     if (result.fetchedManifest || result.success || orchestrator.isAuthPaused) return
     if ((await indexManager.listItemIds()).length === 0) {
@@ -941,7 +913,6 @@ export class SyncWorkerContext {
 
   /** Fetches every item the server has a newer copy of, quarantined ones too. Returns whether it all merged. */
   async fullResync(): Promise<boolean> {
-    await this.becomeLeader()
     const { orchestrator } = this.services
     const result = await orchestrator.syncManifest('force')
     if (result.success) {
@@ -954,7 +925,6 @@ export class SyncWorkerContext {
   getSyncDiagnostics(): SyncDiagnostics {
     const { puller, snapshotRewriter } = this.services
     return {
-      isLeader: this.session.isLeader,
       isOnline: this.session.isOnline,
       caughtUp: puller.isCaughtUp,
       reencryptStage: snapshotRewriter.stage,
@@ -963,19 +933,19 @@ export class SyncWorkerContext {
 
   /**
    * Records whether this tab is visible. `returned` says the user just came back to it (it became
-   * visible or got focus), so the leader polls now if its last poll is stale.
+   * visible or got focus), so the session polls now if its last poll is stale.
    */
   setVisibility(visible: boolean, returned = false): void {
     this.isVisible = visible
     if (!this._services) return
-    this._services.foregroundTracker.setVisible(visible, returned)
+    this._services.foregroundTracker.setVisible(visible)
     if (returned) {
       this._services.orchestrator.onForeground()
     }
   }
 
   /**
-   * Saves the item records now, so the startup audit finds the leader's dirty flags if the page is
+   * Saves the item records now, so the startup audit finds the dirty flags if the page is
    * closed, and flushes the log push. Snapshots aren't forced up: the log already delivers the change.
    */
   onPageHidden(): void {
@@ -984,17 +954,15 @@ export class SyncWorkerContext {
     orchestrator.flush()
   }
 
-  /** Records that the user is using this tab, and tells the account's other tabs */
+  /** Records that the user is using this tab */
   reportActivity(): void {
-    this._services?.foregroundTracker.recordActivity()
+    this._services?.foregroundTracker.noteActivity()
   }
 
   /**
    * Counts the items whose local changes the server may not have: pending marks or a snapshot still
    * to upload, plus quarantined items. It first gives pending pushes a short chance to finish, so
-   * changes about to sync aren't reported. Snapshots still to upload are read from the stored dirty
-   * flags, which only the leader writes, so a follower counts what the leader has pushed but not
-   * uploaded.
+   * changes about to sync aren't reported.
    */
   async getUnsyncedChanges(): Promise<UnsyncedChanges> {
     const { orchestrator, snapshotPusher, itemSyncState } = this.services
@@ -1007,8 +975,6 @@ export class SyncWorkerContext {
     } catch (error) {
       log.warn('Pending snapshots did not finish uploading before counting unsynced changes', error)
     }
-    // Keeps this tab's unsaved values, so the leader's own queue counts too
-    await itemSyncState.load()
     return this.countChanges(itemSyncState.listFlagged())
   }
 

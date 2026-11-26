@@ -1,7 +1,6 @@
 import type { ReencryptStage } from './types'
 
 const WAIT_DESCRIPTIONS: Record<Exclude<ReencryptStage, 'reencrypting'>, string> = {
-  waitingForLeader: 'Re-encryption stopped waiting for this tab to become the one that syncs',
   waitingForSync: 'Re-encryption stopped waiting for sync to allow uploads',
 }
 

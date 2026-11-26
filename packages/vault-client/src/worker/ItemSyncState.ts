@@ -42,12 +42,11 @@ export interface ItemSyncStateDeps {
  * each, which the stored `dirty` flag follows (`markDirty`, `clearDirty`). `SnapshotSchedule` decides
  * only when their uploads are due.
  *
- * Every tab holds a copy, but they don't all know the same: only the leader records server heads,
- * marks items dirty (as it records an acknowledged push), uploads and pulls, and a tab that has just
- * stopped leading can still save after the new leader loaded. Followers read the records, to count
- * what's still to sync. So this tab's changes are tracked per item and per field,
- * and a save writes only the fields this tab changed, in one transaction, keeping the stored values
- * of the rest. A load keeps this tab's unsaved values over the stored ones. Base versions only rise
+ * Only the account's active tab runs an engine, but a tab that was frozen when another took over can
+ * still save after the new session loaded, before it learns it was displaced (see "One active tab" in
+ * docs/sync-design.md). So this session's changes are tracked per item and per field, and a save
+ * writes only the fields this session changed, in one transaction, keeping the stored values of the
+ * rest. A load keeps this session's unsaved values over the stored ones. Base versions only rise
  * (sync rule 8), in memory and against the stored value on save.
  */
 export class ItemSyncState {
@@ -59,9 +58,9 @@ export class ItemSyncState {
   /** Items whose legacy unconfirmed pull was folded in, to delete from the old store once saved */
   private readonly migratingPulls = new Set<ItemId>()
   /**
-   * The items queued for a snapshot, each with the tick of its latest marking. Only the leader queues
-   * items. It's kept for the session only, apart from the records, so loads and saves never touch it:
-   * the stored `dirty` flag carries the queue across sessions and leaders (`queueFlagged`).
+   * The items queued for a snapshot, each with the tick of its latest marking. It's kept for the
+   * session only, apart from the records, so loads and saves never touch it: the stored `dirty` flag
+   * carries the queue across sessions (`queueFlagged`).
    */
   private readonly dirtyTicks = new Map<ItemId, number>()
   private lastDirtyTick = 0
@@ -87,8 +86,8 @@ export class ItemSyncState {
   private readonly isAlive = () => !this.stopped && !this.deps.session.isShutdown
 
   /**
-   * Loads the stored records, at start and when this tab becomes the leader. Fields this tab hasn't
-   * saved yet keep its values, and base versions keep the higher. Concurrent callers share one load.
+   * Loads the stored records, at start. Fields this session hasn't saved yet keep its values, and
+   * base versions keep the higher. Concurrent callers share one load.
    */
   async load(): Promise<void> {
     if (!this.isAlive()) return
@@ -185,7 +184,7 @@ export class ItemSyncState {
     return this.items.get(itemId)?.serverHeads !== undefined
   }
 
-  /** Records heads whose every ancestor is on the server. Only the leader records them. */
+  /** Records heads whose every ancestor is on the server */
   setServerHeads(itemId: ItemId, heads: string[]): void {
     if (this.stopped) return
     const entry = this.entry(itemId)
@@ -238,8 +237,7 @@ export class ItemSyncState {
   }
 
   /**
-   * Queues the item for a snapshot and sets its dirty flag. Only the leader marks items: as it records
-   * the acknowledgement of a push (in the same save as the item's server heads), and when sync finds
+   * Queues the item for a snapshot and sets its dirty flag: as the session records the acknowledgement of a push (in the same save as the item's server heads), and when sync finds
    * the server lacks what the item holds. Each marking moves the item's tick, so an edit made while an
    * upload is in flight keeps it dirty.
    */
@@ -251,8 +249,8 @@ export class ItemSyncState {
 
   /**
    * Takes the item out of the queue and clears its flag, if it's queued and, given a tick, that tick
-   * hasn't moved since. Returns whether it did. Only the leader clears dirty items: an upload, an
-   * oversized or failed item's quarantine, or a manifest delete.
+   * hasn't moved since. Returns whether it did. An upload clears them, as does an oversized or failed
+   * item's quarantine, or a manifest delete.
    */
   clearDirty(itemId: ItemId, tick?: number): boolean {
     const current = this.dirtyTicks.get(itemId)
@@ -267,7 +265,7 @@ export class ItemSyncState {
     this.dirtyTicks.set(itemId, this.lastDirtyTick)
   }
 
-  /** Written every time, since this tab's copy may be stale */
+  /** Written every time, since this session's copy may be stale */
   private writeDirtyFlag(itemId: ItemId, dirty: boolean): void {
     if (this.stopped) return
     const entry = this.entry(itemId)
@@ -280,7 +278,7 @@ export class ItemSyncState {
   }
 
   /**
-   * The startup and promotion audit, once the records have loaded: queues every item they flag that
+   * The startup audit, once the records have loaded: queues every item they flag that
    * isn't queued already or in `skip` (the quarantined items). Those flagged only `snapshotOnly`, which
    * a dirty flag should have gone with, get their flag. Returns how many it queued.
    */
@@ -301,7 +299,7 @@ export class ItemSyncState {
     return this.dirtyTicks.get(itemId)
   }
 
-  /** Whether the item is queued for a snapshot this session. A follower queues none. */
+  /** Whether the item is queued for a snapshot this session */
   isDirty(itemId: ItemId): boolean {
     return this.dirtyTicks.has(itemId)
   }
@@ -317,8 +315,7 @@ export class ItemSyncState {
 
   /**
    * Items whose records say they owe the server a snapshot: those flagged dirty, and those only a
-   * snapshot can deliver, which a dirty flag always goes with but which can't hurt to check. Unlike the
-   * queue, every tab knows these, so followers count them as unsynced.
+   * snapshot can deliver, which a dirty flag always goes with but which can't hurt to check
    */
   listFlagged(): ItemId[] {
     return Array.from(this.items)
@@ -505,11 +502,11 @@ function withChanges(stored: ItemSyncRecord, mine: ItemState, fields: ReadonlySe
   const record: ItemSyncRecord = { ...stored }
   for (const field of fields) {
     if (field === 'baseVersion') {
-      // Never lowered: a tab can have loaded before the leader raised it
+      // Never lowered: a displaced (frozen) session can save after this one raised it
       const baseVersion = Math.max(stored.baseVersion ?? 0, mine.baseVersion ?? 0)
       if (baseVersion > 0) record.baseVersion = baseVersion
     } else if (field === 'pulledAt' && mine.pulledAt !== undefined && stored.pulledAt !== undefined) {
-      // Keeps when the item first had them, as another tab may have recorded them first
+      // Keeps when the item first had them, as a displaced (frozen) session may have recorded them first
       record.pulledAt = Math.min(stored.pulledAt, mine.pulledAt)
     } else {
       copyField(record, mine, field)

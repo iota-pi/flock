@@ -14,7 +14,10 @@ import { RetryTimer } from '../utils/RetryTimer'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { createLogger } from '../utils/logger'
 import { AbortError, untilAborted, withTimeout } from '../utils/abort'
+import { fireAndForget } from '../utils/fireAndForget'
+import { isActiveTabTakenError } from '../shared/activeTab'
 import { noopTelemetry, type SyncTelemetry } from './host'
+import { takeOverActiveTab } from './takeOverActiveTab'
 import {
   INITIAL_LIFECYCLE_STATE,
   isCurrentRun,
@@ -74,8 +77,18 @@ export interface WorkerLifecycleCallbacks {
   telemetry?: SyncTelemetry
   onEvent: (event: ClientEvent) => void
   onReady?: () => void
-  /** The worker is closing. `internalRestart` means a new one is starting in its place, for the same account or another. */
+  /**
+   * The worker is closing. `internalRestart` means a new one is starting in its place, for the same
+   * account or another, or that another tab displaced it: either way what the app shows stays.
+   */
   onShutdownCleanup?: (options: { internalRestart: boolean }) => void
+  /** Another tab took over the account, and this tab's worker has closed (see "One active tab" in docs/sync-design.md) */
+  onDisplaced?: () => void
+  /**
+   * Called once a start has stolen the active-tab lock, before it waits for the lock to come free, so
+   * the app can ask tabs of older builds, which queue for the lock, to stop
+   */
+  onTakeOver?: (accountId: string) => void
   onStatusChange: (status: SyncStatus) => void
   onSyncWarning?: (message: string | null) => void
   onFatalError?: (message: string) => void
@@ -145,6 +158,16 @@ export class WorkerLifecycleManager {
     return phaseAccountId(this.state.phase)
   }
 
+  /** Whether another tab took over the account, so this tab's worker has closed until `initialize` takes over again */
+  isDisplaced(): boolean {
+    return this.state.phase.kind === 'displaced'
+  }
+
+  /** The worker's session stopped because another tab took over the account */
+  markDisplaced(): void {
+    this.dispatch({ type: 'displaced' })
+  }
+
   /** The account a shutdown or local data clear applies to when none is given */
   private resolveTargetAccountId(accountId?: string): string | null {
     return accountId || this.getCurrentAccountId() || this.lastKnownAccountId || this.callbacks.getAccountId?.() || null
@@ -178,8 +201,9 @@ export class WorkerLifecycleManager {
   }
 
   /**
-   * Starts a worker for the account. A start that fails rejects, and is retried in the background.
-   * Joins a worker for the account that is already running or on its way, unless `clearLocalData`.
+   * Makes this tab the account's active tab and starts a worker for it. A start that fails rejects,
+   * and is retried in the background. Joins a worker for the account that is already running or on
+   * its way, unless `clearLocalData`.
    */
   initialize(accountId: string, options?: WorkerInitOptions): Promise<void> {
     this.lastKnownAccountId = accountId
@@ -252,6 +276,9 @@ export class WorkerLifecycleManager {
       case 'reportOffline':
         this.callbacks.onStatusChange('offline')
         break
+      case 'closeDisplaced':
+        fireAndForget(this.closeDisplaced(effect.accountId), 'WorkerLifecycleManager:closeDisplaced')
+        break
     }
   }
 
@@ -281,39 +308,71 @@ export class WorkerLifecycleManager {
       return
     }
 
-    let session: WorkerSession | null = null
     try {
       if (this.session) {
         await this.closeWorker({ accountId, clearLocalData, internalRestart: true })
       } else if (clearLocalData) {
         await clearAccountLocalData(accountId)
       }
-      if (!isCurrent()) {
-        return
-      }
-
-      this.callbacks.onStatusChange('connecting')
-      const onlineState = getOnlineState()
-      const vaultKey = await exportKeyringData()
-      throwIfSuperseded(isCurrent)
-
-      session = this.startSession()
-      await this.initSession(session, { accountId, vaultKey, onlineState, signal, isCurrent })
-      this.dispatch({ type: 'runSucceeded', run: id })
     } catch (error) {
-      if (!isCurrent()) {
-        log.warn('Initialization aborted due to account change or concurrent shutdown')
-        return
-      }
+      if (!isCurrent()) return
       log.error('Failed to initialize SyncBridge:', error)
-      if (session) {
-        session.close()
-        if (this.session === session) {
-          this.session = null
-        }
-      }
       this.dispatch({ type: 'runFailed', run: id })
       throw error
+    }
+
+    // Another tab starting at the same moment can take the lock between the takeover and this tab's
+    // engine taking it. The takeover is retried once; after that, that tab keeps the account.
+    for (let attempt = 0; ; attempt += 1) {
+      if (!isCurrent()) {
+        return
+      }
+      let session: WorkerSession | null = null
+      try {
+        this.callbacks.onStatusChange('connecting')
+        await takeOverActiveTab(accountId, { onStolen: () => this.callbacks.onTakeOver?.(accountId) })
+        throwIfSuperseded(isCurrent)
+        const onlineState = getOnlineState()
+        const vaultKey = await exportKeyringData()
+        throwIfSuperseded(isCurrent)
+
+        session = this.startSession()
+        await this.initSession(session, { accountId, vaultKey, onlineState, signal, isCurrent })
+        this.dispatch({ type: 'runSucceeded', run: id })
+        return
+      } catch (error) {
+        if (!isCurrent()) {
+          log.warn('Initialization aborted due to account change or concurrent shutdown')
+          return
+        }
+        if (session) {
+          session.close()
+          if (this.session === session) {
+            this.session = null
+          }
+        }
+        if (isActiveTabTakenError(error)) {
+          if (attempt === 0) continue
+          log.info('Another tab took over the account while this one was starting')
+          this.dispatch({ type: 'displaced' })
+          return
+        }
+        log.error('Failed to initialize SyncBridge:', error)
+        this.dispatch({ type: 'runFailed', run: id })
+        throw error
+      }
+    }
+  }
+
+  /** Closes a displaced worker, keeping what the app shows, and tells the app */
+  private async closeDisplaced(accountId: string): Promise<void> {
+    try {
+      await this.closeWorker({ accountId, clearLocalData: false, internalRestart: true })
+    } finally {
+      // An initialize while it closed has taken over again
+      if (this.isDisplaced()) {
+        this.callbacks.onDisplaced?.()
+      }
     }
   }
 

@@ -13,6 +13,8 @@ interface SyncState {
   isQuotaExceeded: boolean
   /** Set when this device's local data can't be opened (see LocalDataUnavailableDialog) */
   localDataUnavailable: { unpushedChanges: number } | null
+  /** Set when another tab took the account over, so sync has stopped in this one (see DisplacedDialog) */
+  displaced: boolean
   /** Whether the browser agreed to keep this site's storage from eviction; null until it has said */
   isStoragePersisted: boolean | null
 }
@@ -28,6 +30,7 @@ export interface SyncSlice extends SyncState {
   setQuotaExceeded: (exceeded: boolean) => void
   clearQuotaExceeded: () => void
   setLocalDataUnavailable: (details: SyncState['localDataUnavailable']) => void
+  setDisplaced: (displaced: boolean) => void
   setStoragePersisted: (persisted: boolean) => void
 }
 
@@ -39,6 +42,7 @@ const initialSyncState: SyncState = {
   generation: 0,
   isQuotaExceeded: false,
   localDataUnavailable: null,
+  displaced: false,
   isStoragePersisted: null,
 }
 
@@ -82,6 +86,9 @@ export const createSyncSlice: StateCreator<
   },
   setLocalDataUnavailable: details => {
     set(() => ({ localDataUnavailable: details }))
+  },
+  setDisplaced: displaced => {
+    set(() => ({ displaced }))
   },
   setStoragePersisted: persisted => {
     set(() => ({ isStoragePersisted: persisted }))

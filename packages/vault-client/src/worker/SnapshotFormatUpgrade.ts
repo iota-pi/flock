@@ -2,14 +2,11 @@ import { fireAndForget } from '../utils/fireAndForget'
 import { runStorageOperation } from '../utils/storageManager'
 import { getSyncMetadataStorage, SYNC_METADATA_KEYS } from './stores/syncMetadataStorage'
 import { createLogger } from '../utils/logger'
-import type { SyncSessionState } from './SyncSessionState'
 
 const log = createLogger('SnapshotFormatUpgrade')
 
 export interface SnapshotFormatUpgradeDeps {
   accountId: string
-  /** Snapshot uploads belong to the leader */
-  session: SyncSessionState
   /** Re-encrypts and uploads the snapshot of every item */
   rewriteSnapshots: (signal: AbortSignal) => Promise<{ failed: unknown[] }>
   /** Called once this device's snapshots are all bound, whether rewritten now or in an earlier session */
@@ -20,9 +17,8 @@ export interface SnapshotFormatUpgradeDeps {
  * Rewrites every snapshot once per device, so that snapshots written before ciphertexts were bound
  * to their document get replaced with bound ones.
  *
- * It starts once both a manifest sync has finished without failures (so local docs include
- * everything in the server's snapshots) and this tab is the leader (snapshot uploads belong to the
- * leader), in either order. A device that has finished the rewrite skips it, and an incomplete
+ * It starts once a manifest sync has finished without failures, so local docs include everything in
+ * the server's snapshots. A device that has finished the rewrite skips it, and an incomplete
  * rewrite is retried next session rather than on every sync.
  */
 export class SnapshotFormatUpgrade {
@@ -38,17 +34,12 @@ export class SnapshotFormatUpgrade {
     this.startIfReady()
   }
 
-  /** Call after the session's leadership changed */
-  onLeaderChange(): void {
-    this.startIfReady()
-  }
-
   stop(): void {
     this.abortController.abort()
   }
 
   private startIfReady(): void {
-    if (this.hasStarted || !this.hasSynced || !this.deps.session.isLeader) return
+    if (this.hasStarted || !this.hasSynced) return
     this.hasStarted = true
     fireAndForget(this.run(), 'SnapshotFormatUpgrade:run')
   }
