@@ -257,6 +257,46 @@ describe('snapshotService.persistSnapshots storage quota', () => {
     expect(vault.set).not.toHaveBeenCalled()
   })
 
+  // Older clients send a tombstone with its full payload, which must not deadlock a full account
+  it('writes a deleted snapshot without its payload once the account is at its quota', async () => {
+    const vault = createMockVault()
+    vi.mocked(vault.set).mockResolvedValueOnce({ version: 3, storageDelta: -500 })
+
+    const result = await persistSnapshots(vault, {
+      account: 'acct-1',
+      snapshots: [{ itemId: 'item-1' as ItemId, deleted: true, snapshot, heads: snapshot }],
+    }, full)
+
+    expect(result).toEqual({ success: true, persisted: 1, total: 1, results: [{ itemId: 'item-1', version: 3 }] })
+    expect(vault.set).toHaveBeenCalledWith({ account: 'acct-1', item: 'item-1', metadata: { iv: '', deleted: true } })
+    expect(vault.addStorageUsage).toHaveBeenCalledWith({ account: 'acct-1', bytes: -500 })
+  })
+
+  it('turns away a live snapshot at the quota though the batch also deletes with a payload', async () => {
+    const vault = createMockVault()
+
+    await expect(persistSnapshots(vault, {
+      account: 'acct-1',
+      snapshots: [
+        { itemId: 'item-1' as ItemId, deleted: true, snapshot },
+        { itemId: 'item-2' as ItemId, snapshot },
+      ],
+    }, full)).rejects.toBeInstanceOf(QuotaExceededError)
+
+    expect(vault.set).not.toHaveBeenCalled()
+  })
+
+  it('keeps a deleted snapshot payload while the account has room', async () => {
+    const vault = createMockVault()
+
+    await persistSnapshots(vault, {
+      account: 'acct-1',
+      snapshots: [{ itemId: 'item-1' as ItemId, deleted: true, snapshot }],
+    }, ROOM)
+
+    expect(vault.set).toHaveBeenCalledWith(expect.objectContaining({ snapshot }))
+  })
+
   it('still accepts deletions once the account is at its quota', async () => {
     const vault = createMockVault()
 

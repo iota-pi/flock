@@ -23,7 +23,9 @@ export interface StorageAllowance {
  * Persists a batch of encrypted item snapshots, each written on its own. Logs any write that fails
  * and reports which ones were persisted.
  *
- * An account at its storage quota can still delete items, but a batch that carries any snapshot is
+ * An account at its storage quota can still delete items. Its tombstones are written without their
+ * payloads, which the driver would drop anyway, and so only mark items it already has deleted (it
+ * doesn't create rows for payload-less tombstones). A batch that still carries a live snapshot is
  * turned away whole with `QuotaExceededError`. Rejecting single items instead would get them
  * quarantined, though nothing is wrong with them.
  */
@@ -32,12 +34,18 @@ export async function persistSnapshots(
   input: PutSnapshotInput,
   storage: StorageAllowance,
 ): Promise<PersistSnapshotsResult> {
-  if (storage.usedBytes >= storage.quotaBytes && input.snapshots.some(snapshot => snapshot.snapshot)) {
+  const atQuota = storage.usedBytes >= storage.quotaBytes
+  if (atQuota && input.snapshots.some(snapshot => snapshot.snapshot && !snapshot.deleted)) {
     throw new QuotaExceededError(`Account has used ${storage.usedBytes} of its ${storage.quotaBytes} bytes of storage`)
   }
+  // Older clients send tombstones with their full payload. Exempting those from the quota as they
+  // are would let them create rows for IDs the server has never seen, so they lose the payload.
+  const snapshots: PutSnapshotInput['snapshots'] = atQuota
+    ? input.snapshots.map(snapshot => (snapshot.deleted ? withoutPayload(snapshot) : snapshot))
+    : input.snapshots
 
   const results = await Promise.allSettled(
-    input.snapshots.map(async snapshot => {
+    snapshots.map(async snapshot => {
       const item: VaultItem = {
         account: input.account,
         item: snapshot.itemId,
@@ -67,7 +75,7 @@ export async function persistSnapshots(
       return [result.value]
     }
     console.error(
-      `[snapshotService.persistSnapshots] Failed to persist snapshot for item ${input.snapshots[index].itemId}:`,
+      `[snapshotService.persistSnapshots] Failed to persist snapshot for item ${snapshots[index].itemId}:`,
       result.reason,
     )
     return []
@@ -85,4 +93,10 @@ export async function persistSnapshots(
     total: input.snapshots.length,
     results: persistedResults.map(({ itemId, version }) => ({ itemId, version })),
   }
+}
+
+function withoutPayload<T extends { snapshot?: unknown; heads?: unknown }>(
+  { snapshot: _snapshot, heads: _heads, ...rest }: T,
+): Omit<T, 'snapshot' | 'heads'> {
+  return rest
 }
