@@ -70,9 +70,21 @@ export interface AutomergeIndexManagerOptions {
   onMetadataUpdated?: (metadata: VaultMetadata) => void
 }
 
+/**
+ * The account's item index: live item IDs, tombstones and local metadata.
+ *
+ * Only the account's active tab runs an engine (see "One active tab" in docs/sync-design.md), so
+ * nothing else writes the index while this session runs and reads come from a copy kept in memory.
+ * Writes still read the stored index under the cross-tab index lock and change that, so a write from
+ * a frozen tab that thawed after a takeover, or an older build's tab, is never overwritten with this
+ * session's copy and a tombstone is never undone by it (rule 2). Every operation, read or write, runs
+ * in the order it was called.
+ */
 export class AutomergeIndexManager {
   private mutex = new AsyncMutex()
   private lastEmittedItemIds: string[] | null = null
+  /** The index as this session last read or wrote it. Only touched while holding the mutex. */
+  private cached: NormalizedIndexDocument | null = null
   public readonly indexStore: IndexStore
 
   constructor(private readonly deps: AutomergeIndexManagerOptions) {
@@ -107,27 +119,67 @@ export class AutomergeIndexManager {
     this.deps.onMetadataUpdated?.(metadata)
   }
 
-  private async withLock<T>(task: () => Promise<T>): Promise<T> {
-    return this.mutex.runExclusive(async () => {
-      if (typeof navigator !== 'undefined' && navigator?.locks?.request) {
-        const lockName = `${getVaultStorageNames().accountPrefixes.indexLock}${this.deps.accountId}`
-        return withTimeout(
-          SYNC_TIMEOUTS.indexLock,
-          signal => navigator.locks.request(lockName, { mode: 'exclusive', signal }, task),
-          { reason: new Error(`Index lock request timed out after ${SYNC_TIMEOUTS.indexLock}ms`) },
-        )
-      }
+  /** Runs `task` with the stored index under the cross-tab index lock. Call it holding the mutex. */
+  private async withIndexLock<T>(task: () => Promise<T>): Promise<T> {
+    if (typeof navigator !== 'undefined' && navigator?.locks?.request) {
+      const lockName = `${getVaultStorageNames().accountPrefixes.indexLock}${this.deps.accountId}`
+      return withTimeout(
+        SYNC_TIMEOUTS.indexLock,
+        signal => navigator.locks.request(lockName, { mode: 'exclusive', signal }, task),
+        { reason: new Error(`Index lock request timed out after ${SYNC_TIMEOUTS.indexLock}ms`) },
+      )
+    }
+    return task()
+  }
 
-      return task()
+  /** Runs a write: in order with every other operation, and under the cross-tab index lock */
+  private async withLock<T>(task: () => Promise<T>): Promise<T> {
+    return this.mutex.runExclusive(() => this.withIndexLock(task))
+  }
+
+  /**
+   * Runs a write unless this session's copy of the index says it would change nothing. Most calls
+   * change nothing (every item is re-added when it's bound at startup), and skipping one never
+   * undoes a tombstone, so a stale copy can only cause a write that finds nothing to change.
+   */
+  private async withLockUnlessUnchanged(
+    isUnchanged: (doc: NormalizedIndexDocument) => boolean,
+    task: () => Promise<void>,
+  ): Promise<void> {
+    return this.mutex.runExclusive(async () => {
+      if (isUnchanged(await this.getCached())) return
+      await this.withIndexLock(task)
     })
   }
 
+  /** Runs a read of this session's copy of the index, loading it on first use, in order with every other operation */
+  private async read<T>(select: (doc: NormalizedIndexDocument) => T): Promise<T> {
+    return this.mutex.runExclusive(async () => select(await this.getCached()))
+  }
+
+  /** This session's copy of the index. Call it holding the mutex. A failed load isn't kept, so it throws again. */
+  private async getCached(): Promise<NormalizedIndexDocument> {
+    this.cached ??= normalizeIndexDocument(await this.indexStore.getIndex(), this.deps.accountId)
+    return this.cached
+  }
+
+  /** Reads the stored index, which becomes this session's copy. Call it under the index lock. */
   private async getIndexSnapshotInternal(): Promise<NormalizedIndexDocument> {
-    return normalizeIndexDocument(await this.indexStore.getIndex(), this.deps.accountId)
+    const doc = normalizeIndexDocument(await this.indexStore.getIndex(), this.deps.accountId)
+    this.cached = normalizeIndexDocument(doc, this.deps.accountId)
+    return doc
+  }
+
+  /** Stores the index, which becomes this session's copy. Call it under the index lock. */
+  private async saveIndex(doc: AutomergeIndexDocument): Promise<void> {
+    // A failed save leaves the stored index unknown, so the next read loads it again
+    this.cached = null
+    await this.indexStore.saveIndex(doc)
+    this.cached = normalizeIndexDocument(doc, this.deps.accountId)
   }
 
   async getIndexSnapshot(): Promise<NormalizedIndexDocument> {
-    return this.withLock(async () => this.getIndexSnapshotInternal())
+    return this.read(doc => normalizeIndexDocument(doc, this.deps.accountId))
   }
 
   /**
@@ -138,7 +190,7 @@ export class AutomergeIndexManager {
   async mergeIndex(backup: AutomergeIndexDocument): Promise<void> {
     return this.withLock(async () => {
       const doc = mergeIndexDocuments(await this.getIndexSnapshotInternal(), backup)
-      await this.indexStore.saveIndex(doc)
+      await this.saveIndex(doc)
       this.emitIndexUpdated(doc.itemIds)
       if (backup.metadata) {
         this.emitMetadataUpdated(doc.metadata)
@@ -148,16 +200,24 @@ export class AutomergeIndexManager {
 
   async ensureIndexDocument(): Promise<void> {
     return this.withLock(async () => {
-      const doc = await this.indexStore.getIndex()
-      if (!doc?.accountId) {
-        await this.indexStore.saveIndex(normalizeIndexDocument(doc, this.deps.accountId))
+      const stored = await this.indexStore.getIndex()
+      const doc = normalizeIndexDocument(stored, this.deps.accountId)
+      if (stored?.accountId) {
+        this.cached = doc
+      } else {
+        await this.saveIndex(doc)
       }
     })
   }
 
   /** Adds items to the index, taking them out of the tombstones */
   async addItemIds(itemIds: ItemId[]): Promise<void> {
-    return this.withLock(async () => {
+    const isUnchanged = (doc: NormalizedIndexDocument) => {
+      const live = new Set(doc.itemIds)
+      const tombstones = new Set(doc.tombstoneIds)
+      return itemIds.every(id => live.has(id) && !tombstones.has(id))
+    }
+    return this.withLockUnlessUnchanged(isUnchanged, async () => {
       const doc = await this.getIndexSnapshotInternal()
       const current = new Set(doc.itemIds)
       const tombstoneSet = new Set(doc.tombstoneIds)
@@ -179,7 +239,7 @@ export class AutomergeIndexManager {
       if (updated || tombstoneUpdated) {
         doc.itemIds = Array.from(current)
         doc.tombstoneIds = Array.from(tombstoneSet)
-        await this.indexStore.saveIndex(doc)
+        await this.saveIndex(doc)
         if (updated) {
           this.emitIndexUpdated(doc.itemIds)
         }
@@ -188,7 +248,12 @@ export class AutomergeIndexManager {
   }
 
   async removeItemIds(itemIds: ItemId[]): Promise<void> {
-    return this.withLock(async () => {
+    const isUnchanged = (doc: NormalizedIndexDocument) => {
+      const live = new Set(doc.itemIds)
+      const tombstones = new Set(doc.tombstoneIds)
+      return itemIds.every(id => !live.has(id) && tombstones.has(id))
+    }
+    return this.withLockUnlessUnchanged(isUnchanged, async () => {
       const doc = await this.getIndexSnapshotInternal()
       const removeSet = new Set(itemIds)
       const current = doc.itemIds
@@ -205,7 +270,7 @@ export class AutomergeIndexManager {
       if (newItemIds.length !== current.length || tombstoneUpdated) {
         doc.itemIds = newItemIds
         doc.tombstoneIds = Array.from(tombstoneSet)
-        await this.indexStore.saveIndex(doc)
+        await this.saveIndex(doc)
         if (newItemIds.length !== current.length) {
           this.emitIndexUpdated(newItemIds)
         }
@@ -214,25 +279,22 @@ export class AutomergeIndexManager {
   }
 
   async listItemIds(): Promise<ItemId[]> {
-    const index = await this.getIndexSnapshot()
-    return index.itemIds
+    return this.read(doc => [...doc.itemIds])
   }
 
   async listTombstoneIds(): Promise<ItemId[]> {
-    const index = await this.getIndexSnapshot()
-    return index.tombstoneIds
+    return this.read(doc => [...doc.tombstoneIds])
   }
 
   async getMetadata(): Promise<VaultMetadata> {
-    const index = await this.getIndexSnapshot()
-    return index.metadata
+    return this.read(doc => ({ ...doc.metadata }))
   }
 
   async updateMetadata(changes: Partial<VaultMetadata>): Promise<VaultMetadata> {
     return this.withLock(async () => {
       const doc = await this.getIndexSnapshotInternal()
       doc.metadata = { ...doc.metadata, ...changes }
-      await this.indexStore.saveIndex(doc)
+      await this.saveIndex(doc)
       this.emitMetadataUpdated(doc.metadata)
       return doc.metadata
     })
@@ -248,21 +310,20 @@ export class AutomergeIndexManager {
         delete metadata[key]
       }
       doc.metadata = metadata
-      await this.indexStore.saveIndex(doc)
+      await this.saveIndex(doc)
       this.emitMetadataUpdated(metadata)
     })
   }
 
   async getLastManifestSyncTime(): Promise<number> {
-    const doc = await this.getIndexSnapshot()
-    return doc.lastManifestSyncTime
+    return this.read(doc => doc.lastManifestSyncTime)
   }
 
   async updateLastManifestSyncTime(time: number): Promise<void> {
     return this.withLock(async () => {
       const doc = await this.getIndexSnapshotInternal()
       doc.lastManifestSyncTime = time
-      await this.indexStore.saveIndex(doc)
+      await this.saveIndex(doc)
     })
   }
 }

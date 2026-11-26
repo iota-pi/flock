@@ -256,6 +256,66 @@ describe('AutomergeIndexManager', () => {
     expect(items).toEqual(['item-concurrent'])
   })
 
+  it('reads the stored index once however many indexed items are bound at startup', async () => {
+    const itemIds = Array.from({ length: 200 }, (_, i) => `item-${i}` as ItemId)
+    mockStore.data = { accountId, itemIds, tombstoneIds: [], metadata: {}, lastManifestSyncTime: 0 }
+    const manager = new AutomergeIndexManager({ accountId, indexStore })
+
+    // What the worker does at startup: list the index, then bind (and so re-add) every item in it
+    const listed = await manager.listItemIds()
+    await Promise.all(listed.map(id => manager.addItemIds([id])))
+
+    expect(mockStore.getIndex).toHaveBeenCalledTimes(1)
+    expect(mockStore.saveIndex).not.toHaveBeenCalled()
+  })
+
+  it('removes an item tombstoned already without writing', async () => {
+    mockStore.data = { accountId, itemIds: [], tombstoneIds: ['gone' as ItemId], metadata: {}, lastManifestSyncTime: 0 }
+    const manager = new AutomergeIndexManager({ accountId, indexStore })
+
+    await manager.removeItemIds(['gone' as ItemId])
+
+    expect(mockStore.saveIndex).not.toHaveBeenCalled()
+  })
+
+  it('applies operations in the order they were called, even when a write is skipped', async () => {
+    mockStore.saveIndex = vi.fn(async (doc: AutomergeIndexDocument) => {
+      await storeLatency()
+      mockStore.data = JSON.parse(JSON.stringify(doc))
+    })
+    const manager = new AutomergeIndexManager({ accountId, indexStore })
+    await manager.addItemIds(['item-1' as ItemId])
+
+    // The add is checked against the copy only once the removal before it has finished
+    await Promise.all([
+      manager.removeItemIds(['item-1' as ItemId]),
+      manager.addItemIds(['item-1' as ItemId]),
+    ])
+
+    expect(await manager.listItemIds()).toEqual(['item-1'])
+    expect(mockStore.data?.itemIds).toEqual(['item-1'])
+  })
+
+  it("keeps failing while the stored index can't be read, rather than reading it as empty", async () => {
+    mockStore.data = { accountId, itemIds: ['item-1' as ItemId], tombstoneIds: [], metadata: {}, lastManifestSyncTime: 0 }
+    mockStore.getIndex.mockRejectedValueOnce(new Error('unreadable'))
+    const manager = new AutomergeIndexManager({ accountId, indexStore })
+
+    await expect(manager.listItemIds()).rejects.toThrow('unreadable')
+    expect(await manager.listItemIds()).toEqual(['item-1'])
+  })
+
+  it('reads the stored index again after a save fails', async () => {
+    const manager = new AutomergeIndexManager({ accountId, indexStore })
+    await manager.addItemIds(['item-1' as ItemId])
+    mockStore.saveIndex.mockRejectedValueOnce(new Error('Storage failure'))
+    await expect(manager.addItemIds(['item-2' as ItemId])).rejects.toThrow('Storage failure')
+
+    mockStore.getIndex.mockClear()
+    expect(await manager.listItemIds()).toEqual(['item-1'])
+    expect(mockStore.getIndex).toHaveBeenCalledTimes(1)
+  })
+
   describe('Web Locks (H11)', () => {
     let mockLockManager: MockLockManager
     let originalNavigatorLocks: any
@@ -300,7 +360,8 @@ describe('AutomergeIndexManager', () => {
         managerB.addItemIds(['item-Y' as ItemId]),
       ])
 
-      const snapshot = await managerA.getIndexSnapshot()
+      // Each manager keeps its own copy, so what counts is the stored index
+      const snapshot = await new AutomergeIndexManager({ accountId, indexStore }).getIndexSnapshot()
 
       // Both item IDs must survive in the index; neither is clobbered
       expect(snapshot.itemIds).toContain('item-X')
@@ -335,7 +396,7 @@ describe('AutomergeIndexManager', () => {
         managerB.removeItemIds(['item-1' as ItemId]),
       ])
 
-      const snapshot = await managerA.getIndexSnapshot()
+      const snapshot = await new AutomergeIndexManager({ accountId, indexStore }).getIndexSnapshot()
       expect(snapshot.itemIds).toEqual(expect.arrayContaining(['item-2', 'item-3']))
       expect(snapshot.itemIds).not.toContain('item-1')
       expect(snapshot.itemIds).toHaveLength(2)
@@ -368,7 +429,7 @@ describe('AutomergeIndexManager', () => {
         managerB.updateMetadata({ prayerGoal: 10 }),
       ])
 
-      const snapshot = await managerA.getIndexSnapshot()
+      const snapshot = await new AutomergeIndexManager({ accountId, indexStore }).getIndexSnapshot()
       expect(snapshot.itemIds).toEqual(['item-1', 'item-2'])
       expect(snapshot.metadata).toEqual({ prayerGoal: 10 })
 
@@ -393,27 +454,43 @@ describe('AutomergeIndexManager', () => {
 
     })
 
-    it('acquires cross-tab Web Lock for getIndexSnapshot and listItemIds preventing concurrent reads during remote write (M-6)', async () => {
+    it("reads this session's copy without the cross-tab lock, but writes take it", async () => {
       const lockRequestSpy = vi.spyOn(mockLockManager, 'request')
       const manager = new AutomergeIndexManager({ accountId, indexStore })
 
       await manager.getIndexSnapshot()
-
-      expect(lockRequestSpy).toHaveBeenCalledWith(
-        `test-vault-index-lock-${accountId}`,
-        expect.objectContaining({ mode: 'exclusive' }),
-        expect.any(Function)
-      )
-
-      lockRequestSpy.mockClear()
       await manager.listItemIds()
+      await manager.listTombstoneIds()
+      await manager.getMetadata()
+      expect(lockRequestSpy).not.toHaveBeenCalled()
 
+      await manager.addItemIds(['item-1' as ItemId])
       expect(lockRequestSpy).toHaveBeenCalledWith(
         `test-vault-index-lock-${accountId}`,
         expect.objectContaining({ mode: 'exclusive' }),
-        expect.any(Function)
+        expect.any(Function),
       )
+    })
 
+    it('never revives an item another engine tombstoned since this copy was read', async () => {
+      mockStore.data = { accountId, itemIds: ['item-X' as ItemId], tombstoneIds: [], metadata: {}, lastManifestSyncTime: 0 }
+      const managerA = new AutomergeIndexManager({ accountId, indexStore })
+      expect(await managerA.listItemIds()).toEqual(['item-X'])
+
+      // A frozen tab that thawed, say, deletes X after A read its copy
+      await new AutomergeIndexManager({ accountId, indexStore }).removeItemIds(['item-X' as ItemId])
+
+      // A's copy still has X live, so re-adding it (as binding it does) writes nothing
+      mockStore.saveIndex.mockClear()
+      await managerA.addItemIds(['item-X' as ItemId])
+      expect(mockStore.saveIndex).not.toHaveBeenCalled()
+
+      // A write that does change something starts from the stored index, so X stays deleted
+      await managerA.addItemIds(['item-Y' as ItemId])
+      expect(mockStore.data?.itemIds).toEqual(['item-Y'])
+      expect(mockStore.data?.tombstoneIds).toEqual(['item-X'])
+      expect(await managerA.listItemIds()).toEqual(['item-Y'])
+      expect(await managerA.listTombstoneIds()).toEqual(['item-X'])
     })
   })
 })
