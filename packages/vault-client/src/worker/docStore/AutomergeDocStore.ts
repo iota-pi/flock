@@ -135,17 +135,6 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     return this.deps.storageAdapter.has([documentId])
   }
 
-  async saveDocToStorage(itemId: ItemId): Promise<boolean> {
-    if (!this.deps.repo.storageSubsystem) return false
-    const { documentId } = this.resolveDocumentId(itemId)
-    const handle = this.getReadyHandle(documentId) ?? await this.findHandle(itemId, { knownToExist: true })
-    if (!handle?.isReady()) return false
-    const doc = handle.doc()
-    if (!doc) return false
-    await this.deps.repo.storageSubsystem.saveDoc(documentId, doc)
-    return true
-  }
-
   /**
    * Writes the loaded docs of these items to storage now, rather than on the Repo's throttle. Throws
    * if any save fails.

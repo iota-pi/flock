@@ -21,7 +21,7 @@ describe('StorageRecoveryService', () => {
       markAll: vi.fn().mockResolvedValue(undefined),
     }
     mockDocStore = {
-      saveDocToStorage: vi.fn().mockResolvedValue(true),
+      flushToStorage: vi.fn().mockResolvedValue(undefined),
     }
     mockItemSyncState = {
       save: vi.fn().mockResolvedValue(undefined),
@@ -92,8 +92,8 @@ describe('StorageRecoveryService', () => {
 
       expect(result.success).toBe(true)
       expect(mockMetadataStore.testStorageAvailable).toHaveBeenCalled()
-      expect(mockDocStore.saveDocToStorage).toHaveBeenCalledWith('item-1')
-      expect(mockDocStore.saveDocToStorage).toHaveBeenCalledWith('item-2')
+      expect(mockDocStore.flushToStorage).toHaveBeenCalledWith(['item-1'])
+      expect(mockDocStore.flushToStorage).toHaveBeenCalledWith(['item-2'])
 
       expect(mockOutbox.markAll).toHaveBeenCalledWith(['item-1', 'item-2'])
 
@@ -112,7 +112,7 @@ describe('StorageRecoveryService', () => {
 
       expect((await service.retrySave()).success).toBe(false)
       expect(await service.retrySave()).toEqual({ success: true })
-      expect(mockDocStore.saveDocToStorage).toHaveBeenCalledWith('edited')
+      expect(mockDocStore.flushToStorage).toHaveBeenCalledWith(['edited'])
       expect(mockOutbox.markAll).toHaveBeenCalledWith(['edited'])
 
       mockOutbox.markAll.mockClear()
@@ -128,7 +128,7 @@ describe('StorageRecoveryService', () => {
 
       expect(result.success).toBe(false)
       expect(result.error).toContain('still exceeded')
-      expect(mockDocStore.saveDocToStorage).not.toHaveBeenCalled()
+      expect(mockDocStore.flushToStorage).not.toHaveBeenCalled()
     })
 
     it('rethrows a probe failure that is not a quota error', async () => {
@@ -137,12 +137,22 @@ describe('StorageRecoveryService', () => {
       const result = await service.retrySave()
 
       expect(result).toEqual({ success: false, error: 'Disk read error' })
-      expect(mockDocStore.saveDocToStorage).not.toHaveBeenCalled()
+      expect(mockDocStore.flushToStorage).not.toHaveBeenCalled()
     })
 
     it('returns failure when saving documents throws QuotaExceededError', async () => {
       const quotaErr = new DOMException('Quota exceeded', 'QuotaExceededError')
-      mockDocStore.saveDocToStorage.mockRejectedValueOnce(quotaErr)
+      mockDocStore.flushToStorage.mockRejectedValueOnce(quotaErr)
+
+      const result = await service.retrySave()
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('still exceeded while saving documents')
+    })
+
+    it("sees a quota error inside the AggregateError the Repo's flush throws", async () => {
+      const quotaErr = new DOMException('Quota exceeded', 'QuotaExceededError')
+      mockDocStore.flushToStorage.mockRejectedValueOnce(new AggregateError([quotaErr], 'flush: 1 of 1 document save(s) failed'))
 
       const result = await service.retrySave()
 
@@ -151,13 +161,13 @@ describe('StorageRecoveryService', () => {
     })
 
     it('continues saving other documents if a non-quota error occurs on one document', async () => {
-      mockDocStore.saveDocToStorage.mockRejectedValueOnce(new Error('Doc parse failure'))
+      mockDocStore.flushToStorage.mockRejectedValueOnce(new Error('Doc parse failure'))
 
       const result = await service.retrySave()
 
       expect(result.success).toBe(true)
-      expect(mockDocStore.saveDocToStorage).toHaveBeenCalledWith('item-1')
-      expect(mockDocStore.saveDocToStorage).toHaveBeenCalledWith('item-2')
+      expect(mockDocStore.flushToStorage).toHaveBeenCalledWith(['item-1'])
+      expect(mockDocStore.flushToStorage).toHaveBeenCalledWith(['item-2'])
     })
 
     it('returns failure when saving sync records throws QuotaExceededError', async () => {

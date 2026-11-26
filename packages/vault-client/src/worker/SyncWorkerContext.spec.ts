@@ -120,7 +120,7 @@ beforeEach(() => {
   spyOnExports(docStoreModule, {
     AutomergeDocStore: class MockAutomergeDocStore {
       shutdown = vi.fn().mockResolvedValue(undefined)
-      saveDocToStorage = vi.fn().mockResolvedValue(undefined)
+      flushToStorage = vi.fn().mockResolvedValue(undefined)
       readItemSnapshot = vi.fn().mockResolvedValue(null)
       hasDataInStorage = vi.fn().mockResolvedValue(true)
       constructor(readonly deps: { isLocallyUnreadable: (documentId: string) => boolean }) {}
@@ -378,7 +378,7 @@ describe('SyncWorkerContext', () => {
 
     it('saves dirty documents, marks them pending, saves their records, and emits quotaResolved on success', async () => {
       vi.spyOn(context.services.itemSyncState, 'listDirty').mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId])
-      const saveDocSpy = vi.spyOn(context.services.docStore, 'saveDocToStorage').mockResolvedValue(true)
+      const saveDocSpy = vi.spyOn(context.services.docStore, 'flushToStorage').mockResolvedValue(undefined)
       const saveRecordsSpy = vi.spyOn(context.services.itemSyncState, 'save').mockResolvedValue(undefined)
       const emitSpy = vi.spyOn(context.clientEventHub, 'emit')
       const markSpy = vi.spyOn(context.services.changeOutbox, 'markAll')
@@ -386,8 +386,8 @@ describe('SyncWorkerContext', () => {
       const result = await context.retrySave()
 
       expect(result.success).toBe(true)
-      expect(saveDocSpy).toHaveBeenCalledWith('item-1' as ItemId)
-      expect(saveDocSpy).toHaveBeenCalledWith('item-2' as ItemId)
+      expect(saveDocSpy).toHaveBeenCalledWith(['item-1'])
+      expect(saveDocSpy).toHaveBeenCalledWith(['item-2'])
       expect(markSpy).toHaveBeenCalledWith(['item-1', 'item-2'])
       expect(saveRecordsSpy).toHaveBeenCalled()
       expect(emitSpy).toHaveBeenCalledWith({ type: 'quotaResolved' })

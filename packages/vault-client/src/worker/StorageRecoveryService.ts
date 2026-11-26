@@ -27,7 +27,7 @@ export interface StorageRecoveryServiceDeps {
   session: SyncSessionState
   clientEventHub: ClientEventHub
   outbox: Pick<ChangeOutbox, 'markAll'>
-  docStore: AutomergeDocStore
+  docStore: Pick<AutomergeDocStore, 'flushToStorage'>
   itemSyncState: Pick<ItemSyncState, 'save' | 'listDirty'>
   snapshotPusher: Pick<SnapshotPusher, 'flushPendingSnapshots'>
   /** Any store in the sync metadata database, written to probe whether storage has room again */
@@ -80,7 +80,7 @@ export class StorageRecoveryService {
       const dirtyIds = Array.from(new Set([...edited, ...this.deps.itemSyncState.listDirty()]))
       for (const itemId of dirtyIds) {
         try {
-          await this.deps.docStore.saveDocToStorage(itemId)
+          await this.deps.docStore.flushToStorage([itemId])
         } catch (saveErr) {
           if (isQuotaError(saveErr)) {
             throw new QuotaExceededRetryError('Storage quota is still exceeded while saving documents.')
