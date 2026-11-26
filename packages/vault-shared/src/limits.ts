@@ -40,6 +40,18 @@ const AES_GCM_TAG_BYTES = 16
 export const MAX_LOG_CIPHER_LENGTH = Math.ceil((MAX_INCREMENTAL_MESSAGE_BYTES + AES_GCM_TAG_BYTES) / 3) * 4
 
 /**
+ * Most log rows in one push. The server appends a push in one DynamoDB transaction, which holds at
+ * most 100 actions, and one of them is the log head's update.
+ */
+export const MAX_LOG_PUSH_ROWS = 99
+
+/**
+ * Most bytes of log rows in one push, measured as JSON, under the 4 MB a DynamoDB transaction holds.
+ * The server refuses a larger push with PAYLOAD_TOO_LARGE, and appends nothing of it.
+ */
+export const MAX_LOG_PUSH_BYTES = 3.5 * 1024 * 1024
+
+/**
  * The ciphertext a client asks `fetchSnapshotsByIds` to return at most, in characters. Lambda refuses
  * responses over 6 MB, and 50 items of up to 350 KB each (more as base64) can pass that, so this
  * leaves room for everything else in the response.

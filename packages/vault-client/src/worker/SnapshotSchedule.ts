@@ -17,7 +17,7 @@ const log = createLogger('SnapshotSchedule')
 
 export interface SnapshotScheduleOptions {
   /** The queue of dirty items, which the schedule marks and clears for its callers */
-  state: Pick<ItemSyncState, 'markDirty' | 'clearDirty' | 'queueFlagged' | 'dirtyCount'>
+  state: Pick<ItemSyncState, 'markDirty' | 'setSnapshotOnly' | 'clearDirty' | 'queueFlagged' | 'dirtyCount'>
   session: Pick<SyncSessionState, 'isShutdown'>
   /** Called when snapshots may be due sooner than before, so the next poll can be brought forward */
   onDueChanged?: () => void
@@ -47,6 +47,18 @@ export class SnapshotSchedule {
     if (this.deps.session.isShutdown || !itemId) return
     this.deps.state.markDirty(itemId)
     this.apply({ type: 'marked', delayMs })
+    this.deps.onDueChanged?.()
+  }
+
+  /**
+   * Records that only a snapshot can deliver the item's changes (`ItemSyncState.setSnapshotOnly`,
+   * which queues it) and makes that snapshot due now, without debouncing, so the item's full state
+   * is delivered
+   */
+  markSnapshotOnly(itemId: ItemId): void {
+    if (this.deps.session.isShutdown || !itemId) return
+    this.deps.state.setSnapshotOnly(itemId)
+    this.apply({ type: 'marked', delayMs: 0 })
     this.deps.onDueChanged?.()
   }
 

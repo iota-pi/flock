@@ -1,14 +1,12 @@
 import * as Automerge from '@automerge/automerge/slim'
-import type { Repo } from '@automerge/automerge-repo/slim'
 
 import type { ItemId, VaultSnapshotInput } from '@vault/shared'
-import { findWithTimeout, normalizeItemSnapshot } from './docStore'
-import { toAutomergeUrlFromItemId } from './utils/automerge'
+import { normalizeItemSnapshot, type AutomergeDocStore } from './docStore'
 import type { KeyProvider } from '../keys/Keyring'
 import type { DocCodec } from './domain'
 import { classifySyncError } from '../utils/errorClassifier'
 import { createLogger } from '../utils/logger'
-import { SYNC_TIMEOUTS } from '../shared/syncConfig'
+import { checkAlive, untilAborted } from '../utils/abort'
 import { encryptSnapshotHeads } from './snapshotHeads'
 import type { ItemSyncState } from './ItemSyncState'
 
@@ -65,7 +63,8 @@ export async function buildAfterPush(
 /** Builds an item's encrypted snapshot from its local Automerge doc */
 export class SnapshotBuilder {
   constructor(
-    private readonly repo: Repo,
+    /** Its lookup bounds the wait, and gives up at once on a doc whose local records can't be read */
+    private readonly docStore: Pick<AutomergeDocStore, 'findHandle'>,
     private readonly keys: KeyProvider,
     private readonly codec: DocCodec,
     /** Snapshot coverage (S1), so a snapshot only holds what the log has, and the server's version */
@@ -95,21 +94,11 @@ export class SnapshotBuilder {
   }
 
   private async buildOrThrow(itemId: ItemId, signal?: AbortSignal): Promise<BuildSnapshotResult> {
-    const documentUrl = toAutomergeUrlFromItemId(itemId)
-    const lookup = await findWithTimeout(this.repo, documentUrl, SYNC_TIMEOUTS.snapshotDocLookup, signal)
-    if (lookup.type === 'timeout') {
-      return {
-        type: 'error',
-        reason: `Document lookup timed out after ${SYNC_TIMEOUTS.snapshotDocLookup}ms`,
-      }
-    }
-    const handle = lookup.handle
+    checkAlive(signal)
+    const lookup = this.docStore.findHandle(itemId)
+    const handle = signal ? await untilAborted(lookup, signal) : await lookup
     if (!handle) {
       return { type: 'error', reason: 'Document handle not found' }
-    }
-
-    if (!handle.isReady()) {
-      return { type: 'not-ready' }
     }
 
     const doc = handle.doc()

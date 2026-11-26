@@ -11,7 +11,7 @@ import type { Repo } from '@automerge/automerge-repo/slim'
 import { SyncApiClient } from './SyncApiClient'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { setApiAuthToken } from '../keys/runtime'
-import { createMockKeyProvider, createMockVault, noLogCoverage, spyOnVaultTrpc, createMemoryItemRecords } from './__test__/testUtils'
+import { createMockKeyProvider, createMockVault, docLookupFromRepo, noLogCoverage, spyOnVaultTrpc, createMemoryItemRecords } from './__test__/testUtils'
 import { spyOnExports } from '../../test/moduleMocks'
 import type { KeyProvider } from '../keys/Keyring'
 import * as manualRecoveryStoreModule from '../shared/manualRecoveryStore'
@@ -91,7 +91,7 @@ function createSnapshots(
       session,
       schedule,
       state,
-      builder: new SnapshotBuilder(repo, keys, codec, noLogCoverage),
+      builder: new SnapshotBuilder(docLookupFromRepo(repo), keys, codec, noLogCoverage),
       runPollNow: () => runPollNow(created),
     }),
     load: async () => {

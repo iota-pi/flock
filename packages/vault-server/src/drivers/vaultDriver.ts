@@ -71,7 +71,7 @@ export interface AppendLogInput {
   messages: SyncLogMessage[]
   /**
    * Most bytes of messages the account may append per UTC day. A push that would pass it throws
-   * `QuotaExceededError` and appends nothing (from that transaction on, for a push of several).
+   * `QuotaExceededError` and appends nothing.
    */
   maxBytesPerDay?: number
 }

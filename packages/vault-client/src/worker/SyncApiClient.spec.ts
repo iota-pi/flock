@@ -217,11 +217,11 @@ describe('SyncApiClient', () => {
 
   describe('API Method Passthroughs', () => {
     it('passes through fetchManifest successfully', async () => {
-      mockFetchManifest.mockResolvedValue({ success: true, manifest: [{ itemId: 'i1', modifiedAt: 100 }] })
+      mockFetchManifest.mockResolvedValue({ success: true, manifest: [{ itemId: 'i1', version: 1 }] })
       const client = new SyncApiClient()
 
       const result = await client.fetchManifest({ account: 'acc-1' })
-      expect(result).toEqual({ manifest: [{ itemId: 'i1', modifiedAt: 100 }] })
+      expect(result).toEqual({ manifest: [{ itemId: 'i1', version: 1 }] })
       expect(mockFetchManifest).toHaveBeenCalledWith({ account: 'acc-1' }, undefined)
     })
 

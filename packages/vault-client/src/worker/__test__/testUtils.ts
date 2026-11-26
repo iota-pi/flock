@@ -3,8 +3,9 @@ import localforage from 'localforage'
 import { Keyring, type KeyProvider } from '../../keys/Keyring'
 import { generateVaultKey } from '../../keys/crypto'
 import { LocalCipher } from '../localEncryption/LocalCipher'
-import type { DocumentId, Repo } from '@automerge/automerge-repo/slim'
-import { AutomergeDocStore, type AutomergeDocStoreOptions, type ItemLockCoordinator } from '../docStore/AutomergeDocStore'
+import type { AutomergeUrl, DocHandle, DocumentId, Repo } from '@automerge/automerge-repo/slim'
+import { AutomergeDocStore, type AutomergeDocStoreOptions, type ItemLockCoordinator, type RepoDoc } from '../docStore/AutomergeDocStore'
+import { toAutomergeUrlFromItemId } from '../utils/automerge'
 import { passthroughCodec } from '../domain'
 import * as vaultTrpcClientModule from '../../keys/vaultTrpcClient'
 import { spyOnExports } from '../../../test/moduleMocks'
@@ -315,6 +316,25 @@ export function createTestDocStore(repo: Repo, overrides?: Partial<AutomergeDocS
     isLocallyUnreadable: () => false,
     ...overrides,
   })
+}
+
+/**
+ * A doc store lookup over a mock repo's `find`, for components tested without a doc store. Like
+ * `AutomergeDocStore.findHandle`, it settles with only a ready handle, and with nothing when the find fails.
+ */
+export function docLookupFromRepo(
+  repo: { find: (url: AutomergeUrl) => Promise<unknown> },
+): Pick<AutomergeDocStore, 'findHandle'> {
+  return {
+    findHandle: async itemId => {
+      try {
+        const handle = await repo.find(toAutomergeUrlFromItemId(itemId)) as DocHandle<RepoDoc> | undefined
+        return handle?.isReady() ? handle : undefined
+      } catch {
+        return undefined
+      }
+    },
+  }
 }
 
 /** Runs each task straight away, for components tested without a doc store's item locks */

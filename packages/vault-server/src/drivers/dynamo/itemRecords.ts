@@ -167,22 +167,18 @@ export async function fetchManifest({ client, tables }: DynamoContext, { account
     TableName: tables.items,
     IndexName: MANIFEST_INDEX.name,
     ...partitionKeyCondition('account', account),
-    ...projection(['item', 'version', 'modifiedAt', 'metadata.modified', 'metadata.deleted', 'deleted', 'heads']),
+    ...projection(['item', 'version', 'metadata.deleted', 'deleted', 'heads']),
   })
 
   for await (const record of records) {
     const itemId = readItemId(record)
     if (!itemId) continue
     const isDeleted = record.metadata?.deleted === true || record.deleted === true
-    const modifiedAt = typeof record.modifiedAt === 'number'
-      ? record.modifiedAt
-      : (typeof record.metadata?.modified === 'number' ? record.metadata.modified : 0)
     const version = typeof record.version === 'number' ? record.version : 1
     const heads = isDeleted ? undefined : CryptoResultSchema.safeParse(record.heads).data
     manifest.push({
       itemId,
       version,
-      modifiedAt,
       ...(isDeleted ? { isDeleted: true } : {}),
       ...(heads ? { heads } : {}),
     })

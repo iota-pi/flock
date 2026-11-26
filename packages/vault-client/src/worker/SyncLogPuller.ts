@@ -8,7 +8,7 @@ import type { ItemSyncState } from './ItemSyncState'
 import type { SyncSessionState } from './SyncSessionState'
 import type { LogCursorStore } from './stores/LogCursorStore'
 import type { LogPushResult } from './ChangeOutbox'
-import type { ManifestDemand, ManifestDemands } from './ManifestDemands'
+import type { ManifestAsk, ManifestAskOptions } from './ManifestSyncManager'
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
 import { AsyncMutex } from '../utils/AsyncMutex'
 import { untilAborted } from '../utils/abort'
@@ -45,11 +45,11 @@ export interface SyncLogPullerDeps {
   docs: Pick<AutomergeDocStore, 'flushToStorage'>
   keys: KeyProvider
   session: SyncSessionState
-  /** Applies rows, and records which docs gained changes for snapshot coverage */
-  incoming: Pick<IncomingChanges, 'apply' | 'readPending' | 'takeAddedChanges'>
+  /** Applies rows, records which docs gained changes for snapshot coverage, and indexes the items they were applied to */
+  incoming: Pick<IncomingChanges, 'apply' | 'readPending' | 'takeAddedChanges' | 'indexApplied'>
   reconciler: Pick<ItemReconciler, 'park' | 'onLogEntry'>
-  /** Runs the manifest syncs catching up and recovering lost rows need, which this places as demands */
-  manifest: Pick<ManifestDemands, 'demand' | 'isDemanded'>
+  /** Asks for the manifest syncs catching up and recovering lost rows need (`ManifestSyncManager.ask`) */
+  askManifest: (options: ManifestAskOptions) => ManifestAsk
   /** Records pulled changes for snapshot coverage's S2, which has to be stored before the cursor moves past their rows */
   itemSyncState: Pick<ItemSyncState, 'recordPulledChanges' | 'save'>
   onKeyVersionMissing?: (kver: string) => void
@@ -91,17 +91,12 @@ export class SyncLogPuller {
   }, 1000)
 
   /**
-   * Catch-up's manifest sync, which runs before the log is read again. It merges the server's
-   * snapshots, which hold what rows TTL removed.
+   * Catch-up's manifest sync while it's asked for, which runs before the log is read again. It merges
+   * the server's snapshots, which hold what rows TTL removed.
    */
-  readonly catchUpDemand: ManifestDemand = {
-    purpose: 'Catching up',
-    beforeRead: true,
-    onFetched: () => this.dispatch({ type: 'catchUpSynced' }),
-  }
-
-  /** The manifest sync that recovers what lost rows held, which runs after the log is read */
-  readonly recoveryDemand: ManifestDemand = { purpose: 'Recovering lost log rows', beforeRead: false }
+  private catchUpAsk: ManifestAsk | undefined
+  /** The manifest sync that recovers what lost rows held while it's asked for, which runs after the log is read */
+  private recoveryAsk: ManifestAsk | undefined
 
   constructor(private readonly deps: SyncLogPullerDeps) {}
 
@@ -216,17 +211,35 @@ export class SyncLogPuller {
   }
 
   /**
-   * Whether a manifest sync has to run before this device reads the log: catch-up's is demanded, or
+   * Whether a manifest sync has to run before this device reads the log: catch-up's is asked for, or
    * the device may be behind the log's TTL (`isBehindLog`). `now` is the server's clock when it's known.
    */
   needsCatchUpManifest(now: number): boolean {
-    return this.deps.manifest.isDemanded(this.catchUpDemand) || isBehindLog(this.state, this.position.lastPullAt, now)
+    return this.isCatchUpAsked || isBehindLog(this.state, this.position.lastPullAt, now)
   }
 
-  /** Demands catch-up's manifest sync if this device needs one before reading the log, and returns whether it does */
-  demandCatchUpIfBehind(now: number): boolean {
+  /** Whether catch-up's manifest sync is asked for and no sync has fetched the manifest since */
+  get isCatchUpAsked(): boolean {
+    return this.catchUpAsk?.isOpen ?? false
+  }
+
+  /** Whether recovering lost rows' manifest sync is asked for and no sync has fetched the manifest since */
+  get isRecoveryAsked(): boolean {
+    return this.recoveryAsk?.isOpen ?? false
+  }
+
+  /** Asks for catch-up's manifest sync if this device needs one before reading the log, and returns whether it does */
+  askCatchUpIfBehind(now: number): boolean {
     if (!this.needsCatchUpManifest(now)) return false
-    this.deps.manifest.demand(this.catchUpDemand)
+    if (!this.isCatchUpAsked) {
+      this.catchUpAsk = this.deps.askManifest({
+        mode: 'now',
+        until: 'fetched',
+        beforeRead: true,
+        purpose: 'Catching up',
+        onMet: () => this.dispatch({ type: 'catchUpSynced' }),
+      })
+    }
     return true
   }
 
@@ -235,7 +248,7 @@ export class SyncLogPuller {
    * returns whether it did. Catch-up's manifest sync runs, and then the log is read again at once.
    */
   dropPageIfBehind(page: LogPage): boolean {
-    if (!this.demandCatchUpIfBehind(page.serverNow)) return false
+    if (!this.askCatchUpIfBehind(page.serverNow)) return false
     this.dispatch({ type: 'pageDropped' })
     return true
   }
@@ -250,7 +263,10 @@ export class SyncLogPuller {
     return gapRepollDelay(this.state)
   }
 
-  /** Applies a page of the log in seq order. Throws, leaving the cursor where it stopped, if storage fails. */
+  /**
+   * Applies a page of the log in seq order, then stores the docs it changed and indexes them. Throws,
+   * leaving the cursor where it stopped, if storage fails.
+   */
   async process(page: LogPage): Promise<void> {
     if (this.deps.session.isShutdown) return
     const entries = [...page.entries].sort((a, b) => a.seq - b.seq)
@@ -300,6 +316,10 @@ export class SyncLogPuller {
     }
 
     await recording
+    // Stored before indexed, and not once shutdown may be clearing local data
+    if (!this.deps.session.isShutdown) {
+      await this.deps.incoming.indexApplied()
+    }
   }
 
   /** Decides about a missing seq before `entry`, and returns whether the cursor moved past it */
@@ -311,7 +331,9 @@ export class SyncLogPuller {
     if (effects.includes('recoverLostRows')) {
       // Can't happen by design, so the manifest sync that recovers from it says something went wrong
       log.error(`Log rows ${missingSeq}-${entry.seq - 1} are missing; moving past them`)
-      this.deps.manifest.demand(this.recoveryDemand)
+      if (!this.isRecoveryAsked) {
+        this.recoveryAsk = this.deps.askManifest({ mode: 'now', until: 'fetched', purpose: 'Recovering lost log rows' })
+      }
     }
     this.position.cursor = entry.seq - 1
     return true

@@ -253,8 +253,10 @@ export class ItemSyncState {
 
   /**
    * The startup audit, once the records have loaded: queues each of the items that its record flags
-   * and isn't queued already. Those flagged only `snapshotOnly`, which a dirty flag should have gone
-   * with, get their flag. Returns how many it queued.
+   * and isn't queued already. Returns how many it queued.
+   *
+   * Legacy: `setSnapshotOnly` now sets the dirty flag with `snapshotOnly`, but records saved before it
+   * did can be flagged only `snapshotOnly`. Those get their dirty flag here.
    */
   queueFlagged(itemIds: Iterable<ItemId>): number {
     if (this.stopped) return 0
@@ -289,8 +291,8 @@ export class ItemSyncState {
   }
 
   /**
-   * Items whose records say they owe the server a snapshot: those flagged dirty, and those only a
-   * snapshot can deliver, which a dirty flag always goes with but which can't hurt to check
+   * Items whose records say they owe the server a snapshot: those flagged dirty, and (legacy) those
+   * flagged only `snapshotOnly`, saved before `setSnapshotOnly` set the dirty flag too
    */
   listFlagged(): ItemId[] {
     return Array.from(this.items)
@@ -326,9 +328,15 @@ export class ItemSyncState {
     return Automerge.getChangesSince(doc, since).length === 0
   }
 
-  /** Records that the log refused the item's changes or can't hold one of them */
+  /**
+   * Records that the log refused the item's changes or can't hold one of them, and queues the item
+   * for the snapshot that delivers them instead: a snapshot-only item is always dirty, and both flags
+   * go in the same save. `SnapshotSchedule.markSnapshotOnly` also makes the snapshot due.
+   */
   setSnapshotOnly(itemId: ItemId): void {
-    if (this.stopped || this.isSnapshotOnly(itemId)) return
+    if (this.stopped) return
+    this.markDirty(itemId)
+    if (this.isSnapshotOnly(itemId)) return
     this.entry(itemId).snapshotOnly = true
     this.markUnsaved(itemId, 'snapshotOnly')
   }

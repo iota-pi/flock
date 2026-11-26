@@ -19,6 +19,14 @@ export class QuotaExceededError extends Error {
   override name = 'QuotaExceededError'
 }
 
+/**
+ * A log push is more than the server appends in one transaction. Routers report it as
+ * PAYLOAD_TOO_LARGE, which the client answers by splitting the push.
+ */
+export class PushTooLargeError extends Error {
+  override name = 'PushTooLargeError'
+}
+
 /** The account has had too many failed logins recently. Routers report it as TOO_MANY_REQUESTS. */
 export class TooManyLoginAttemptsError extends Error {
   override name = 'TooManyLoginAttemptsError'

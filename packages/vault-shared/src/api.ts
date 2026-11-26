@@ -8,6 +8,7 @@ import {
   MAX_CIPHER_FIELD_LENGTH,
   MAX_KEYRING_LENGTH,
   MAX_LOG_CIPHER_LENGTH,
+  MAX_LOG_PUSH_ROWS,
   MAX_SALT_LENGTH,
 } from './limits'
 
@@ -104,7 +105,6 @@ export const FetchItemsInputSchema = z.object({
 export type ManifestEntry = {
   itemId: ItemId
   version?: number
-  modifiedAt?: number
   isDeleted?: boolean
   /** The stored snapshot's encrypted heads, when the device that uploaded it sent them */
   heads?: z.infer<typeof CryptoResultSchema>
@@ -154,7 +154,7 @@ export type SyncLogEntry = z.infer<typeof SyncLogEntrySchema>
 /** Appends `push` to the account's log and reads the log after the seq `after` */
 export const PollLogSchema = z.object({
   account: AccountIdInputSchema,
-  push: z.array(SyncLogMessageSchema).max(100).default([]),
+  push: z.array(SyncLogMessageSchema).max(MAX_LOG_PUSH_ROWS).default([]),
   after: z.number().int().min(0),
 })
 

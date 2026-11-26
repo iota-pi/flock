@@ -46,6 +46,15 @@ describe('SnapshotSchedule', () => {
     expect(onDueChanged).toHaveBeenCalledTimes(2)
   })
 
+  it('queues a snapshot-only item, flagged dirty, and makes it due now', () => {
+    schedule.markSnapshotOnly('item-1' as ItemId)
+
+    expect(state.isSnapshotOnly('item-1' as ItemId)).toBe(true)
+    expect(state.isDirty('item-1' as ItemId)).toBe(true)
+    expect(schedule.isDue()).toBe(true)
+    expect(onDueChanged).toHaveBeenCalledTimes(1)
+  })
+
   describe('restored items', () => {
     beforeEach(async () => {
       store.records.set('item-flagged' as ItemId, { itemId: 'item-flagged' as ItemId, dirty: true })

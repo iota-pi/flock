@@ -395,7 +395,7 @@ describe('ItemSyncState', () => {
       expect(await stored()).toEqual([{ itemId: ITEM_1, dirty: true }])
     })
 
-    it('loads the flagged items it has not queued, queues them once, and flags snapshot-only ones', async () => {
+    it('loads the flagged items it has not queued, queues them once, and flags legacy snapshot-only ones', async () => {
       await db.put(
         SYNC_LOG_STORES.items,
         { itemId: ITEM_1, dirty: true },
@@ -484,6 +484,20 @@ describe('ItemSyncState', () => {
   })
 
   describe('snapshot-only items', () => {
+    it('are queued and flagged dirty in the same save', async () => {
+      const state = createState()
+      state.setSnapshotOnly(ITEM_1)
+      const tick = state.getDirtyTick(ITEM_1)
+      await state.save()
+
+      expect(state.isDirty(ITEM_1)).toBe(true)
+      expect(await stored()).toEqual([{ itemId: ITEM_1, snapshotOnly: true, dirty: true }])
+
+      // Marking it again moves its tick, as a new edit would
+      state.setSnapshotOnly(ITEM_1)
+      expect(state.getDirtyTick(ITEM_1)).toBeGreaterThan(tick!)
+    })
+
     it('survive a reload', async () => {
       const state = createState()
       state.setSnapshotOnly(ITEM_1)
@@ -506,7 +520,8 @@ describe('ItemSyncState', () => {
 
       expect(state.isSnapshotOnly(ITEM_1)).toBe(false)
       expect(state.getServerHeads(ITEM_1)).toEqual(['snapshot'])
-      expect(await stored()).toEqual([{ itemId: ITEM_1, serverHeads: ['snapshot'] }])
+      // The upload that confirms it clears the dirty flag, which this doesn't touch
+      expect(await stored()).toEqual([{ itemId: ITEM_1, serverHeads: ['snapshot'], dirty: true }])
     })
 
     it('confirm nothing for an item that is not snapshot-only', () => {

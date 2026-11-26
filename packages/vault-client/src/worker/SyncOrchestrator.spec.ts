@@ -41,9 +41,15 @@ describe('SyncOrchestrator', () => {
     vi.useFakeTimers()
 
     mockManifestSyncManager = {
-      request: vi.fn(),
-      openTicket: vi.fn((mode: string) => ({ mode })),
-      closeTicket: vi.fn((ticket: { result?: unknown }) => ticket.result ?? { added: [], success: false, fetchedManifest: false }),
+      // Each ask's handle reads as already served, unless a test opens it, so every event asks again
+      ask: vi.fn(() => {
+        const handle = {
+          isOpen: false,
+          result: undefined as unknown,
+          close: vi.fn(() => handle.result ?? { added: [], success: false, fetchedManifest: false }),
+        }
+        return handle
+      }),
       getDueAt: vi.fn(() => undefined),
     }
 
@@ -288,7 +294,7 @@ describe('SyncOrchestrator', () => {
     await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.manifestSyncInterval * 2)
 
     expect(mockPoller.executePoll).not.toHaveBeenCalled()
-    expect(mockManifestSyncManager.request).not.toHaveBeenCalled()
+    expect(mockManifestSyncManager.ask).not.toHaveBeenCalled()
   })
 
   it('executes poll after batch timeout delay when flush is called', async () => {
@@ -470,18 +476,32 @@ describe('SyncOrchestrator', () => {
       orchestrator.start()
       setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
-      mockManifestSyncManager.request.mockClear()
+      mockManifestSyncManager.ask.mockClear()
 
       orchestrator.onForeground()
       await vi.advanceTimersByTimeAsync(0)
-      expect(mockManifestSyncManager.request).toHaveBeenCalledTimes(1)
-      expect(mockManifestSyncManager.request).toHaveBeenLastCalledWith('due')
+      expect(mockManifestSyncManager.ask).toHaveBeenCalledTimes(1)
+      expect(mockManifestSyncManager.ask).toHaveBeenLastCalledWith({ mode: 'due', until: 'served' })
 
       setOnline(orchestrator, false)
-      mockManifestSyncManager.request.mockClear()
+      mockManifestSyncManager.ask.mockClear()
       orchestrator.onForeground()
       await vi.advanceTimersByTimeAsync(0)
-      expect(mockManifestSyncManager.request).not.toHaveBeenCalled()
+      expect(mockManifestSyncManager.ask).not.toHaveBeenCalled()
+    })
+
+    it('asks only once while its earlier ask is still waiting for a phase', async () => {
+      orchestrator.start()
+      setOnline(orchestrator, true)
+      await vi.advanceTimersByTimeAsync(0)
+      mockManifestSyncManager.ask.mockReturnValue({ isOpen: true, close: vi.fn() })
+      orchestrator.onForeground()
+      mockManifestSyncManager.ask.mockClear()
+
+      orchestrator.onForeground()
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockManifestSyncManager.ask).not.toHaveBeenCalled()
     })
   })
 
@@ -603,19 +623,22 @@ describe('SyncOrchestrator', () => {
       orchestrator.start()
       await vi.advanceTimersByTimeAsync(0)
       setOnline(orchestrator, false)
-      mockManifestSyncManager.request.mockClear()
+      mockManifestSyncManager.ask.mockClear()
       mockPoller.executePoll.mockClear()
 
       setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
 
-      expect(mockManifestSyncManager.request).toHaveBeenCalledWith('due')
+      expect(mockManifestSyncManager.ask).toHaveBeenCalledWith({ mode: 'due', until: 'served' })
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
     })
 
     it('asks for a manifest sync on start, before the poll that runs it', async () => {
       const order: string[] = []
-      mockManifestSyncManager.request.mockImplementation(() => { order.push('request') })
+      mockManifestSyncManager.ask.mockImplementation(() => {
+        order.push('request')
+        return { isOpen: false, close: vi.fn() }
+      })
       mockPoller.executePoll.mockImplementation(async () => {
         order.push('poll')
         return 'success'
@@ -625,7 +648,7 @@ describe('SyncOrchestrator', () => {
       await vi.advanceTimersByTimeAsync(0)
 
       expect(order).toEqual(['request', 'poll'])
-      expect(mockManifestSyncManager.request).toHaveBeenCalledWith('due')
+      expect(mockManifestSyncManager.ask).toHaveBeenCalledWith({ mode: 'due', until: 'served' })
     })
 
     it('runs no manifest sync of its own: there is no timer beside the poll', async () => {
@@ -660,14 +683,14 @@ describe('SyncOrchestrator', () => {
         orchestrator.start()
         await vi.advanceTimersByTimeAsync(0)
         mockPoller.executePoll.mockImplementation(async () => {
-          mockManifestSyncManager.openTicket.mock.results[0].value.result = SERVED
+          mockManifestSyncManager.ask.mock.results.at(-1).value.result = SERVED
           return 'success'
         })
 
         await expect(orchestrator.syncManifest('force')).resolves.toEqual(SERVED)
 
-        expect(mockManifestSyncManager.openTicket).toHaveBeenCalledWith('force')
-        expect(mockManifestSyncManager.closeTicket).toHaveBeenCalledTimes(1)
+        expect(mockManifestSyncManager.ask).toHaveBeenLastCalledWith({ mode: 'force', until: 'served' })
+        expect(mockManifestSyncManager.ask.mock.results.at(-1).value.close).toHaveBeenCalledTimes(1)
       })
 
       it('opens its ticket only after the poll in flight, so that poll can\'t fail it', async () => {
@@ -676,14 +699,15 @@ describe('SyncOrchestrator', () => {
         orchestrator.start()
         await vi.advanceTimersByTimeAsync(0)
 
+        mockManifestSyncManager.ask.mockClear()
         const synced = orchestrator.syncManifest('due')
         await vi.advanceTimersByTimeAsync(0)
-        expect(mockManifestSyncManager.openTicket).not.toHaveBeenCalled()
+        expect(mockManifestSyncManager.ask).not.toHaveBeenCalled()
 
         resolveFirst('failure')
         await synced
 
-        expect(mockManifestSyncManager.openTicket).toHaveBeenCalledTimes(1)
+        expect(mockManifestSyncManager.ask).toHaveBeenCalledTimes(1)
         expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
       })
 
@@ -695,8 +719,8 @@ describe('SyncOrchestrator', () => {
         const result = await orchestrator.syncManifest('force')
 
         expect(result).toEqual({ added: [], success: false, fetchedManifest: false })
-        expect(mockManifestSyncManager.closeTicket).toHaveBeenCalledTimes(1)
-        expect(mockManifestSyncManager.request).not.toHaveBeenCalledWith('force')
+        expect(mockManifestSyncManager.ask).toHaveBeenLastCalledWith({ mode: 'force', until: 'served' })
+        expect(mockManifestSyncManager.ask.mock.results.at(-1).value.close).toHaveBeenCalledTimes(1)
       })
 
       it('returns a failure without polling while offline', async () => {

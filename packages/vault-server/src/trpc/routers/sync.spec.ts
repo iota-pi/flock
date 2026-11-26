@@ -3,7 +3,7 @@ import { hashSessionToken, SESSION_EXPIRY_MS } from '../../sessions'
 import { syncRouter } from './sync'
 import { CLIENT_OUTDATED_MESSAGE, MAX_LOG_CIPHER_LENGTH, QUOTA_EXCEEDED_MESSAGE, type ItemId } from '@vault/shared'
 import { DEFAULT_ACCOUNT_QUOTAS } from '../../quotas'
-import { QuotaExceededError } from '../../errors'
+import { PushTooLargeError, QuotaExceededError } from '../../errors'
 
 function createContext(overrides?: {
   authToken?: string
@@ -136,6 +136,15 @@ describe('pollLog quota', () => {
     await expect(syncRouter.createCaller(ctx as any).pollLog(input)).rejects.toMatchObject({
       code: 'TOO_MANY_REQUESTS',
       message: QUOTA_EXCEEDED_MESSAGE,
+    })
+  })
+
+  it('answers PAYLOAD_TOO_LARGE when the push is more than one transaction', async () => {
+    const ctx = createContext()
+    ctx.vault.appendLog.mockRejectedValueOnce(new PushTooLargeError('too large'))
+
+    await expect(syncRouter.createCaller(ctx as any).pollLog(input)).rejects.toMatchObject({
+      code: 'PAYLOAD_TOO_LARGE',
     })
   })
 })

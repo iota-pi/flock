@@ -12,7 +12,7 @@ import { SyncApiClient } from './SyncApiClient'
 import { SyncSessionState } from './SyncSessionState'
 import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
-import { createMockKeyProvider, createMockVault, noLogCoverage, spyOnVaultTrpc } from './__test__/testUtils'
+import { createMockKeyProvider, createMockVault, docLookupFromRepo, noLogCoverage, spyOnVaultTrpc } from './__test__/testUtils'
 import { spyOnExports } from '../../test/moduleMocks'
 import { getApiAuthToken, setApiAuthToken } from '../keys/runtime'
 import * as manualRecoveryStoreModule from '../shared/manualRecoveryStore'
@@ -145,7 +145,7 @@ function createDeps(overrides: Partial<TestDeps> = {}): TestDeps {
   const session = new SyncSessionState()
   const recoveryManager = new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() })
   return {
-    builder: new SnapshotBuilder(mockRepo as any, keys, passthroughCodec, noLogCoverage),
+    builder: new SnapshotBuilder(docLookupFromRepo(mockRepo), keys, passthroughCodec, noLogCoverage),
     indexManager: { listItemIds: () => mockListItemIds() },
     apiClient: new SyncApiClient(),
     recoveryManager,
@@ -162,7 +162,7 @@ function createDeps(overrides: Partial<TestDeps> = {}): TestDeps {
 
 /** A builder that finds each document through `find`, so a test can make some items fail */
 function builderWith(find: (url: string) => Promise<unknown>) {
-  return new SnapshotBuilder({ find } as any, keys, passthroughCodec, noLogCoverage)
+  return new SnapshotBuilder(docLookupFromRepo({ find }), keys, passthroughCodec, noLogCoverage)
 }
 
 const readyDoc = { isReady: () => true, doc: () => ({ id: 'item-doc', type: 'note' }) }
@@ -406,9 +406,10 @@ describe('SnapshotRewriter.request', () => {
       ...deps,
       builder: builderWith(async () => {
         attempts += 1
-        return attempts === 1 ? { isReady: () => false, doc: () => null } : readyDoc
+        return readyDoc
       }),
     })
+    vault.encryptBytes.mockRejectedValueOnce(new Error('Vault is locked'))
 
     const result = await retrying.request()
 
@@ -418,13 +419,16 @@ describe('SnapshotRewriter.request', () => {
   })
 
   // Nothing is wrong with it, so a later rewrite can retry it, as the snapshot phase would
-  it('gives up on a document that never becomes ready without quarantining it', async () => {
+  it('gives up on a document whose build is never ready without quarantining it', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     mockListItemIds.mockResolvedValue(['item-never'])
     const { rewriter: retrying } = createRewriter({
       ...deps,
-      builder: builderWith(async () => ({ isReady: () => false, doc: () => null })),
+      builder: builderWith(async () => readyDoc),
     })
+    for (let attempt = 0; attempt < MAX_REWRITE_ATTEMPTS; attempt += 1) {
+      vault.encryptBytes.mockRejectedValueOnce(new Error('Vault is locked'))
+    }
 
     const result = await retrying.request()
 

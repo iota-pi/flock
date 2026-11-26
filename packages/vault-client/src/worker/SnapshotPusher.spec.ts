@@ -8,7 +8,7 @@ import { type ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import { AuthError, SyncApiClient } from './SyncApiClient'
 import { RecoveryManager } from './RecoveryManager'
 import { getApiAuthToken, setApiAuthToken } from '../keys/runtime'
-import { createMemoryItemRecords, createMockKeyProvider, createMockVault, noLogCoverage, spyOnVaultTrpc } from './__test__/testUtils'
+import { createMemoryItemRecords, createMockKeyProvider, createMockVault, docLookupFromRepo, noLogCoverage, spyOnVaultTrpc } from './__test__/testUtils'
 import { spyOnExports } from '../../test/moduleMocks'
 import { passthroughCodec } from './domain'
 import * as manualRecoveryStoreModule from '../shared/manualRecoveryStore'
@@ -529,9 +529,10 @@ describe('SnapshotPusher', () => {
     expect(mockTracker.deferUntil).toHaveBeenCalledTimes(1)
   })
 
-  describe('a document lookup that never settles', () => {
-    let mockRepo: any
-    let findSignals: Map<string, AbortSignal>
+  describe("a document the doc store's lookup can't load", () => {
+    let findHandle: ReturnType<typeof vi.fn>
+    /** What the lookup gives for item-1: nothing, like a doc whose local records fail to decrypt */
+    let lookupItem1: () => Promise<unknown>
 
     beforeEach(() => {
       spyOnExports(Automerge, {
@@ -541,23 +542,12 @@ describe('SnapshotPusher', () => {
       spyOnExports(docStoreModule, {
         normalizeItemSnapshot: () => ({ type: 'topic' }),
       })
-      spyOnExports(automergeModule, {
-        toAutomergeUrlFromItemId: (itemId: string) => `automerge:${itemId}`,
-      })
 
-      findSignals = new Map()
-      mockRepo = {
-        // item-1's handle stays pending, like one whose local records fail to decrypt
-        find: vi.fn((url: string, { signal }: { signal?: AbortSignal } = {}) => {
-          if (signal) findSignals.set(url, signal)
-          if (url !== 'automerge:item-1') {
-            return Promise.resolve({ isReady: () => true, doc: () => ({ id: url }) })
-          }
-          return new Promise((_resolve, reject) => {
-            signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
-          })
-        }),
-      }
+      lookupItem1 = () => Promise.resolve(undefined)
+      findHandle = vi.fn((itemId: string) => {
+        if (itemId === 'item-1') return lookupItem1()
+        return Promise.resolve({ isReady: () => true, doc: () => ({ id: itemId }) })
+      })
       const keys = createMockKeyProvider({
         ...createMockVault(),
         encryptBytes: vi.fn().mockResolvedValue({ cipher: 'abc', iv: '123', kver: '1' }),
@@ -577,7 +567,7 @@ describe('SnapshotPusher', () => {
         runPollNow: vi.fn().mockResolvedValue(undefined),
         isCaughtUp: () => true,
         hasPendingMarks: vi.fn().mockResolvedValue(false),
-        builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec, noLogCoverage),
+        builder: new SnapshotBuilder({ findHandle } as any, keys, passthroughCodec, noLogCoverage),
         pushToLog: mockPushToLog,
         storeDocs: mockStoreDocs,
         onSnapshotStored: mockOnSnapshotStored,
@@ -588,19 +578,9 @@ describe('SnapshotPusher', () => {
       })
     })
 
+    it('fails that item and still uploads the later items', async () => {
+      await expect(push()).resolves.toEqual({ persisted: 1, total: 1, success: false })
 
-    it('fails that item after the lookup timeout and still uploads the later items', async () => {
-      let settled = false
-      const run = push().then(result => {
-        settled = true
-        return result
-      })
-
-      await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.snapshotDocLookup - 1)
-      expect(settled).toBe(false)
-      await vi.advanceTimersByTimeAsync(1)
-
-      await expect(run).resolves.toEqual({ persisted: 1, total: 1, success: false })
       expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
       expect(mockApiClient.putSnapshots.mock.calls[0][0].snapshots.map((s: any) => s.itemId)).toEqual(['item-2'])
       expect(pusher['consecutiveFailures']['count']('item-1' as ItemId)).toBe(1)
@@ -608,11 +588,9 @@ describe('SnapshotPusher', () => {
       expect(mockTracker.retryNextPoll).toHaveBeenCalledTimes(1)
     })
 
-    it('quarantines the item once its lookups have timed out too many times', async () => {
+    it('quarantines the item once its lookups have failed too many times', async () => {
       for (let attempt = 0; attempt < 5; attempt += 1) {
-        const run = push()
-        await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.snapshotDocLookup)
-        await run
+        await push()
       }
 
       expect(mockTracker.clearDirty).toHaveBeenCalledWith('item-1', 1)
@@ -623,20 +601,19 @@ describe('SnapshotPusher', () => {
       )
     })
 
-    it('stops at once when the poll is aborted, without counting a failure', async () => {
+    it('stops at once when the poll is aborted during a lookup, without counting a failure', async () => {
+      lookupItem1 = () => new Promise(() => {})
       const controller = new AbortController()
       const run = push(controller.signal)
-      await vi.waitFor(() => expect(findSignals.has('automerge:item-1')).toBe(true))
+      await vi.waitFor(() => expect(findHandle).toHaveBeenCalledWith('item-1'))
 
       controller.abort()
 
       await expect(run).rejects.toThrow()
-      expect(findSignals.get('automerge:item-1')?.aborted).toBe(true)
-      expect(mockRepo.find).toHaveBeenCalledTimes(1)
+      expect(findHandle).toHaveBeenCalledTimes(1)
       expect(mockApiClient.putSnapshots).not.toHaveBeenCalled()
       expect(pusher['consecutiveFailures']['counts'].size).toBe(0)
       expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
-      expect(vi.getTimerCount()).toBe(0)
     })
   })
 
@@ -691,7 +668,7 @@ describe('SnapshotPusher', () => {
         runPollNow: vi.fn().mockResolvedValue(undefined),
         isCaughtUp: () => true,
         hasPendingMarks: vi.fn().mockResolvedValue(false),
-        builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec, noLogCoverage),
+        builder: new SnapshotBuilder(docLookupFromRepo(mockRepo), keys, passthroughCodec, noLogCoverage),
         pushToLog: mockPushToLog,
         storeDocs: mockStoreDocs,
         onSnapshotStored: mockOnSnapshotStored,
@@ -1087,13 +1064,12 @@ describe('SnapshotPusher', () => {
     })
 
     describe('Not-Ready vs Error Build Failure Handling', () => {
-      it('does not increment consecutiveBuildFailures or drop item when handle is not ready', async () => {
-        mockHandle.isReady.mockReturnValue(false)
-
+      it('does not increment consecutiveBuildFailures or drop item while the vault is locked', async () => {
         tracker.markItemDirty('item-1' as ItemId)
 
         // Run 6 push attempts
         for (let i = 0; i < 6; i += 1) {
+          vi.mocked(vault.encryptBytes).mockRejectedValueOnce(new Error('Vault is locked'))
           await uploadNow()
         }
 
