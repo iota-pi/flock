@@ -13,7 +13,6 @@ import { SyncOrchestrator } from './SyncOrchestrator'
 import { SyncPoller } from './SyncPoller'
 import { createLogExchange } from './LogExchange'
 import { ManifestHydrator } from './ManifestHydrator'
-import { ManifestDemands } from './ManifestDemands'
 import { ManifestSyncManager } from './ManifestSyncManager'
 import { ItemOperations } from './ItemOperations'
 import { INBOUND_MESSAGE_RESOLVABLE_KINDS, RecoveryManager } from './RecoveryManager'
@@ -149,7 +148,6 @@ export interface SyncWorkerServices {
   snapshotSchedule: SnapshotSchedule
   snapshotPusher: SnapshotPusher
   orchestrator: SyncOrchestrator
-  manifestDemands: ManifestDemands
   manifestHydrator: ManifestHydrator
   manifestSyncManager: ManifestSyncManager
   itemOperations: ItemOperations
@@ -365,8 +363,6 @@ export class SyncWorkerContext {
       onHealingChange: isHealing => this.statusManager.setDegradedPull(isHealing),
     })
 
-    const manifestDemands = new ManifestDemands()
-
     const puller = new SyncLogPuller({
       cursorStore: new LogCursorStore(accountId),
       docs: docStore,
@@ -374,7 +370,7 @@ export class SyncWorkerContext {
       session,
       incoming,
       reconciler: itemReconciler,
-      manifest: manifestDemands,
+      askManifest: options => signals.raise.askManifest(options),
       itemSyncState,
       onKeyVersionMissing: this.emitKeyVersionMissing,
       onRemoteChangesApplied: itemIds => {
@@ -469,7 +465,6 @@ export class SyncWorkerContext {
       keys,
       recoveryManager,
       apiClient: this.apiClient,
-      demands: manifestDemands,
       hydrator: manifestHydrator,
       storeItems,
       // Without a legacy source there is nothing to move: the main app's device gate keeps out the
@@ -552,6 +547,7 @@ export class SyncWorkerContext {
       localChangesFound: itemId => fireAndForget(changeOutbox.mark(itemId), 'SyncWorkerContext:markPending'),
       localDataMissing: itemId => itemReconciler.reconcile(itemId, { fetch: true }),
       metadataUpdated: metadata => accountSettings.handleLocalMetadata(metadata),
+      askManifest: options => manifestSyncManager.ask(options),
     })
 
     return {
@@ -572,7 +568,6 @@ export class SyncWorkerContext {
       snapshotSchedule,
       snapshotPusher,
       orchestrator,
-      manifestDemands,
       manifestHydrator,
       manifestSyncManager,
       itemOperations,

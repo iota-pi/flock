@@ -225,11 +225,11 @@ export class Device {
   /** A poll whose manifest phase syncs now, whenever the last sync ran */
   async manifestSync(): Promise<void> {
     const { manifestSyncManager } = this.services
-    const ticket = manifestSyncManager.openTicket('now')
+    const ask = manifestSyncManager.ask({ mode: 'now', until: 'served' })
     try {
       await this.poll()
     } finally {
-      manifestSyncManager.closeTicket(ticket)
+      ask.close()
     }
   }
 

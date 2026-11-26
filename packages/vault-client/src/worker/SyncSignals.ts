@@ -1,5 +1,6 @@
 import type { ItemId } from '@vault/shared'
 import type { VaultMetadata } from '../shared/types'
+import type { ManifestAsk, ManifestAskOptions } from './ManifestSyncManager'
 
 /**
  * The events a component raises for one built after it. Components are built in the order data flows
@@ -22,6 +23,8 @@ export interface SyncSignalHandlers {
   localDataMissing: (itemId: ItemId) => void
   /** The account's metadata changed */
   metadataUpdated: (metadata: VaultMetadata) => void
+  /** Asks the poll's manifest phase for a sync (`ManifestSyncManager.ask`) */
+  askManifest: (options: ManifestAskOptions) => ManifestAsk
 }
 
 /**

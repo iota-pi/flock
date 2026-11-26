@@ -19,7 +19,7 @@ describe('SyncPoller', () => {
   let puller: {
     cursor: number
     recordOwnPushes: AnyMock
-    demandCatchUpIfBehind: AnyMock
+    askCatchUpIfBehind: AnyMock
     dropPageIfBehind: AnyMock
     process: AnyMock
   }
@@ -37,7 +37,7 @@ describe('SyncPoller', () => {
     puller = {
       cursor: 7,
       recordOwnPushes: vi.fn(),
-      demandCatchUpIfBehind: vi.fn().mockReturnValue(false),
+      askCatchUpIfBehind: vi.fn().mockReturnValue(false),
       dropPageIfBehind: vi.fn().mockReturnValue(false),
       process: vi.fn().mockResolvedValue(undefined),
     }
@@ -74,7 +74,7 @@ describe('SyncPoller', () => {
 
   it('runs a manifest phase before and after pushing and reading the log, then heals, uploads snapshots and rewrites', async () => {
     const order: string[] = []
-    puller.demandCatchUpIfBehind.mockImplementation(() => { order.push('catchUp?') })
+    puller.askCatchUpIfBehind.mockImplementation(() => { order.push('catchUp?') })
     outbox.pushPending.mockImplementation(async () => { order.push('push') })
     apiClient.pollLog.mockImplementation(async () => {
       order.push('pollLog')
@@ -205,7 +205,7 @@ describe('SyncPoller', () => {
     it('asks the puller whether it is behind by the local clock before the first manifest phase', async () => {
       await poller.executePoll()
 
-      expect(puller.demandCatchUpIfBehind).toHaveBeenCalledWith(expect.any(Number))
+      expect(puller.askCatchUpIfBehind).toHaveBeenCalledWith(expect.any(Number))
     })
 
     // Rule 4: a catch-up or recovery request stays until a manifest is fetched, and the poll fails
