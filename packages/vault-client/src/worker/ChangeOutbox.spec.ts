@@ -27,7 +27,7 @@ describe('ChangeOutbox', () => {
   let docStore: { [K in keyof ChangeOutboxDeps['docStore']]: AnyMock }
   let exchange: Mock<LogExchange>
   let encryptBytes: AnyMock
-  let requestSnapshot: AnyMock
+  let markSnapshotOnly: AnyMock
   let onMarked: AnyMock
   let onAcknowledged: AnyMock
   let now: number
@@ -50,7 +50,8 @@ describe('ChangeOutbox', () => {
     }
     exchange = vi.fn(acknowledge)
     encryptBytes = vi.fn(async (data: Uint8Array) => ({ iv: 'iv', cipher: 'c'.repeat(data.byteLength), kver: '1', format: 2 }))
-    requestSnapshot = vi.fn()
+    // As the schedule's does, which also makes the snapshot due
+    markSnapshotOnly = vi.fn((itemId: ItemId) => itemSyncState.setSnapshotOnly(itemId))
     onMarked = vi.fn()
     // As the context's does, through the snapshot schedule
     onAcknowledged = vi.fn((itemId: ItemId) => itemSyncState.markDirty(itemId))
@@ -62,7 +63,7 @@ describe('ChangeOutbox', () => {
       session,
       itemSyncState,
       exchange,
-      requestSnapshot,
+      snapshotSchedule: { markSnapshotOnly },
       onMarked,
       onAcknowledged,
       now: () => now,
@@ -351,7 +352,7 @@ describe('ChangeOutbox', () => {
     await outbox.pushPending(signal)
 
     expect(exchange).not.toHaveBeenCalled()
-    expect(requestSnapshot).toHaveBeenCalledWith(ITEM)
+    expect(markSnapshotOnly).toHaveBeenCalledWith(ITEM)
     expect(itemSyncState.isSnapshotOnly(ITEM)).toBe(true)
     expect(await outbox.listPending()).toEqual([ITEM])
 
@@ -376,7 +377,7 @@ describe('ChangeOutbox', () => {
       session,
       itemSyncState,
       exchange,
-      requestSnapshot,
+      snapshotSchedule: { markSnapshotOnly },
       onMarked,
       onAcknowledged,
     })
@@ -471,7 +472,7 @@ describe('ChangeOutbox', () => {
       expect(await outbox.pushPending(signal)).toBe(true)
 
       expect(itemSyncState.isSnapshotOnly(ITEM)).toBe(true)
-      expect(requestSnapshot).toHaveBeenCalledWith(ITEM)
+      expect(markSnapshotOnly).toHaveBeenCalledWith(ITEM)
       expect(itemSyncState.getServerHeads(OTHER)).toEqual(['head-2'])
       // The snapshot carries ITEM's changes, so its mark stays until that's confirmed
       expect(await outbox.listPending()).toEqual([ITEM])
@@ -511,7 +512,7 @@ describe('ChangeOutbox', () => {
       await expect(outbox.pushPending(signal)).rejects.toThrow('Service unavailable')
 
       expect(itemSyncState.isSnapshotOnly(ITEM)).toBe(false)
-      expect(requestSnapshot).not.toHaveBeenCalled()
+      expect(markSnapshotOnly).not.toHaveBeenCalled()
     })
 
     // The account is over its log quota: nothing is wrong with the item, so it mustn't go snapshot-only
@@ -524,7 +525,7 @@ describe('ChangeOutbox', () => {
       await expect(outbox.pushPending(signal)).rejects.toThrow('QUOTA_EXCEEDED')
 
       expect(itemSyncState.isSnapshotOnly(ITEM)).toBe(false)
-      expect(requestSnapshot).not.toHaveBeenCalled()
+      expect(markSnapshotOnly).not.toHaveBeenCalled()
       expect(await outbox.listPending()).toEqual([ITEM])
     })
 

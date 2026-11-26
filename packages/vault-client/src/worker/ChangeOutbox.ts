@@ -3,6 +3,7 @@ import type { KeyProvider } from '../keys/Keyring'
 import type { AutomergeDocStore } from './docStore'
 import type { ItemSyncState } from './ItemSyncState'
 import type { LogExchange } from './LogExchange'
+import type { SnapshotSchedule } from './SnapshotSchedule'
 import type { SyncLogDatabase } from './stores/SyncLogDatabase'
 import type { SyncSessionState } from './SyncSessionState'
 import { SYNC_LOG_STORES } from '../shared/syncLogStorage'
@@ -83,12 +84,12 @@ export interface ChangeOutboxDeps {
   /** Each item's server heads and whether only a snapshot can deliver it */
   itemSyncState: Pick<
     ItemSyncState,
-    'getServerHeads' | 'setServerHeads' | 'isSnapshotOnly' | 'setSnapshotOnly' | 'save' | 'requestSave' | 'hasUnsaved'
+    'getServerHeads' | 'setServerHeads' | 'isSnapshotOnly' | 'save' | 'requestSave' | 'hasUnsaved'
   >
   /** Sends messages in one `pollLog` and handles the log it reads (see LogExchange) */
   exchange: LogExchange
-  /** Asks for an item's snapshot now, which delivers what the log can't */
-  requestSnapshot: (itemId: ItemId) => void
+  /** Marks an item snapshot-only, with its snapshot due now, which delivers what the log can't */
+  snapshotSchedule: Pick<SnapshotSchedule, 'markSnapshotOnly'>
   /**
    * Called once a mark is written, so the session pushes and the unsynced count updates
    */
@@ -258,8 +259,7 @@ export class ChangeOutbox {
       if (prepared.length === 1) {
         const [{ itemId }] = prepared
         log.warn(`The server refused the log rows of item ${itemId}; delivering it with a snapshot`, error)
-        this.deps.itemSyncState.setSnapshotOnly(itemId)
-        this.deps.requestSnapshot(itemId)
+        this.deps.snapshotSchedule.markSnapshotOnly(itemId)
         return false
       }
       // A full request holds dozens of items, so halve it rather than resend them one at a time
@@ -310,8 +310,7 @@ export class ChangeOutbox {
 
     if (outgoing.changes.some(change => change.byteLength > MAX_INCREMENTAL_MESSAGE_BYTES)) {
       log.warn(`A change to item ${itemId} is over the row limit; delivering it with a snapshot`)
-      this.deps.itemSyncState.setSnapshotOnly(itemId)
-      this.deps.requestSnapshot(itemId)
+      this.deps.snapshotSchedule.markSnapshotOnly(itemId)
       await this.recordBlocked(mark, 'snapshotOnly')
       return null
     }

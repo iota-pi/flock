@@ -207,9 +207,8 @@ describe('SyncWorkerContext', () => {
     await context.initialize()
   })
 
-  it('marks items dirty at once when a change can only reach the server in a snapshot', () => {
-    depsOf<ChangeOutboxDeps>(context.services.changeOutbox).requestSnapshot('oversized-item' as ItemId)
-    expect(context.services.snapshotSchedule.markItemDirty).toHaveBeenCalledWith('oversized-item' as ItemId, 0)
+  it('gives the outbox the snapshot schedule, for changes that can only reach the server in a snapshot', () => {
+    expect(depsOf<ChangeOutboxDeps>(context.services.changeOutbox).snapshotSchedule).toBe(context.services.snapshotSchedule)
   })
 
   it('reports poll results and pull retries to the status manager', () => {
