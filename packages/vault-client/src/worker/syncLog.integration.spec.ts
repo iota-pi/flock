@@ -1,6 +1,7 @@
 import { MAX_INCREMENTAL_MESSAGE_BYTES, type ItemId } from '@vault/shared'
 import type { Keyring } from '../keys/Keyring'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
+import { SYNC_LOG_STORES } from '../shared/syncLogStorage'
 import { FakeVaultServer } from './__test__/FakeVaultServer'
 import { createAccountKeys, Device, installLocalStorage } from './__test__/syncLogHarness'
 
@@ -191,6 +192,40 @@ describe('sync log', () => {
     await b.poll()
 
     expect((await b.read(itemId))?.title).toBe('three')
+  })
+
+  it('stores the doc a parked row heals before deleting the row, so a crash keeps its change', async () => {
+    const a = await startDevice('device-a')
+    // Docs reach storage only when something flushes them
+    const b = await startDevice('device-b', { config: { repoSaveDebounceMs: DAY } })
+    const itemId = await a.create('item-1', { title: 'one' })
+    await a.sync()
+    const snapshot = server.items.get(itemId)!
+    await a.edit(itemId, { title: 'two' })
+    await a.poll()
+    // B parks the edit's row, since its parent is in a row B never sees, and stores its cursor past it
+    server.loseRow(1)
+    server.items.clear()
+    const later = server.clock() + SYNC_TIMEOUTS.gapWait
+    server.clock = () => later
+    await b.poll()
+    expect(await b.read(itemId)).toBeNull()
+    expect(b.services.puller.cursor).toBe(server.head)
+    expect(await b.services.syncLogDatabase.getAll(SYNC_LOG_STORES.parked)).toHaveLength(1)
+    await new Promise(resolve => setTimeout(resolve, LOG_CURSOR_SAVE_DELAY_MS))
+
+    // The snapshot from before the edit arrives, and the parked row applies over it
+    server.items.set(itemId, snapshot)
+    await b.manifestSync()
+    await b.poll()
+    expect((await b.read(itemId))?.title).toBe('two')
+    expect(await b.services.syncLogDatabase.getAll(SYNC_LOG_STORES.parked)).toEqual([])
+
+    // Killed before the Repo's throttled save
+    await b.crash()
+    await b.start()
+    await b.poll()
+    expect((await b.read(itemId))?.title).toBe('two')
   })
 
   describe('snapshot coverage', () => {
