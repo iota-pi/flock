@@ -189,6 +189,7 @@ OCC would be harmful. A blind relay cannot resolve conflicts, so concurrent or o
 - Deletion is terminal, with no undelete. New items always get a fresh `generateItemId()` (126-bit nanoid). Reusing an ID would merge the old entity's history into the new one.
 - `AutomergeDocStore.findOrCreateHandle` refuses to create a blank doc when `hasDataInStorage(itemId)`. This guard prevents data loss: without it, a handle-lookup timeout would overwrite an existing doc.
 - Selectors filter `!item.deleted`, and `AutomergeIndexManager` excludes tombstones from the active index.
+- **The doc's delete is stored before the index tombstones it**, as a create's doc is stored before the index lists it. Otherwise a crash before the Repo's throttled save leaves a tombstone over a live doc, and since the server copy is live too, manifest sync would push a live snapshot that never deletes it, every round. A device that already holds such a mismatch (from a build that tombstoned first) has its doc deleted by manifest sync before the push (`ManifestSyncManager.reapplyLostDeletes`): the tombstone is terminal.
 
 ### Account deletion
 

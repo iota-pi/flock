@@ -106,10 +106,14 @@ export class ItemOperations {
     try {
       const result = await this.applyDocumentChange(id, changes, { knownToExist: true })
       if (result === 'applied') {
+        // Marked first, so that the delete is still pushed if storing it fails
+        this.deps.markDocumentDirty(id)
         if (changes.deleted === true) {
+          // As for creates, the delete must be in storage before the index records it. Otherwise a
+          // crash before the Repo's throttled save leaves a tombstone in the index over a live doc.
+          await this.deps.docStore.flushToStorage([id])
           await this.deps.indexManager.removeItemIds([id])
         }
-        this.deps.markDocumentDirty(id)
       } else if (result === 'refusedDeleted') {
         await this.handleMutationFailure(id, 'edit', `Cannot edit deleted item ${id}`)
       } else {
@@ -218,6 +222,8 @@ export class ItemOperations {
    * deleted item removes it, then releases it from quarantine and pushes it.
    */
   private async releaseRecoveredItem(itemId: ItemId, index: 'add' | 'remove'): Promise<void> {
+    // The doc reaches storage before the index records it, as in `createDocumentOrThrow`
+    await this.deps.docStore.flushToStorage([itemId])
     if (index === 'add') {
       await this.deps.indexManager.addItemIds([itemId])
     } else {
