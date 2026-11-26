@@ -1,3 +1,5 @@
+import { MAX_LOG_PUSH_ROWS } from '@vault/shared'
+
 /**
  * Centralized sync configuration constants.
  * Grouped into timeouts and batch sizes for unified management and testability.
@@ -92,8 +94,8 @@ export const GAP_HEAL_DELAYS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000] as
 
 export const SYNC_BATCH_SIZES = {
   /** Most log rows in one push, which the server appends in one transaction. Pushes fill to this or `logPushChars`. */
-  logPushRows: 99,
-  /** Most ciphertext characters in one push, under the server's transaction limit */
+  logPushRows: MAX_LOG_PUSH_ROWS,
+  /** Most ciphertext characters in one push, leaving room under `MAX_LOG_PUSH_BYTES` for the rest of each row */
   logPushChars: 3 * 1024 * 1024,
   /** Number of snapshots to re-encrypt and upload per batch */
   reencryptChunk: 10,

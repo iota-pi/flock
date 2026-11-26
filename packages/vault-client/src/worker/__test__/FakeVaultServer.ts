@@ -5,6 +5,7 @@ import {
   FetchItemsInputSchema,
   FetchSnapshotsByIdsInputSchema,
   MAX_ITEM_SIZE_BYTES,
+  MAX_LOG_PUSH_BYTES,
   PollLogSchema,
   PutSnapshotBatchSchema,
   QUOTA_EXCEEDED_MESSAGE,
@@ -27,7 +28,6 @@ interface ServerItem {
   snapshot?: VaultSnapshotInput['snapshot']
   heads?: VaultSnapshotInput['heads']
   deleted: boolean
-  modifiedAt: number
 }
 
 /** About how large the server stores a snapshot, with its ciphertext as binary */
@@ -40,6 +40,7 @@ function storedSize({ snapshot, heads }: VaultSnapshotInput): number {
 const SERVER_ERRORS = {
   BAD_REQUEST: { rpcCode: -32600, httpStatus: 400 },
   UNAUTHORIZED: { rpcCode: -32001, httpStatus: 401 },
+  PAYLOAD_TOO_LARGE: { rpcCode: -32413, httpStatus: 413 },
   TOO_MANY_REQUESTS: { rpcCode: -32029, httpStatus: 429 },
 } as const
 
@@ -91,6 +92,10 @@ export class FakeVaultServer implements VaultServerBackend {
   pollLog(rawInput: Inputs['sync']['pollLog']): Outputs['sync']['pollLog'] {
     this.checkRequest()
     const input = this.parse(PollLogSchema, rawInput)
+    const pushBytes = input.push.reduce((total, message) => total + new TextEncoder().encode(JSON.stringify(message)).length, 0)
+    if (pushBytes > MAX_LOG_PUSH_BYTES) {
+      throw serverError('PAYLOAD_TOO_LARGE', 'PAYLOAD_TOO_LARGE')
+    }
     if (input.push.length > 0 && this.isOverLogQuota) {
       throw serverError('TOO_MANY_REQUESTS', QUOTA_EXCEEDED_MESSAGE)
     }
@@ -130,8 +135,6 @@ export class FakeVaultServer implements VaultServerBackend {
   private write(snapshot: VaultSnapshotInput): number {
     const existing = this.items.get(snapshot.itemId)
     const version = (existing?.version ?? 0) + 1
-    // The server's own clock: it never stores the client's `modified`
-    const modifiedAt = this.clock()
     if (snapshot.deleted !== true && existing?.deleted !== true) {
       this.items.set(snapshot.itemId, {
         version,
@@ -139,14 +142,13 @@ export class FakeVaultServer implements VaultServerBackend {
         // Heads describe the snapshot written with them, so a write without them removes them
         heads: snapshot.snapshot ? snapshot.heads : undefined,
         deleted: false,
-        modifiedAt,
       })
       return version
     }
     // Deletion is terminal, and a tombstone keeps nothing of the item's content. A payload-less
     // tombstone only marks an item the server has deleted.
     if (!existing && !snapshot.snapshot) return 0
-    this.items.set(snapshot.itemId, { version, deleted: true, modifiedAt })
+    this.items.set(snapshot.itemId, { version, deleted: true })
     return version
   }
 
@@ -156,7 +158,6 @@ export class FakeVaultServer implements VaultServerBackend {
     const manifest: ManifestEntry[] = Array.from(this.items.entries()).map(([itemId, item]) => ({
       itemId,
       version: item.version,
-      modifiedAt: item.modifiedAt,
       ...(item.deleted ? { isDeleted: true } : {}),
       ...(item.heads && !item.deleted ? { heads: item.heads } : {}),
     }))

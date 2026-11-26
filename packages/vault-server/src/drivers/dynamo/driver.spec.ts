@@ -499,7 +499,7 @@ describe('DynamoDriver', function () {
     await expect(getWithSession(account, sessionB)).rejects.toThrow()
   })
 
-  it('fetchManifest returns item and modifiedAt tuples without payload', async () => {
+  it('fetchManifest returns item and version entries without payload', async () => {
     const account = generateTestAccountId()
     const cipher = 'test-cipher'
     const iv = 'test-iv'
@@ -519,7 +519,7 @@ describe('DynamoDriver', function () {
     expect(ids).toContain(item2)
 
     const entry1 = manifest.find(m => m.itemId === item1)
-    expect(entry1?.modifiedAt).toEqual(expect.any(Number))
+    expect(entry1).toEqual({ itemId: item1, version: 1 })
   })
 
   it('records the server time as modifiedAt, not the client time, and does not store the latter', async () => {
@@ -529,23 +529,11 @@ describe('DynamoDriver', function () {
 
     await driver.set({ account, item, cipher: 'c', metadata: { iv: 'iv', modified: 1 } })
 
-    const [entry] = await driver.fetchManifest({ account })
-    expect(entry.modifiedAt).toBeGreaterThanOrEqual(before)
-    expect(entry.modifiedAt).toBeLessThanOrEqual(Date.now())
+    const { Item: row } = await driver.client.send(new GetCommand({ TableName: driver.tables.items, Key: { account, item } }))
+    expect(row?.modifiedAt).toBeGreaterThanOrEqual(before)
+    expect(row?.modifiedAt).toBeLessThanOrEqual(Date.now())
     const [result] = await driver.fetchByIds({ account, itemIds: [item] })
     expect(result.metadata).not.toHaveProperty('modified')
-  })
-
-  it('falls back to metadata.modified in the manifest for legacy rows', async () => {
-    const account = generateTestAccountId()
-    const item = generateItemId()
-    await driver.client.send(new PutCommand({
-      TableName: driver.tables.items,
-      Item: { account, item, cipher: 'old', metadata: { iv: 'iv', modified: 1234567890 }, version: 1 },
-    }))
-
-    const [entry] = await driver.fetchManifest({ account })
-    expect(entry.modifiedAt).toBe(1234567890)
   })
 
   it('fetchByIds retrieves exact items in batches', async () => {

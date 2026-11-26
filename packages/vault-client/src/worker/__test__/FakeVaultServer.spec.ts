@@ -1,4 +1,12 @@
-import { MAX_FETCH_RESPONSE_CHARS, MAX_ITEM_SIZE_BYTES, QUOTA_EXCEEDED_MESSAGE, type ItemId, type VaultSnapshotInput } from '@vault/shared'
+import {
+  MAX_FETCH_RESPONSE_CHARS,
+  MAX_ITEM_SIZE_BYTES,
+  MAX_LOG_PUSH_BYTES,
+  MAX_LOG_PUSH_ROWS,
+  QUOTA_EXCEEDED_MESSAGE,
+  type ItemId,
+  type VaultSnapshotInput,
+} from '@vault/shared'
 import { classifySyncError } from '../../utils/errorClassifier'
 import type { SyncApiClient } from '../SyncApiClient'
 import { FakeVaultServer } from './FakeVaultServer'
@@ -150,8 +158,8 @@ describe.each([
 
     it('pages the log 200 rows at a time', async () => {
       const itemId = newItemId()
-      for (let pushed = 0; pushed < 201; pushed += 100) {
-        const count = Math.min(100, 201 - pushed)
+      for (let pushed = 0; pushed < 201; pushed += MAX_LOG_PUSH_ROWS) {
+        const count = Math.min(MAX_LOG_PUSH_ROWS, 201 - pushed)
         await api.pollLog({ account, push: Array.from({ length: count }, (_, index) => message(itemId, `row ${pushed + index}`)), after: 201 })
       }
 
@@ -164,12 +172,24 @@ describe.each([
       expect(rest.hasMore).toBe(false)
     })
 
-    it('refuses more than 100 rows in one push', async () => {
+    it('refuses more than one transaction of rows in a push', async () => {
       const itemId = newItemId()
-      const push = Array.from({ length: 101 }, (_, index) => message(itemId, `row ${index}`))
+      const push = Array.from({ length: MAX_LOG_PUSH_ROWS + 1 }, (_, index) => message(itemId, `row ${index}`))
 
       expect(await rejection(api.pollLog({ account, push, after: 0 })))
         .toEqual({ isAuth: false, isNetwork: false, isServerError: false, status: 400 })
+      expect((await api.pollLog({ account, after: 0 })).entries).toEqual([])
+    })
+
+    it('refuses a push over one transaction of bytes as too large, appending none of it', async () => {
+      const itemId = newItemId()
+      // Rows near the largest the server takes, a few more than fit in one transaction
+      const content = 'x'.repeat(250 * 1024)
+      const rowBytes = JSON.stringify(message(itemId, content)).length
+      const push = Array.from({ length: Math.floor(MAX_LOG_PUSH_BYTES / rowBytes) + 1 }, () => message(itemId, content))
+
+      expect(await rejection(api.pollLog({ account, push, after: 0 })))
+        .toEqual({ isAuth: false, isNetwork: false, isServerError: false, status: 413 })
       expect((await api.pollLog({ account, after: 0 })).entries).toEqual([])
     })
   })
@@ -192,30 +212,18 @@ describe.each([
       }])
     })
 
-    it('records its own clock as modifiedAt', async () => {
-      const itemId = newItemId()
-      const before = Date.now()
-
-      await put(snapshot(itemId, 'one'))
-
-      const entry = await manifestEntry(itemId)
-      expect(entry?.modifiedAt).toBeGreaterThanOrEqual(before)
-      expect(entry?.modifiedAt).toBeLessThanOrEqual(Date.now())
-    })
-
     it('lists heads with the snapshot they came with, and drops them with a write that has none', async () => {
       const itemId = newItemId()
       await put(snapshot(itemId, 'one'))
       expect(await manifestEntry(itemId)).toEqual({
         itemId,
         version: 1,
-        modifiedAt: expect.any(Number),
         heads: snapshot(itemId, 'one').heads,
       })
 
       await put(snapshot(itemId, 'two', { heads: undefined }))
 
-      expect(await manifestEntry(itemId)).toEqual({ itemId, version: 2, modifiedAt: expect.any(Number) })
+      expect(await manifestEntry(itemId)).toEqual({ itemId, version: 2 })
     })
 
     it('refuses an item over the size limit, persisting the rest of the batch', async () => {
@@ -262,7 +270,7 @@ describe.each([
       const result = await put(snapshot(itemId, 'last', { deleted: true }))
 
       expect(result.results).toEqual([{ itemId, version: 2 }])
-      expect(await manifestEntry(itemId)).toEqual({ itemId, version: 2, modifiedAt: expect.any(Number), isDeleted: true })
+      expect(await manifestEntry(itemId)).toEqual({ itemId, version: 2, isDeleted: true })
       expect(await fetchOne(itemId)).toEqual([{ item: itemId, version: 2, metadata: { iv: '', deleted: true } }])
     })
 
@@ -272,7 +280,7 @@ describe.each([
 
       expect((await put(tombstone(itemId))).results).toEqual([{ itemId, version: 2 }])
 
-      expect(await manifestEntry(itemId)).toEqual({ itemId, version: 2, modifiedAt: expect.any(Number), isDeleted: true })
+      expect(await manifestEntry(itemId)).toEqual({ itemId, version: 2, isDeleted: true })
       expect(await fetchOne(itemId)).toEqual([{ item: itemId, version: 2, metadata: { iv: '', deleted: true } }])
     })
 
@@ -294,7 +302,7 @@ describe.each([
       const result = await put(snapshot(itemId, 'from a device that missed the delete'))
 
       expect(result.results).toEqual([{ itemId, version: 3 }])
-      expect(await manifestEntry(itemId)).toEqual({ itemId, version: 3, modifiedAt: expect.any(Number), isDeleted: true })
+      expect(await manifestEntry(itemId)).toEqual({ itemId, version: 3, isDeleted: true })
       expect(await fetchOne(itemId)).toEqual([{ item: itemId, version: 3, metadata: { iv: '', deleted: true } }])
     })
   })

@@ -150,7 +150,7 @@ describe('ManifestHydrator', () => {
 
       const result = await hydrator.hydrateRemoteItem(
         item as any,
-        manifestOf({ itemId: 'item-binary' as ItemId, modifiedAt: 2000 }),
+        manifestOf({ itemId: 'item-binary' as ItemId }),
         new Set(['item-binary' as ItemId]),
       )
 
@@ -176,7 +176,7 @@ describe('ManifestHydrator', () => {
 
       const result = await hydrator.hydrateRemoteItem(
         item as any,
-        manifestOf({ itemId: 'item-no-heads' as ItemId, modifiedAt: 2000 }),
+        manifestOf({ itemId: 'item-no-heads' as ItemId }),
         new Set(['item-no-heads' as ItemId]),
       )
 
@@ -203,7 +203,7 @@ describe('ManifestHydrator', () => {
 
       const result = await hydrator.hydrateRemoteItem(
         item as any,
-        manifestOf({ itemId: 'item-binary-changes' as ItemId, modifiedAt: 2000, version: 3 }),
+        manifestOf({ itemId: 'item-binary-changes' as ItemId, version: 3 }),
         new Set(['item-binary-changes' as ItemId]),
       )
 
@@ -224,7 +224,7 @@ describe('ManifestHydrator', () => {
 
       const result = await hydrator.hydrateRemoteItem(
         item as any,
-        manifestOf({ itemId: 'item-deleted-meta' as ItemId, modifiedAt: 3000, version: 5 }),
+        manifestOf({ itemId: 'item-deleted-meta' as ItemId, version: 5 }),
         new Set(),
       )
 
@@ -248,7 +248,7 @@ describe('ManifestHydrator', () => {
 
       const result = await hydrator.hydrateRemoteItem(
         item as any,
-        manifestOf({ itemId: 'item-un-decryptable' as ItemId, modifiedAt: 1000 }),
+        manifestOf({ itemId: 'item-un-decryptable' as ItemId }),
         new Set(),
       )
 
@@ -268,7 +268,7 @@ describe('ManifestHydrator', () => {
 
       const result = await hydrator.hydrateRemoteItem(
         item as any,
-        manifestOf({ itemId: 'item-crash' as ItemId, modifiedAt: 1000 }),
+        manifestOf({ itemId: 'item-crash' as ItemId }),
         new Set(),
       )
 
@@ -305,7 +305,7 @@ describe('ManifestHydrator', () => {
     it('decodes rows without a snapshot through the hook', async () => {
       const result = await createHydrator().hydrateRemoteItem(
         legacyRow as any,
-        manifestOf({ itemId: 'item-legacy' as ItemId, modifiedAt: 2000, version: 4 }),
+        manifestOf({ itemId: 'item-legacy' as ItemId, version: 4 }),
         new Set(),
       )
 
@@ -323,7 +323,7 @@ describe('ManifestHydrator', () => {
 
       const result = await createHydrator().fetchAndHydrateRemoteItems({
         missingIds: ['item-legacy' as ItemId],
-        manifest: [{ itemId: 'item-legacy' as ItemId, modifiedAt: 2000 }],
+        manifest: [{ itemId: 'item-legacy' as ItemId }],
         knownSet: new Set(),
         tombstoneSet: new Set(),
       })
@@ -430,7 +430,7 @@ describe('ManifestHydrator', () => {
     it('does not resurrect a locally deleted item, and marks it dirty', async () => {
       const result = await createHydrator().hydrateRemoteItem(
         legacyRow as any,
-        manifestOf({ itemId: 'item-legacy' as ItemId, modifiedAt: 2000, version: 4 }),
+        manifestOf({ itemId: 'item-legacy' as ItemId, version: 4 }),
         new Set(),
         new Set(['item-legacy' as ItemId]),
       )
@@ -454,7 +454,7 @@ describe('ManifestHydrator', () => {
 
       const result = await hydrator.fetchAndHydrateRemoteItems({
         missingIds: ['item-1' as ItemId],
-        manifest: [{ itemId: 'item-1' as ItemId, modifiedAt: 1000 }],
+        manifest: [{ itemId: 'item-1' as ItemId }],
         knownSet: new Set(),
         tombstoneSet: new Set(),
       })
@@ -471,8 +471,8 @@ describe('ManifestHydrator', () => {
       const params = () => ({
         missingIds: ['item-new' as ItemId, 'item-known' as ItemId],
         manifest: [
-          { itemId: 'item-new' as ItemId, version: 2, modifiedAt: 1000 },
-          { itemId: 'item-known' as ItemId, version: 5, modifiedAt: 1000 },
+          { itemId: 'item-new' as ItemId, version: 2 },
+          { itemId: 'item-known' as ItemId, version: 5 },
         ],
         knownSet: new Set(['item-known' as ItemId]),
         tombstoneSet: new Set<ItemId>(),
@@ -532,7 +532,7 @@ describe('ManifestHydrator', () => {
 
       const result = await hydrator.fetchAndHydrateRemoteItems({
         missingIds: ['item-bad' as ItemId],
-        manifest: [{ itemId: 'item-bad' as ItemId, version: 4, modifiedAt: 1000 }],
+        manifest: [{ itemId: 'item-bad' as ItemId, version: 4 }],
         knownSet: new Set(),
         tombstoneSet: new Set(),
       })
@@ -556,7 +556,7 @@ describe('ManifestHydrator', () => {
 
       const result = await hydrator.fetchAndHydrateRemoteItems({
         missingIds: ['item-new-key' as ItemId],
-        manifest: [{ itemId: 'item-new-key' as ItemId, modifiedAt: 1000 }],
+        manifest: [{ itemId: 'item-new-key' as ItemId }],
         knownSet: new Set(),
         tombstoneSet: new Set(),
       })
@@ -569,7 +569,7 @@ describe('ManifestHydrator', () => {
     describe('an item that keeps failing with an error', () => {
       const params = () => ({
         missingIds: ['item-err' as ItemId],
-        manifest: [{ itemId: 'item-err' as ItemId, version: 7, modifiedAt: 1000 }],
+        manifest: [{ itemId: 'item-err' as ItemId, version: 7 }],
         knownSet: new Set<ItemId>(),
         tombstoneSet: new Set<ItemId>(),
       })
@@ -628,7 +628,7 @@ describe('ManifestHydrator', () => {
       const ids = ['item-1', 'item-2', 'item-3'] as ItemId[]
       const fetchParams = {
         missingIds: ids,
-        manifest: ids.map(itemId => ({ itemId, modifiedAt: 1000 })),
+        manifest: ids.map(itemId => ({ itemId })),
         knownSet: new Set<ItemId>(),
         tombstoneSet: new Set<ItemId>(),
       }
@@ -662,7 +662,7 @@ describe('ManifestHydrator', () => {
     describe('a snapshot request that fails', () => {
       const params = {
         missingIds: ['item-err' as ItemId],
-        manifest: [{ itemId: 'item-err' as ItemId, modifiedAt: 1000 }],
+        manifest: [{ itemId: 'item-err' as ItemId }],
         knownSet: new Set<ItemId>(),
         tombstoneSet: new Set<ItemId>(),
       }
@@ -730,7 +730,7 @@ describe('ManifestHydrator', () => {
       })
 
       const missingIds = items.map(entry => entry.item as ItemId)
-      const manifest = items.map(entry => ({ itemId: entry.item as ItemId, modifiedAt: 1000 }))
+      const manifest = items.map(entry => ({ itemId: entry.item as ItemId }))
 
       const result = await customHydrator.fetchAndHydrateRemoteItems({
         missingIds,
@@ -767,7 +767,7 @@ describe('ManifestHydrator', () => {
         hydrator.fetchAndHydrateRemoteItems(
           {
             missingIds: items.map(e => e.item as ItemId),
-            manifest: items.map(e => ({ itemId: e.item as ItemId, modifiedAt: 1000 })),
+            manifest: items.map(e => ({ itemId: e.item as ItemId })),
             knownSet: new Set(),
             tombstoneSet: new Set(),
           },
