@@ -342,6 +342,30 @@ describe('sync model', () => {
       await assertConverged(world, setup.model, observers)
     })
 
+    // Found by the property (seed 31337, path 12:10:11:21, replay path BAABCACB//x:Vd). Deleting an
+    // item stored its tombstone in the index at once but left the doc's delete to the Repo's throttled
+    // save, so a frozen tab's close left C with a tombstone over a live doc. Every manifest sync then
+    // uploaded that live doc, since the server's copy wasn't deleted, and nothing ever settled.
+    it('never tombstones an item whose delete a crash lost', async () => {
+      const setup = await createWorld(3)
+      world = setup.real
+      const [a, , c] = world.devices
+      const itemId = await c.create('item-1')
+      setup.model.items.push(itemId)
+      setup.model.durableCreates.add(itemId)
+      await c.edit(itemId, { deleted: true })
+      await c.takeOver({ clean: false })
+      // The delete counts as stored once it returns, so the item stays deleted through the crash
+      expect(await c.liveIds()).toEqual([])
+      expect(await c.read(itemId)).toMatchObject({ deleted: true })
+      setup.model.durableDeletes.add(itemId)
+      await a.poll()
+
+      await quiesce(world, setup.model)
+      expect(await a.liveIds()).toEqual([])
+      await assertConverged(world, setup.model, observers)
+    })
+
     it('keeps an edit whose author never returns, once the log has expired', async () => {
       const { setup, world: w, a, b, itemId } = await sharedItem()
       await a.edit(itemId, { e1: 1 })

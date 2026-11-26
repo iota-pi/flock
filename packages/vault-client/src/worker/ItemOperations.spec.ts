@@ -164,6 +164,28 @@ describe('ItemOperations', () => {
       expect(emitMock).not.toHaveBeenCalled()
     })
 
+    it('stores a deleted doc before the index records its tombstone', async () => {
+      changeDocumentMock.mockResolvedValue(true)
+
+      await operations.mutateItem(itemId, { deleted: true })
+
+      expect(flushToStorageMock).toHaveBeenCalledWith([itemId])
+      expect(flushToStorageMock.mock.invocationCallOrder[0])
+        .toBeLessThan(removeItemIdsMock.mock.invocationCallOrder[0])
+      expect(markDocumentDirtyMock).toHaveBeenCalledWith(itemId)
+    })
+
+    it('leaves the index alone, but still pushes the delete, when the deleted doc cannot be stored', async () => {
+      changeDocumentMock.mockResolvedValue(true)
+      flushToStorageMock.mockRejectedValue(new Error('disk full'))
+
+      await operations.mutateItem(itemId, { deleted: true })
+
+      expect(removeItemIdsMock).not.toHaveBeenCalled()
+      expect(markDocumentDirtyMock).toHaveBeenCalledWith(itemId)
+      expect(emitMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'mutationFailed' }))
+    })
+
     it('applies scalar changes and reconciles array changes in changeDocument callback', async () => {
       let changeCallback: ((doc: any) => void) | undefined
       changeDocumentMock.mockImplementation(async (_id: any, cb: any) => {
