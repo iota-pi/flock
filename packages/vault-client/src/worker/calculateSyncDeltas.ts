@@ -119,6 +119,10 @@ function calculateUpstreamDeltas(
     if (!ctx.force && ctx.quarantinedMap.has(localId)) continue
 
     if (!serverManifestIds.has(localId)) {
+      // A tombstone for an ID the server has never seen writes nothing, so pushing it again would
+      // repeat on every manifest sync. Another device that has the item live uploads it, and then
+      // the tombstone branch below pushes this deletion.
+      if (ctx.tombstoneSet.has(localId)) continue
       // Item exists locally but is completely missing from server manifest
       upstreamIds.push(localId)
     } else if (ctx.tombstoneSet.has(localId)) {

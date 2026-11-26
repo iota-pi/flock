@@ -68,6 +68,6 @@ Read [docs/sync-design.md](docs/sync-design.md) before changing or reviewing any
 - Snapshot uploads are unconditional last-write-wins (LWW) with no OCC. Hydration is a CRDT merge, so stale snapshots are harmless.
 - Pull queries are strictly `seq > after` with no lookback window. A lookback previously caused infinite re-downloads.
 - Password change invalidates all other sessions.
-- Oversized deleted items upload a payload-less tombstone snapshot.
+- A deleted item the server has uploads a payload-less tombstone snapshot, as does an oversized deleted item. Manifest sync doesn't push a locally tombstoned item that the manifest lacks.
 - The server drops a deleted item's snapshot, legacy `cipher` and heads on every tombstone write, keeping only its metadata, `version` and `modifiedAt`.
 - Lambda runs in UTC. The client converts with `date-fns-tz`.

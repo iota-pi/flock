@@ -15,7 +15,7 @@ import type { ItemSyncRecord } from '../stores/itemSyncRecords'
 import { SYNC_LOG_STORES } from '../../shared/syncLogStorage'
 
 /** Snapshot coverage that lets every snapshot be built */
-export const noLogCoverage = { isCovered: () => true }
+export const noLogCoverage = { isCovered: () => true, getBaseVersion: () => 0 }
 
 /** A real local cipher over a fresh one-key keyring */
 export async function createTestLocalCipher(accountId = 'test-account'): Promise<LocalCipher> {
