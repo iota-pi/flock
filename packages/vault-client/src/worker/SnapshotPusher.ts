@@ -178,7 +178,8 @@ export class SnapshotPusher implements StoredSnapshotRecorder {
     if (state.dirtyCount === 0 && !(await this.deps.hasPendingMarks())) {
       return { persisted: 0, total: 0 }
     }
-    schedule.requestNow()
+    // The page may be closing, or the user asked: worth one more try past a quota deferral
+    schedule.requestNow({ pastQuota: true })
     const pushesBefore = this.pushes
     await this.deps.runPollNow()
     // Nothing became dirty, so the request mustn't make a later edit's snapshot due at once

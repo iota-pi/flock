@@ -1,6 +1,7 @@
 import type { ItemId } from '@vault/shared'
 import { SnapshotPusher, type SnapshotPusherOptions } from './SnapshotPusher'
 import { SnapshotSchedule } from './SnapshotSchedule'
+import { queueFlaggedItems } from './startupAudit'
 import { SyncSessionState } from './SyncSessionState'
 import { ItemSyncState } from './ItemSyncState'
 import { RecoveryManager } from './RecoveryManager'
@@ -39,6 +40,8 @@ interface Snapshots {
   state: ItemSyncState
   schedule: SnapshotSchedule
   pusher: SnapshotPusher
+  /** Loads the item records and runs the startup audit, as the context does at start */
+  load: () => Promise<void>
 }
 
 const pollControllers = new WeakMap<Snapshots, AbortController>()
@@ -77,7 +80,7 @@ function createSnapshots(
   const { repo, keys, codec = passthroughCodec, onDueChanged, ...deps } = context
   const session = new SyncSessionState()
   const state = new ItemSyncState({ db, session })
-  const schedule = new SnapshotSchedule({ state, recoveryManager: deps.recoveryManager, session, onDueChanged })
+  const schedule = new SnapshotSchedule({ state, session, onDueChanged })
   const runPollNow = options.runPollNow ?? poll
   const created: Snapshots = {
     session,
@@ -91,15 +94,18 @@ function createSnapshots(
       builder: new SnapshotBuilder(repo, keys, codec, noLogCoverage),
       runPollNow: () => runPollNow(created),
     }),
+    load: async () => {
+      const flagged = await state.load()
+      await queueFlaggedItems(flagged, { recoveryManager: deps.recoveryManager, schedule, session })
+    },
   }
   return created
 }
 
-/** Marks the session shut down and stops the pusher, the schedule and then the records, as the context does */
+/** Marks the session shut down and stops the pusher and then the records, as the context does */
 async function shutDown(target: Snapshots, options?: { clearLocalData?: boolean }): Promise<void> {
   target.session.markShutdown()
   target.pusher.shutdown()
-  await target.schedule.shutdown()
   await target.state.shutdown(options)
 }
 
@@ -232,7 +238,7 @@ describe('SnapshotPusher in a poll', () => {
   it('uploads nothing until the device has caught up, keeping what is due for the poll that has', async () => {
     mockPutSnapshots.mockResolvedValue({ success: true, persisted: 1 })
     snapshots.schedule.markItemDirty('item-1' as ItemId)
-    snapshots.schedule.requestNow()
+    snapshots.schedule.requestNow({ pastQuota: true })
     caughtUp = false
 
     await expect(poll(snapshots)).resolves.toBeUndefined()
@@ -325,7 +331,7 @@ describe('SnapshotPusher in a poll', () => {
       records.records.set('item-unpushed' as ItemId, { itemId: 'item-unpushed' as ItemId, dirty: true })
       records.records.set('item-clean' as ItemId, { itemId: 'item-clean' as ItemId, baseVersion: 3 })
 
-      await fresh.schedule.load()
+      await fresh.load()
 
       expect(fresh.state.listDirty()).toContain('item-unpushed')
       expect(fresh.state.listDirty()).not.toContain('item-clean')
@@ -339,7 +345,7 @@ describe('SnapshotPusher in a poll', () => {
       })
       records.records.set('item-from-earlier' as ItemId, { itemId: 'item-from-earlier' as ItemId, dirty: true })
 
-      await fresh.schedule.load()
+      await fresh.load()
       elapse()
       await poll(fresh)
 
@@ -350,7 +356,7 @@ describe('SnapshotPusher in a poll', () => {
     it('has nothing due if all stored items are clean', async () => {
       records.records.set('item-clean' as ItemId, { itemId: 'item-clean' as ItemId, baseVersion: 4 })
 
-      await fresh.schedule.load()
+      await fresh.load()
 
       expect(fresh.state.listDirty()).toHaveLength(0)
       expect(fresh.schedule.nextDueAt).toBeUndefined()
@@ -363,7 +369,7 @@ describe('SnapshotPusher in a poll', () => {
       })
       records.db.getAll.mockReturnValueOnce(pendingLoad as any)
 
-      const load = fresh.schedule.load()
+      const load = fresh.load()
       fresh.session.markShutdown()
       resolveRecords!([{ itemId: 'item-unpushed', dirty: true }])
       await load

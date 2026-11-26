@@ -3,6 +3,7 @@ import { ManifestDemands, type ManifestDemand } from './ManifestDemands'
 import { ManifestHydrator } from './ManifestHydrator'
 import { ManifestSyncManager, type ManifestMode } from './ManifestSyncManager'
 import { SyncSessionState } from './SyncSessionState'
+import { SnapshotSchedule } from './SnapshotSchedule'
 import { RecoveryManager } from './RecoveryManager'
 import { ClientEventHub } from './SyncEventHub'
 import { SyncApiClient } from './SyncApiClient'
@@ -1052,11 +1053,29 @@ describe('ManifestSyncManager', () => {
 
       await sync(manifestSyncManager)
 
-      expect(depsObj.snapshotSchedule.requestNow).toHaveBeenCalledTimes(1)
+      expect(depsObj.snapshotSchedule.requestNow).toHaveBeenCalledExactlyOnceWith({ pastQuota: false })
       expect(depsObj.snapshotPusher.pushDue).toHaveBeenCalledTimes(1)
       // Otherwise the manifest misses the flushed items and they are pushed a second time
       expect(depsObj.snapshotPusher.pushDue.mock.invocationCallOrder[0])
         .toBeLessThan(mockFetchManifest.mock.invocationCallOrder[0])
+    })
+
+    // Otherwise every manifest sync of an account at its quota sends one more batch to be refused
+    it('leaves a quota deferral in place, so its pre-upload has nothing due', async () => {
+      depsObj.itemSyncState.dirtyCount = 1
+      const schedule = new SnapshotSchedule({ state: depsObj.itemSyncState, session: depsObj.session })
+      schedule.deferUntil(Date.now() + SYNC_TIMEOUTS.snapshotQuotaRetry)
+      let dueAtUpload: boolean | undefined
+      depsObj.snapshotPusher.pushDue.mockImplementation(async () => {
+        dueAtUpload = schedule.isDue()
+        return { persisted: 0, total: 0, success: true }
+      })
+      mockFetchManifest.mockResolvedValue({ manifest: [], serverTime: Date.now() })
+
+      await sync(createManager({ ...depsObj, snapshotSchedule: schedule } as any))
+
+      expect(depsObj.snapshotPusher.pushDue).toHaveBeenCalledTimes(1)
+      expect(dueAtUpload).toBe(false)
     })
 
     it('uploads nothing when no item is dirty', async () => {

@@ -233,8 +233,7 @@ describe('ItemSyncState', () => {
       oldLeader.setServerHeads(ITEM_1, ['from the old leader'])
       oldLeader.markDirty(ITEM_1)
       await oldLeader.save()
-      await newLeader.load()
-      newLeader.queueFlagged(new Set())
+      newLeader.queueFlagged(await newLeader.load())
 
       // The new leader uploads the item's snapshot, and then the old one saves a late change
       newLeader.clearDirty(ITEM_1)
@@ -260,8 +259,7 @@ describe('ItemSyncState', () => {
     it('clears a flag only when this tab cleared it', async () => {
       await db.put(SYNC_LOG_STORES.items, { itemId: ITEM_1, dirty: true }, { itemId: ITEM_2, dirty: true })
       const state = createState()
-      await state.load()
-      state.queueFlagged(new Set())
+      state.queueFlagged(await state.load())
 
       state.clearDirty(ITEM_1)
       state.setServerHeads(ITEM_2, ['a'])
@@ -397,7 +395,7 @@ describe('ItemSyncState', () => {
       expect(await stored()).toEqual([{ itemId: ITEM_1, dirty: true }])
     })
 
-    it('queues flagged items once, skipping those it is told to, and flags snapshot-only ones', async () => {
+    it('loads the flagged items it has not queued, queues them once, and flags snapshot-only ones', async () => {
       await db.put(
         SYNC_LOG_STORES.items,
         { itemId: ITEM_1, dirty: true },
@@ -406,11 +404,13 @@ describe('ItemSyncState', () => {
         { itemId: 'item-4' as ItemId, baseVersion: 2 },
       )
       const state = createState()
-      await state.load()
+      const flagged = await state.load()
       const update = vi.spyOn(db, 'update')
 
-      expect(state.queueFlagged(new Set(['item-3' as ItemId]))).toBe(2)
-      expect(state.queueFlagged(new Set())).toBe(1)
+      expect(flagged).toEqual([ITEM_1, ITEM_2, 'item-3'])
+      expect(state.queueFlagged([ITEM_1, ITEM_2, 'item-4' as ItemId])).toBe(2)
+      expect(state.queueFlagged(flagged)).toBe(1)
+      expect(await state.load()).toEqual([])
       await state.save()
 
       expect(state.listDirty()).toEqual([ITEM_1, ITEM_2, 'item-3'])
