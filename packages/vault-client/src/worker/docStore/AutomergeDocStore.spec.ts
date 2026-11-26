@@ -1169,8 +1169,6 @@ describe('AutomergeDocStore Unit Tests', () => {
 
       expect(read?.changes).toHaveLength(1)
       expect(read?.heads).toEqual(Automerge.getHeads(handle.doc()!))
-      expect(docStore.hasChangesSince(itemId, Automerge.getHeads(start))).toBe(true)
-      expect(docStore.hasChangesSince(itemId, read!.heads)).toBe(false)
       expect((await docStore.readChangesSince(itemId, read!.heads))?.changes).toEqual([])
     })
 

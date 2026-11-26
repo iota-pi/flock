@@ -482,9 +482,7 @@ export class SyncWorkerContext {
         fireAndForget(dataVersionTracker.onSyncedWithoutFailures(), 'SyncWorkerContext:recordDeviceDataVersion')
       },
       onSnapshotCovered: advanceServerHeads,
-      onManifestProcessed: async () => {
-        itemReconciler.onManifestSynced()
-      },
+      onManifestSynced: () => itemReconciler.onManifestSynced(),
       itemSyncState,
     })
 

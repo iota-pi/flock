@@ -1,7 +1,7 @@
 import type { Mock } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 import { MAX_INCREMENTAL_MESSAGE_BYTES, type ItemId } from '@vault/shared'
-import { ChangeOutbox, type ChangeOutboxDeps, type PendingMark } from './ChangeOutbox'
+import { ChangeOutbox, readPendingMarks, type ChangeOutboxDeps, type PendingMark } from './ChangeOutbox'
 import type { LogExchange } from './LogExchange'
 import { ItemSyncState } from './ItemSyncState'
 import { SyncLogDatabase } from './stores/SyncLogDatabase'
@@ -78,7 +78,7 @@ describe('ChangeOutbox', () => {
     await outbox.mark(ITEM)
 
     expect(await outbox.listPending()).toEqual([ITEM])
-    expect(await outbox.isPending(ITEM)).toBe(true)
+    expect(await readPendingMarks(db).isPending(ITEM)).toBe(true)
     expect(onMarked).toHaveBeenCalledTimes(1)
   })
 
