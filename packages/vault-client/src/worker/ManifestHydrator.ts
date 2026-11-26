@@ -146,19 +146,15 @@ export class ManifestHydrator {
           },
           { signal },
         )
-        if (response?.items && Array.isArray(response.items)) {
-          fetchedItems.push(...response.items)
-          // Items over the server's response limit go in the next request
-          const requested = new Set(batch)
-          const deferred = (response.deferred ?? []).filter(itemId => requested.has(itemId))
-          if (deferred.length >= batch.length) {
-            hasBatchFailures = true
-            log.error('The server deferred every item of a snapshot batch', { batch })
-          } else {
-            queue.unshift(...deferred)
-          }
-        } else {
+        fetchedItems.push(...response.items)
+        // Items over the server's response limit go in the next request
+        const requested = new Set(batch)
+        const deferred = (response.deferred ?? []).filter(itemId => requested.has(itemId))
+        if (deferred.length >= batch.length) {
           hasBatchFailures = true
+          log.error('The server deferred every item of a snapshot batch', { batch })
+        } else {
+          queue.unshift(...deferred)
         }
       } catch (error) {
         if (signal?.aborted || isAbortError(error)) {
@@ -179,14 +175,6 @@ export class ManifestHydrator {
 
     checkAlive(signal, () => this.isAlive())
 
-    const validFetchedItems = fetchedItems.filter(
-      entry =>
-        entry &&
-        typeof entry === 'object' &&
-        typeof entry.item === 'string' &&
-        entry.item.length > 0,
-    )
-
     const snapshots: VaultDoc[] = []
     const legacySnapshots: VaultDoc[] = []
     const hydratedIds: ItemId[] = []
@@ -198,7 +186,7 @@ export class ManifestHydrator {
     const manifestById = new Map(params.manifest.map(entry => [entry.itemId, entry]))
 
     const results = await mapWithConcurrency(
-      validFetchedItems,
+      fetchedItems,
       hydrationConcurrency,
       // hydrateRemoteItem catches its own errors, so only an abort from checkAlive rejects here
       item => {

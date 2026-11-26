@@ -782,7 +782,7 @@ describe('sync log', () => {
       await a.sync()
       await a.edit(itemId, { title: 'edited on the old build' })
       await a.settle()
-      const heads = await a.services.docStore.readHeads(itemId)
+      const heads = await a.heads(itemId)
       resetLog()
 
       await crossTheCut(a, [[itemId, heads!]])
@@ -807,7 +807,7 @@ describe('sync log', () => {
 
       expect(rowItems()).toEqual([itemId])
       expect(await a.pending()).toEqual([])
-      expect(a.services.itemSyncState.getServerHeads(itemId)).toEqual(await a.services.docStore.readHeads(itemId))
+      expect(a.services.itemSyncState.getServerHeads(itemId)).toEqual(await a.heads(itemId))
       server.items.clear()
       const b = await startDevice('device-b')
       await b.poll()
@@ -857,7 +857,7 @@ describe('sync log', () => {
 
       expect(server.items.get(itemId)?.version).toBe(1)
       expect(rowItems()).toEqual([itemId])
-      expect(a.services.itemSyncState.getServerHeads(itemId)).toEqual(await a.services.docStore.readHeads(itemId))
+      expect(a.services.itemSyncState.getServerHeads(itemId)).toEqual(await a.heads(itemId))
     })
 
     it('heals a snapshot uploaded over one whose fetch failed during catch-up', async () => {

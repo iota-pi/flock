@@ -155,12 +155,12 @@ export class SyncApiClient {
   async fetchManifest(
     input: { account: string },
     options?: { signal?: AbortSignal },
-  ): Promise<{ manifest: ManifestEntry[]; serverTime: number }> {
+  ): Promise<{ manifest: ManifestEntry[] }> {
     return this.executeWithAuth(async () => {
       const parsed = FetchItemsInputSchema.parse({ account: input.account })
       const data = await getVaultTrpcClient().items.fetchManifest.query(parsed, options)
       assertSuccess(data, 'fetchManifest')
-      return { manifest: data.manifest, serverTime: data.serverTime }
+      return { manifest: data.manifest }
     })
   }
 
@@ -170,7 +170,7 @@ export class SyncApiClient {
       itemIds: ItemId[]
     },
     options?: { signal?: AbortSignal }
-  ): Promise<{ items: FetchedItem[]; serverTime: number; deferred: ItemId[] }> {
+  ): Promise<{ items: FetchedItem[]; deferred: ItemId[] }> {
     return this.executeWithAuth(async () => {
       const parsed = FetchSnapshotsByIdsInputSchema.parse({
         account: input.account,
@@ -181,7 +181,7 @@ export class SyncApiClient {
       assertSuccess(data, 'fetchSnapshotsByIds')
       // The items over the response limit, for the caller to ask for again
       const deferred = 'deferred' in data ? data.deferred : []
-      return { items: data.items, serverTime: data.serverTime, deferred }
+      return { items: data.items, deferred }
     })
   }
 

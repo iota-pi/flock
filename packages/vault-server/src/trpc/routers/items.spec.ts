@@ -150,7 +150,6 @@ describe('itemsRouter.fetchManifest', () => {
         { itemId: 'item-1', modifiedAt: 123 },
         { itemId: 'item-2', modifiedAt: 456, isDeleted: true },
       ],
-      serverTime: expect.any(Number),
     })
     expect((ctx.vault as any).fetchManifest).toHaveBeenCalledWith({ account: 'acct-1' })
   })
@@ -177,7 +176,6 @@ describe('itemsRouter.fetchSnapshotsByIds', () => {
     expect(result).toEqual({
       success: true,
       items: [{ item: 'item-1', metadata: { iv: 'iv-1', modified: 123 } }],
-      serverTime: expect.any(Number),
     })
     expect((ctx.vault as any).fetchByIds).toHaveBeenCalledWith({
       account: 'acct-1',

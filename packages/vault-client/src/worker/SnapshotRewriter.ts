@@ -102,11 +102,6 @@ export class SnapshotRewriter {
     return this.currentStage
   }
 
-  /** How many items the rewrite still has to upload */
-  get pendingCount(): number {
-    return this.queue.length
-  }
-
   /**
    * Stops the rewrite: a request still waiting has changed nothing, and a pass in flight stops after
    * the request it's making, leaving the rest unwritten. Every caller waiting is rejected.

@@ -165,10 +165,6 @@ export async function readLog(
   }
 }
 
-export async function readLogHead(context: DynamoContext, data: BaseData): Promise<number> {
-  return (await readHeadRow(context, data)).head
-}
-
 async function readHeadRow({ client, tables }: DynamoContext, { account }: BaseData): Promise<LogHead> {
   const response = await client.send(new GetCommand({
     TableName: tables.syncLog,

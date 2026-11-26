@@ -204,9 +204,6 @@ export interface VaultDriver {
   /** Returns the account's rows after a seq, oldest first, in one strongly consistent page */
   readLog(input: ReadLogInput): Promise<SyncLogPage>
 
-  /** Returns the last seq the account's log has used, by a strongly consistent read (0 when it's empty) */
-  readLogHead(data: BaseData): Promise<number>
-
   /**
    * Hard-deletes up to `limit` of the account's items, only for deleting the account: anywhere else,
    * a missing item would be re-uploaded by manifest sync (see docs/sync-design.md).

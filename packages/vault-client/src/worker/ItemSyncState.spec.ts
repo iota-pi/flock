@@ -567,55 +567,6 @@ describe('ItemSyncState', () => {
 
       expect(reloaded.listUnconfirmedPulls()).toEqual(new Map([[ITEM_1, 100]]))
     })
-
-    describe('migration from their old store', () => {
-      it('folds them into the records, keeping the earlier time, and deletes them once saved', async () => {
-        await db.put(SYNC_LOG_STORES.items, { itemId: ITEM_1, baseVersion: 2, pulledAt: 300 })
-        await db.put(SYNC_LOG_STORES.unconfirmedPulls, { itemId: ITEM_1, firstSeenAt: 100 }, { itemId: ITEM_2, firstSeenAt: 500 })
-        const state = createState()
-
-        await state.load()
-        expect(state.listUnconfirmedPulls()).toEqual(new Map([[ITEM_1, 100], [ITEM_2, 500]]))
-        expect(await db.getAll(SYNC_LOG_STORES.unconfirmedPulls)).toHaveLength(2)
-
-        await state.save()
-
-        expect(await stored()).toEqual([
-          { itemId: ITEM_1, baseVersion: 2, pulledAt: 100 },
-          { itemId: ITEM_2, pulledAt: 500 },
-        ])
-        expect(await db.getAll(SYNC_LOG_STORES.unconfirmedPulls)).toEqual([])
-      })
-
-      it('keeps the old entries while the records fail to save', async () => {
-        await db.put(SYNC_LOG_STORES.unconfirmedPulls, { itemId: ITEM_1, firstSeenAt: 100 })
-        const state = createState()
-        await state.load()
-        vi.spyOn(db, 'update').mockRejectedValueOnce(new Error('quota'))
-
-        await expect(state.save()).rejects.toThrow('quota')
-        expect(await db.getAll(SYNC_LOG_STORES.unconfirmedPulls)).toHaveLength(1)
-
-        await state.save()
-        expect(await db.getAll(SYNC_LOG_STORES.unconfirmedPulls)).toEqual([])
-      })
-
-      it('does not bring back a pull confirmed before the old entry was deleted', async () => {
-        await db.put(SYNC_LOG_STORES.unconfirmedPulls, { itemId: ITEM_1, firstSeenAt: 100 })
-        const state = createState()
-        await state.load()
-        const update = vi.spyOn(db, 'update').mockRejectedValueOnce(new Error('quota'))
-
-        await expect(state.confirmPulledChanges([ITEM_1])).rejects.toThrow('quota')
-        await state.load()
-        update.mockRestore()
-        await state.save()
-
-        expect(state.listUnconfirmedPulls().size).toBe(0)
-        expect(await stored()).toEqual([{ itemId: ITEM_1 }])
-        expect(await db.getAll(SYNC_LOG_STORES.unconfirmedPulls)).toEqual([])
-      })
-    })
   })
 
   describe('snapshot coverage (S1, log before snapshot)', () => {

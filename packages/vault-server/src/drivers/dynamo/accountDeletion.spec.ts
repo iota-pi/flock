@@ -1,5 +1,6 @@
 import { generateItemId, type SyncLogMessage } from '@vault/shared'
 import DynamoDriver from './driver'
+import { readLogHead } from './__test__/logHead'
 import { generateAccountId } from '../../util'
 
 const driver = new DynamoDriver()
@@ -63,9 +64,9 @@ describe('account deletion', () => {
     await expect(driver.deleteSyncLog({ account, limit: 3 })).resolves.toEqual({ deleted: 3, done: false })
     await expect(driver.deleteSyncLog({ account, limit: 3 })).resolves.toEqual({ deleted: 1, done: true })
 
-    await expect(driver.readLogHead({ account })).resolves.toBe(0)
+    await expect(readLogHead(driver, account)).resolves.toBe(0)
     await expect(driver.readLog({ account, after: 0 })).resolves.toEqual({ entries: [], hasMore: false })
-    await expect(driver.readLogHead({ account: other })).resolves.toBe(1)
+    await expect(readLogHead(driver, other)).resolves.toBe(1)
   })
 
   it('deletes the account record, and does nothing for one that is already gone', async () => {

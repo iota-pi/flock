@@ -175,7 +175,6 @@ export class SyncWorkerContext {
   public localStorageState: Pick<LocalStorage, 'mode' | 'retired'> | null = null
 
   private _services: SyncWorkerServices | null = null
-  private unsubscribers: Array<() => void> = []
   private isStopped = false
   private hasLocalDataAtStart = false
   /** Whether this tab is visible, which the foreground tracker starts from */
@@ -842,10 +841,6 @@ export class SyncWorkerContext {
     // Every component stops starting new work before any of them is stopped
     this.session.markShutdown()
     await this.lifecycle.stop(options)
-    for (const unsub of this.unsubscribers) {
-      unsub()
-    }
-    this.unsubscribers = []
   }
 
   /**

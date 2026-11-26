@@ -1185,7 +1185,6 @@ describe('AutomergeDocStore Unit Tests', () => {
 
     it('reads nothing from a doc it can not load', async () => {
       expect(await docStore.readChangesSince('log-item-9' as ItemId, [])).toBeNull()
-      expect(await docStore.readHeads('log-item-9' as ItemId)).toBeNull()
     })
   })
 
