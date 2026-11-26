@@ -19,7 +19,6 @@ import { exportAllBinaries, restoreFromBinaries, type RepoDoc } from './docStore
 import { configureVaultEndpoint, initVaultTrpcClient } from '../keys/vaultTrpcClient'
 import { configureVaultStorageNames, type VaultStorageNames } from '../shared/storageNames'
 import { getTrackedFetch } from '../keys/trackedFetch'
-import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
 import { AbortError, withTimeout } from '../utils/abort'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
@@ -311,25 +310,19 @@ export class SyncWorker implements SyncApi {
     })
   }
 
-  /** Sends a subscribed item's state to the app and keeps the index in step with it */
+  /**
+   * Sends a subscribed item's state to the app. The engine keeps the index: local edits through
+   * `ItemOperations`, and other devices' changes through the puller and the manifest hydrator.
+   */
   private handleItemChange(id: ItemId, doc: RepoDoc | null): void {
-    const { accountSettings, docStore, indexManager } = this.context.services
+    const { accountSettings, docStore } = this.context.services
     if (accountSettings.isSettingsDoc(id)) {
       accountSettings.handleSettingsDoc(doc)
       return
     }
     const item = docStore.decodeSnapshot(id, doc)
     if (item?.deleted) {
-      fireAndForget(
-        indexManager.removeItemIds([id]),
-        'SyncWorker:removeItemIds',
-      )
       this.subscriptions.unsubscribe(id)
-    } else if (item) {
-      fireAndForget(
-        indexManager.addItemIds([id]),
-        'SyncWorker:addItemIds',
-      )
     }
     this.clientEventHub.emit({ type: 'itemUpdated', id, item })
   }

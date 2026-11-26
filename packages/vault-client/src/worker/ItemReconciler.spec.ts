@@ -20,7 +20,7 @@ describe('ItemReconciler', () => {
   let keys: { hasKey: AnyMock; decryptBytes: AnyMock }
   let docStore: { getMissingDeps: AnyMock; flushToStorage: AnyMock }
   let indexManager: { listTombstoneIds: AnyMock }
-  let incoming: { apply: AnyMock }
+  let incoming: { apply: AnyMock; indexApplied: AnyMock }
   let recoveryManager: {
     quarantine: AnyMock
     reportDecryptionFailure: AnyMock
@@ -60,7 +60,7 @@ describe('ItemReconciler', () => {
       flushToStorage: vi.fn().mockResolvedValue(undefined),
     }
     indexManager = { listTombstoneIds: vi.fn().mockResolvedValue([]) }
-    incoming = { apply: vi.fn().mockResolvedValue(true) }
+    incoming = { apply: vi.fn().mockResolvedValue(true), indexApplied: vi.fn().mockResolvedValue(undefined) }
     recoveryManager = {
       quarantine: vi.fn().mockResolvedValue(undefined),
       reportDecryptionFailure: vi.fn().mockResolvedValue(undefined),
@@ -113,6 +113,15 @@ describe('ItemReconciler', () => {
     expect(docStore.flushToStorage).toHaveBeenCalledWith([ITEM, other])
     expect(docStore.flushToStorage.mock.invocationCallOrder[0]).toBeLessThan(remove.mock.invocationCallOrder[0])
     expect(await parked()).toEqual([])
+  })
+
+  it('indexes the items it healed once their rows are applied', async () => {
+    await reconciler.park(entry(1), 'missingDeps')
+
+    await reconciler.runDue()
+
+    expect(incoming.indexApplied).toHaveBeenCalledTimes(1)
+    expect(incoming.indexApplied.mock.invocationCallOrder[0]).toBeGreaterThan(incoming.apply.mock.invocationCallOrder[0])
   })
 
   it('keeps the rows when their docs fail to store, and deletes them once a later run stores them', async () => {

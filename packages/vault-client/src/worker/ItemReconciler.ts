@@ -70,7 +70,7 @@ export interface ItemReconcilerDeps {
   keys: KeyProvider
   docStore: Pick<AutomergeDocStore, 'getMissingDeps' | 'flushToStorage'>
   indexManager: Pick<AutomergeIndexManager, 'listTombstoneIds'>
-  incoming: Pick<IncomingChanges, 'apply'>
+  incoming: Pick<IncomingChanges, 'apply' | 'indexApplied'>
   recoveryManager: Pick<
     RecoveryManager,
     'quarantine' | 'reportDecryptionFailure' | 'resolveQuarantines' | 'listRecoveryItems'
@@ -282,6 +282,8 @@ export class ItemReconciler {
       healed.push([itemId, item, await this.healItem(itemId, entries)])
     }
     await this.deleteHealedRows(healed.map(([itemId, , outcome]) => [itemId, outcome.done]))
+    // An item whose first rows were parked reaches the index here
+    await this.deps.incoming.indexApplied()
 
     // Read again rather than counted from the first read, since a pull may have parked more meanwhile
     const remaining = healed.some(([, , outcome]) => !outcome.isMissingDeps) ? await this.readParkedByItem() : parked
