@@ -224,6 +224,7 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
       this.pendingMissingKeyVersions.add(kver)
     }
 
+    let passwordChanged = false
     do {
       await this.keyringUpdateGuard.run(async () => {
         const currentAccountId = this.lifecycleManager.getCurrentAccountId()
@@ -235,7 +236,7 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
         if (result.passwordChanged) {
           log.warn('Password changed in another tab/device. Locking vault.')
           this.pendingMissingKeyVersions.clear()
-          await this.options.lockVault()
+          passwordChanged = true
           return
         }
         const keysToCheck = Array.from(this.pendingMissingKeyVersions)
@@ -260,7 +261,13 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
           }
         }
       })
-    } while (kver && this.pendingMissingKeyVersions.has(kver) && !this.checkedMissingKeyVersions.has(kver))
+    } while (!passwordChanged && kver && this.pendingMissingKeyVersions.has(kver) && !this.checkedMissingKeyVersions.has(kver))
+
+    // Locks outside the guard, since lockVault may shut the bridge down, and shutdown waits for the guard.
+    // Callers that joined this run don't see the flag, so only the one that ran it locks.
+    if (passwordChanged) {
+      await this.options.lockVault()
+    }
   }
 
   private handleTokenRefresh = async () => {
