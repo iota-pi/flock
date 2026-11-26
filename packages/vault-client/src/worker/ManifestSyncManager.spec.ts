@@ -106,6 +106,7 @@ describe('ManifestSyncManager', () => {
     const mockDocStore = {
       hydrateAutomergeDocumentBinary: mockHydrateAutomergeDocumentBinary,
       flushToStorage: vi.fn().mockResolvedValue(undefined),
+      getAutomergeItem: vi.fn().mockResolvedValue({ deleted: true }),
     } as any
 
     const mockIndexManager = {
@@ -1545,6 +1546,31 @@ describe('ManifestSyncManager', () => {
       expect(result?.added).toEqual([])
       expect(mockAddItemIds).not.toHaveBeenCalled()
       // Local tombstone is newer than server active snapshot, so must push tombstone upstream
+      expect(depsObj.snapshotSchedule.markItemDirty).toHaveBeenCalledWith('item-deleted', 2000)
+    })
+
+    it('deletes the doc of a tombstoned item the server still has live when the doc is live', async () => {
+      mockListItemIds.mockResolvedValue([])
+      mockListTombstoneIds.mockResolvedValue(['item-deleted' as ItemId])
+      depsObj.itemSyncState.trackedItems.mockReturnValue([['item-deleted', 2]])
+      depsObj.docStore.getAutomergeItem.mockResolvedValue({ id: 'item-deleted', name: 'live' })
+      mockFetchManifest.mockResolvedValue({ manifest: [{ itemId: 'item-deleted', version: 2 }] })
+
+      await sync(manifestSyncManager, 'now')
+
+      expect(storeItemsSpy).toHaveBeenCalledWith([{ id: 'item-deleted', deleted: true }])
+      expect(depsObj.snapshotSchedule.markItemDirty).toHaveBeenCalledWith('item-deleted', 2000)
+    })
+
+    it('leaves the doc of a tombstoned item alone when it is already deleted', async () => {
+      mockListItemIds.mockResolvedValue([])
+      mockListTombstoneIds.mockResolvedValue(['item-deleted' as ItemId])
+      depsObj.itemSyncState.trackedItems.mockReturnValue([['item-deleted', 2]])
+      mockFetchManifest.mockResolvedValue({ manifest: [{ itemId: 'item-deleted', version: 2 }] })
+
+      await sync(manifestSyncManager, 'now')
+
+      expect(storeItemsSpy).not.toHaveBeenCalled()
       expect(depsObj.snapshotSchedule.markItemDirty).toHaveBeenCalledWith('item-deleted', 2000)
     })
 

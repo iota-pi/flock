@@ -222,6 +222,8 @@ export class ItemOperations {
    * deleted item removes it, then releases it from quarantine and pushes it.
    */
   private async releaseRecoveredItem(itemId: ItemId, index: 'add' | 'remove'): Promise<void> {
+    // The doc reaches storage before the index records it, as in `createDocumentOrThrow`
+    await this.deps.docStore.flushToStorage([itemId])
     if (index === 'add') {
       await this.deps.indexManager.addItemIds([itemId])
     } else {

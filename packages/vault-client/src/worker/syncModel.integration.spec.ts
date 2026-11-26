@@ -9,6 +9,7 @@ import {
   Crash,
   Create,
   createWorld,
+  Delete,
   destroyWorld,
   Edit,
   FailStateSave,
@@ -363,6 +364,39 @@ describe('sync model', () => {
 
       await quiesce(world, setup.model)
       expect(await a.liveIds()).toEqual([])
+      await assertConverged(world, setup.model, observers)
+    })
+
+    // Found by the property with deletes weighted up (seed 1, path 0:3:3:4:6:7:14:8:8:6:5:5, replay
+    // path FjB/s:a). Deleting an item stored its index tombstone at once but left the doc's delete to
+    // the Repo's throttled save, so a crash in between left a tombstone over a live doc. Manifest sync
+    // then pushed a live snapshot every round, and the server's version climbed for good.
+    it('converges when a crash follows a delete', { timeout: 60_000 }, async () => {
+      await expect(runScenario(3, [
+        new Create(0),
+        new Delete(0, 0),
+        new Crash(0, 'none', 0),
+        new Create(0),
+      ])).resolves.toBeUndefined()
+    })
+
+    // A device whose build tombstoned the index before storing the delete may already hold a
+    // tombstone over a live doc. The tombstone is terminal, so the delete must reach the server.
+    it('deletes a live doc the index has tombstoned', async () => {
+      const setup = await createWorld(3)
+      world = setup.real
+      const [a, b] = world.devices
+      const itemId = await a.create('item-1')
+      setup.model.items.push(itemId)
+      await a.sync()
+      await b.poll()
+      await a.services.indexManager.removeItemIds([itemId])
+      expect(await a.read(itemId)).not.toMatchObject({ deleted: true })
+      setup.model.durableDeletes.add(itemId)
+
+      await quiesce(world, setup.model)
+      expect(await a.read(itemId)).toMatchObject({ deleted: true })
+      expect(await b.liveIds()).toEqual([])
       await assertConverged(world, setup.model, observers)
     })
 

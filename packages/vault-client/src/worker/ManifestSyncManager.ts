@@ -410,8 +410,32 @@ export class ManifestSyncManager {
       await this.deps.itemSyncState.importBaseVersions(deltas.deletedVersionUpdates)
     }
 
+    await this.reapplyLostDeletes(deltas)
+
     for (const id of deltas.upstreamIds) {
       this.deps.snapshotSchedule.markItemDirty(id, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
+    }
+  }
+
+  /**
+   * Deletes the docs of items the index has tombstoned but whose doc is live, which the upstream
+   * deltas push because the server copy is live too. That happens when a crash lost the doc's
+   * delete before the Repo saved it, on builds that tombstoned the index first. The tombstone is
+   * terminal, so the delete stands. Without this the device would push a live snapshot on every
+   * manifest sync, and the server copy would never be deleted.
+   */
+  private async reapplyLostDeletes(deltas: SyncDeltas): Promise<void> {
+    const lostDeletes: VaultDoc[] = []
+    for (const id of deltas.upstreamIds) {
+      if (!deltas.tombstoneSet.has(id)) continue
+      const item = await this.deps.docStore.getAutomergeItem(id)
+      if (item && item.deleted !== true) {
+        lostDeletes.push({ id, deleted: true })
+      }
+    }
+    if (lostDeletes.length > 0) {
+      log.warn('Deleting docs the index has tombstoned', { itemIds: lostDeletes.map(item => item.id) })
+      await this.deps.storeItems(lostDeletes)
     }
   }
 
