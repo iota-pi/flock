@@ -401,8 +401,7 @@ export class SyncWorkerContext {
       session,
       itemSyncState,
       exchange: logExchange,
-      // Without debouncing, so the item's full state is delivered
-      requestSnapshot: itemId => snapshotSchedule.markItemDirty(itemId, 0),
+      snapshotSchedule,
       onMarked: () => {
         signals.raise.workDue()
         syncProgress.scheduleRecount()
