@@ -42,6 +42,8 @@ export interface ParkedEntry extends Pick<SyncLogEntry, 'seq' | 'itemId' | 'encr
 interface HealOutcome {
   isMissingDeps: boolean
   applyFailed: boolean
+  /** The seqs of the rows that can be deleted once the item's doc is stored */
+  done: number[]
 }
 
 /** What the healer knows of an item it's working on */
@@ -66,7 +68,7 @@ interface HealingItem {
 export interface ItemReconcilerDeps {
   db: SyncLogDatabase
   keys: KeyProvider
-  docStore: Pick<AutomergeDocStore, 'getMissingDeps'>
+  docStore: Pick<AutomergeDocStore, 'getMissingDeps' | 'flushToStorage'>
   indexManager: Pick<AutomergeIndexManager, 'listTombstoneIds'>
   incoming: Pick<IncomingChanges, 'apply'>
   recoveryManager: Pick<
@@ -244,7 +246,10 @@ export class ItemReconciler {
     }
   }
 
-  /** Works on every item that's due. Throws if storage fails, leaving the rest for the next poll. */
+  /**
+   * Works on every item that's due. Throws if storage fails, leaving the rest for the next poll, with
+   * every row whose doc wasn't stored still parked.
+   */
   async runDue(signal?: AbortSignal): Promise<void> {
     await this.scheduleQuarantineRetry()
     const now = Date.now()
@@ -276,6 +281,7 @@ export class ItemReconciler {
       }
       healed.push([itemId, item, await this.healItem(itemId, entries)])
     }
+    await this.deleteHealedRows(healed.map(([itemId, , outcome]) => [itemId, outcome.done]))
 
     // Read again rather than counted from the first read, since a pull may have parked more meanwhile
     const remaining = healed.some(([, , outcome]) => !outcome.isMissingDeps) ? await this.readParkedByItem() : parked
@@ -324,7 +330,20 @@ export class ItemReconciler {
     await this.deps.recoveryManager.resolveQuarantines([itemId], MISSING_CHANGES_KINDS)
   }
 
-  /** Applies an item's parked rows, deleting the applied ones once nothing is missing */
+  /**
+   * Deletes the rows that healed their items, once their docs are stored. Applying a row changes the
+   * doc only in memory, and the cursor has moved past the row, so deleting it first would leave a crash
+   * before the Repo's throttled save with neither the row nor its change. If the save fails, the rows
+   * stay parked and are applied again (a no-op) at the next run.
+   */
+  private async deleteHealedRows(healed: Array<[ItemId, number[]]>): Promise<void> {
+    const withRows = healed.filter(([, seqs]) => seqs.length > 0)
+    if (withRows.length === 0) return
+    await this.deps.docStore.flushToStorage(withRows.map(([itemId]) => itemId))
+    await this.deps.db.delete(SYNC_LOG_STORES.parked, ...withRows.flatMap(([, seqs]) => seqs))
+  }
+
+  /** Applies an item's parked rows, returning the applied ones to delete once nothing is missing */
   private async healItem(itemId: ItemId, entries: ParkedEntry[]): Promise<HealOutcome> {
     const applied: number[] = []
     let isMissingDeps = false
@@ -351,10 +370,7 @@ export class ItemReconciler {
 
     // Kept until nothing is missing: applying a row again changes nothing, and the doc's own queue of
     // changes with missing dependencies may not reach storage
-    if (!isMissingDeps) {
-      await this.deps.db.delete(SYNC_LOG_STORES.parked, ...applied)
-    }
-    return { isMissingDeps, applyFailed }
+    return { isMissingDeps, applyFailed, done: isMissingDeps ? [] : applied }
   }
 
   /** Stops tracking a healed item, or schedules its next attempt and tells the user after a day */

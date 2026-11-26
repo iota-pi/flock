@@ -18,7 +18,7 @@ function entry(seq: number, kver = '1'): SyncLogEntry {
 describe('ItemReconciler', () => {
   let db: SyncLogDatabase
   let keys: { hasKey: AnyMock; decryptBytes: AnyMock }
-  let docStore: { getMissingDeps: AnyMock }
+  let docStore: { getMissingDeps: AnyMock; flushToStorage: AnyMock }
   let indexManager: { listTombstoneIds: AnyMock }
   let incoming: { apply: AnyMock }
   let recoveryManager: {
@@ -55,7 +55,10 @@ describe('ItemReconciler', () => {
       hasKey: vi.fn().mockReturnValue(true),
       decryptBytes: vi.fn(async () => new Uint8Array([1])),
     }
-    docStore = { getMissingDeps: vi.fn().mockResolvedValue([]) }
+    docStore = {
+      getMissingDeps: vi.fn().mockResolvedValue([]),
+      flushToStorage: vi.fn().mockResolvedValue(undefined),
+    }
     indexManager = { listTombstoneIds: vi.fn().mockResolvedValue([]) }
     incoming = { apply: vi.fn().mockResolvedValue(true) }
     recoveryManager = {
@@ -96,6 +99,44 @@ describe('ItemReconciler', () => {
     expect(await parked()).toEqual([])
     expect(recoveryManager.resolveQuarantines).toHaveBeenCalledWith([ITEM], new Set(['missingChanges']))
     expect(onHealingChange).toHaveBeenLastCalledWith(false)
+  })
+
+  it('stores the healed docs before deleting their rows', async () => {
+    const other = 'item-2' as ItemId
+    await reconciler.park(entry(1), 'missingDeps')
+    await reconciler.park({ ...entry(2), itemId: other }, 'missingDeps')
+    const remove = vi.spyOn(db, 'delete')
+
+    await reconciler.runDue()
+
+    expect(docStore.flushToStorage).toHaveBeenCalledTimes(1)
+    expect(docStore.flushToStorage).toHaveBeenCalledWith([ITEM, other])
+    expect(docStore.flushToStorage.mock.invocationCallOrder[0]).toBeLessThan(remove.mock.invocationCallOrder[0])
+    expect(await parked()).toEqual([])
+  })
+
+  it('keeps the rows when their docs fail to store, and deletes them once a later run stores them', async () => {
+    docStore.flushToStorage.mockRejectedValueOnce(new DOMException('The disk is full', 'QuotaExceededError'))
+    await reconciler.park(entry(1), 'missingDeps')
+
+    await expect(reconciler.runDue()).rejects.toThrow('The disk is full')
+    expect(await parked()).toHaveLength(1)
+    expect(recoveryManager.resolveQuarantines).not.toHaveBeenCalled()
+
+    await reconciler.runDue()
+    expect(incoming.apply).toHaveBeenCalledTimes(2)
+    expect(await parked()).toEqual([])
+    expect(recoveryManager.resolveQuarantines).toHaveBeenCalledWith([ITEM], new Set(['missingChanges']))
+  })
+
+  it('stores nothing while dependencies are missing', async () => {
+    incoming.apply.mockResolvedValue(false)
+    await reconciler.park(entry(1), 'missingDeps')
+
+    await reconciler.runDue()
+
+    expect(docStore.flushToStorage).not.toHaveBeenCalled()
+    expect(await parked()).toHaveLength(1)
   })
 
   it('reads the parked rows twice per run, however many items are due', async () => {
