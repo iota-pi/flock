@@ -4,6 +4,7 @@ import DynamoDriver from './driver'
 import { readLogHead } from './__test__/logHead'
 import { QuotaExceededError } from '../../errors'
 import { generateAccountId } from '../../util'
+import { persistSnapshots } from '../../services/snapshotService'
 
 const driver = new DynamoDriver()
 
@@ -68,6 +69,30 @@ describe('storage usage', () => {
     await expect(driver.recountStorageUsage({ account })).resolves.toBe(kept)
     expect(await storageBytes(account)).toBe(kept)
     expect((await driver.getAccountRecord({ account }))?.storageCountedAt).toEqual(expect.any(Number))
+  })
+
+  // Older clients send tombstones with their full payload, which the quota must not turn away
+  it('frees storage when an account at its quota deletes an item', async () => {
+    const account = await createAccount()
+    const [item, unseen] = [generateItemId(), generateItemId()]
+    const snapshot = { iv: 'iv', cipher: Buffer.alloc(2000).toString('base64'), kver: '1', format: 2 as const }
+    await write(account, item, snapshot.cipher)
+    const usedBytes = (await storageBytes(account))!
+
+    const result = await persistSnapshots(driver, {
+      account,
+      snapshots: [
+        { itemId: item, deleted: true, snapshot },
+        { itemId: unseen, deleted: true, snapshot },
+      ],
+    }, { usedBytes, quotaBytes: usedBytes })
+
+    expect(result.results).toEqual([{ itemId: item, version: 2 }, { itemId: unseen, version: 0 }])
+    expect(await storageBytes(account)).toBeLessThan(usedBytes - 2000)
+    await expect(driver.recountStorageUsage({ account })).resolves.toBe(await storageBytes(account))
+    // A tombstone for an item the server never had doesn't create a row
+    const manifest = await driver.fetchManifest({ account })
+    expect(manifest.map(entry => entry.itemId)).toEqual([item])
   })
 
   it('adds nothing to an account that does not exist', async () => {
