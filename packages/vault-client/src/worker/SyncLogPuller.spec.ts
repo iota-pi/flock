@@ -45,7 +45,7 @@ describe('SyncLogPuller', () => {
   let cursorStore: { load: AnyMock; save: AnyMock }
   let docs: { flushToStorage: AnyMock }
   let keys: { hasKey: AnyMock; decryptBytes: AnyMock; waitForKey: AnyMock }
-  let incoming: { apply: AnyMock; readPending: AnyMock; takeAddedChanges: () => ItemId[] }
+  let incoming: { apply: AnyMock; readPending: AnyMock; takeAddedChanges: () => ItemId[]; indexApplied: AnyMock }
   /** Items whose docs gained changes, which `incoming` hands over */
   let addedChanges: Set<ItemId>
   let reconciler: { park: AnyMock; onLogEntry: AnyMock }
@@ -78,6 +78,7 @@ describe('SyncLogPuller', () => {
         addedChanges.clear()
         return itemIds
       },
+      indexApplied: vi.fn().mockResolvedValue(undefined),
     }
     reconciler = { park: vi.fn().mockResolvedValue(undefined), onLogEntry: vi.fn() }
     itemSyncState = {
@@ -242,6 +243,20 @@ describe('SyncLogPuller', () => {
     await puller.process(page([entry(1)]))
 
     expect(itemSyncState.recordPulledChanges).toHaveBeenCalledWith([ITEM])
+  })
+
+  it('indexes the items a page applied once the page is done', async () => {
+    await puller.process(page([entry(1), entry(2)]))
+
+    expect(incoming.indexApplied).toHaveBeenCalledTimes(1)
+    expect(incoming.indexApplied.mock.invocationCallOrder[0])
+      .toBeGreaterThan(Math.max(...incoming.apply.mock.invocationCallOrder))
+  })
+
+  it('fails the page when indexing fails to store', async () => {
+    incoming.indexApplied.mockRejectedValueOnce(new Error('disk full'))
+
+    await expect(puller.process(page([entry(1)]))).rejects.toThrow('disk full')
   })
 
   describe('gaps', () => {

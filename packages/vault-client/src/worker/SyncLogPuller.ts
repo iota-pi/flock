@@ -45,8 +45,8 @@ export interface SyncLogPullerDeps {
   docs: Pick<AutomergeDocStore, 'flushToStorage'>
   keys: KeyProvider
   session: SyncSessionState
-  /** Applies rows, and records which docs gained changes for snapshot coverage */
-  incoming: Pick<IncomingChanges, 'apply' | 'readPending' | 'takeAddedChanges'>
+  /** Applies rows, records which docs gained changes for snapshot coverage, and indexes the items they were applied to */
+  incoming: Pick<IncomingChanges, 'apply' | 'readPending' | 'takeAddedChanges' | 'indexApplied'>
   reconciler: Pick<ItemReconciler, 'park' | 'onLogEntry'>
   /** Runs the manifest syncs catching up and recovering lost rows need, which this places as demands */
   manifest: Pick<ManifestDemands, 'demand' | 'isDemanded'>
@@ -250,7 +250,10 @@ export class SyncLogPuller {
     return gapRepollDelay(this.state)
   }
 
-  /** Applies a page of the log in seq order. Throws, leaving the cursor where it stopped, if storage fails. */
+  /**
+   * Applies a page of the log in seq order, then stores the docs it changed and indexes them. Throws,
+   * leaving the cursor where it stopped, if storage fails.
+   */
   async process(page: LogPage): Promise<void> {
     if (this.deps.session.isShutdown) return
     const entries = [...page.entries].sort((a, b) => a.seq - b.seq)
@@ -300,6 +303,10 @@ export class SyncLogPuller {
     }
 
     await recording
+    // Stored before indexed, and not once shutdown may be clearing local data
+    if (!this.deps.session.isShutdown) {
+      await this.deps.incoming.indexApplied()
+    }
   }
 
   /** Decides about a missing seq before `entry`, and returns whether the cursor moved past it */

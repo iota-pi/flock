@@ -347,9 +347,11 @@ export class SyncWorkerContext {
 
     const incoming = new IncomingChanges({
       docStore,
+      indexManager,
       marks: readPendingMarks(syncLogDatabase),
       itemSyncState,
       onItemApplied: itemId => this.notifyDocumentReceived(itemId),
+      isUnindexed: itemId => accountSettings.isSettingsDoc(itemId) || isIndexDocument(itemId),
     })
 
     const itemReconciler = new ItemReconciler({

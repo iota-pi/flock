@@ -60,6 +60,42 @@ describe('sync log', () => {
     expect(await b.pending()).toEqual([])
   })
 
+  it('indexes an item pulled from the log, and tombstones it once deleted, with no app subscribed', async () => {
+    const a = await startDevice('device-a')
+    const b = await startDevice('device-b')
+    await a.poll()
+    await b.poll()
+
+    const itemId = await a.create('item-1', { title: 'first' })
+    await a.poll()
+    await b.poll()
+
+    expect(await b.liveIds()).toContain(itemId)
+
+    await a.edit(itemId, { deleted: true })
+    await a.poll()
+    await b.poll()
+
+    expect(await b.liveIds()).not.toContain(itemId)
+    expect(await b.tombstoneIds()).toContain(itemId)
+  })
+
+  it('keeps an item pulled from the log indexed across a crash after the pull', async () => {
+    const a = await startDevice('device-a')
+    const b = await startDevice('device-b')
+    await a.poll()
+    await b.poll()
+
+    const itemId = await a.create('item-1', { title: 'first' })
+    await a.poll()
+    await b.poll()
+    await b.crash()
+    await b.start()
+
+    expect(await b.liveIds()).toContain(itemId)
+    expect((await b.read(itemId))?.title).toBe('first')
+  })
+
   it('keeps pulled changes from being marked pending or pushed back', async () => {
     const a = await startDevice('device-a')
     const b = await startDevice('device-b')
