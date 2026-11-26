@@ -1,10 +1,12 @@
 import { errorMessage } from './errorMessage'
 
 /**
- * Checks if a given error is a storage quota exceeded error.
+ * Checks if a given error is a storage quota exceeded error, or an `AggregateError` holding one (as
+ * the Repo's `flush` throws).
  */
 export function isQuotaError(err: unknown): boolean {
   if (!err) return false
+  if (err instanceof AggregateError) return err.errors.some(isQuotaError)
   const name = (err as Error).name || ''
   const message = errorMessage(err)
   return (

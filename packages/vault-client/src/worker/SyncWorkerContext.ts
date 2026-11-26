@@ -274,7 +274,7 @@ export class SyncWorkerContext {
       onDueChanged: () => signals.raise.snapshotDue(),
     })
 
-    const snapshotBuilder = new SnapshotBuilder(repo, keys, this.domain.codec, itemSyncState)
+    const snapshotBuilder = new SnapshotBuilder(docStore, keys, this.domain.codec, itemSyncState)
 
     // Only the mark: the push's acknowledgement marks the item dirty for its snapshot
     const markDocumentDirty = (itemId: ItemId) => signals.raise.edited(itemId)
@@ -397,8 +397,7 @@ export class SyncWorkerContext {
       session,
       itemSyncState,
       exchange: logExchange,
-      // Without debouncing, so the item's full state is delivered
-      requestSnapshot: itemId => snapshotSchedule.markItemDirty(itemId, 0),
+      snapshotSchedule,
       onMarked: () => {
         signals.raise.workDue()
         syncProgress.scheduleRecount()
