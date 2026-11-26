@@ -11,6 +11,7 @@ function handlers(overrides: Partial<SyncSignalHandlers> = {}): SyncSignalHandle
     localChangesFound: vi.fn(),
     localDataMissing: vi.fn(),
     metadataUpdated: vi.fn(),
+    askManifest: vi.fn(),
     ...overrides,
   }
 }
