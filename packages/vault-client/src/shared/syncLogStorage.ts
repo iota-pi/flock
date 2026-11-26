@@ -10,18 +10,25 @@ export const SYNC_LOG_STORES = {
   outbox: 'outbox',
   /** Log entries that couldn't be applied yet, by seq */
   parked: 'parked',
-  /** Unused: first start's records, which nothing reads now. Kept because names never change. */
+  /**
+   * Reserved: first start's records, which nothing reads now. New databases don't create it, and
+   * older ones keep theirs untouched. Kept because names never change.
+   */
   firstStart: 'first-start',
   /**
-   * Items with pulled changes no snapshot has confirmed, from before they moved into each item's
-   * record (`pulledAt`). It's read only to migrate them, and can be dropped a release after that.
+   * Reserved: items with pulled changes no snapshot had confirmed, before they moved into each
+   * item's record (`pulledAt`). New databases don't create it, and older ones keep theirs untouched.
    */
   unconfirmedPulls: 'unconfirmed-pulls',
   /** One record per item of what this device knows of the server's copy (see ItemSyncRecord) */
   items: 'items',
 } as const
 
-export type SyncLogStoreName = typeof SYNC_LOG_STORES[keyof typeof SYNC_LOG_STORES]
+/** The stores the database creates and code reads: every name but the reserved ones */
+export type SyncLogStoreName = Exclude<
+  typeof SYNC_LOG_STORES[keyof typeof SYNC_LOG_STORES],
+  typeof SYNC_LOG_STORES.firstStart | typeof SYNC_LOG_STORES.unconfirmedPulls
+>
 
 export function getSyncLogDatabaseName(accountId: string): string {
   return `${getVaultStorageNames().accountPrefixes.syncLogDatabase}${accountId}`

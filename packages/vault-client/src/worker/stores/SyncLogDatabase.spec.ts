@@ -53,6 +53,21 @@ describe('SyncLogDatabase', () => {
     expect(storeNames).toEqual(expect.arrayContaining(Object.values(SYNC_LOG_STORES)))
   })
 
+  it('creates only the stores in use for a new database', async () => {
+    await database.put(SYNC_LOG_STORES.outbox, { itemId: 'item-1', tick: 1 })
+    await database.close()
+    const storeNames = await new Promise<string[]>((resolve, reject) => {
+      const request = indexedDB.open(getSyncLogDatabaseName('account-1'))
+      request.onsuccess = () => {
+        const names = Array.from(request.result.objectStoreNames)
+        request.result.close()
+        resolve(names)
+      }
+      request.onerror = () => reject(request.error)
+    })
+    expect(storeNames.sort()).toEqual([SYNC_LOG_STORES.items, SYNC_LOG_STORES.outbox, SYNC_LOG_STORES.parked].sort())
+  })
+
   it('stores records by item, and parked entries by seq', async () => {
     await database.put(SYNC_LOG_STORES.outbox, { itemId: 'item-1', tick: 1 })
     await database.put(SYNC_LOG_STORES.parked, { seq: 7, itemId: 'item-1' })
@@ -70,13 +85,6 @@ describe('SyncLogDatabase', () => {
 
     await database.deleteIf<{ tick: number }>(SYNC_LOG_STORES.outbox, 'item-1', record => record.tick === 2)
     expect(await database.count(SYNC_LOG_STORES.outbox)).toBe(0)
-  })
-
-  it('keeps an existing record over one written if absent', async () => {
-    await database.putIfAbsent(SYNC_LOG_STORES.unconfirmedPulls, 'item-1', { itemId: 'item-1', firstSeenAt: 1 })
-    await database.putIfAbsent(SYNC_LOG_STORES.unconfirmedPulls, 'item-1', { itemId: 'item-1', firstSeenAt: 2 })
-
-    expect(await database.get(SYNC_LOG_STORES.unconfirmedPulls, 'item-1')).toEqual({ itemId: 'item-1', firstSeenAt: 1 })
   })
 
   it('counts pending items without staying open', async () => {

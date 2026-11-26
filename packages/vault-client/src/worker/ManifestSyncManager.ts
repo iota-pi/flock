@@ -46,8 +46,8 @@ export interface ManifestSyncManagerDeps {
   storeItems: (items: VaultDoc[], options?: StoreItemsOptions) => Promise<void>
   /** Called with a server snapshot the local doc already holds, which wasn't fetched */
   onSnapshotCovered?: (itemId: ItemId, heads: string[]) => void
-  /** Called once a sync has merged what it could, with the manifest it fetched */
-  onManifestProcessed?: (manifest: ManifestEntry[]) => Promise<void>
+  /** Called once a sync has fetched the manifest and merged what it could */
+  onManifestSynced?: () => void
   /** The items' base versions, which are dirty, and their unconfirmed pulls for snapshot coverage's S2 */
   itemSyncState: Pick<
     ItemSyncState,
@@ -150,7 +150,7 @@ export class ManifestSyncManager {
    * and before the last clean sync's time has been read.
    */
   getDueAt(now = Date.now()): number | undefined {
-    if (!this.canSync) return undefined
+    if (!this.isAlive()) return undefined
     if (this.requested !== undefined || this.tickets.size > 0 || this.deps.demands.size > 0) return now
     return this.periodicDueAt
   }
@@ -171,7 +171,7 @@ export class ManifestSyncManager {
   async runPhase(stage: ManifestStage, signal: AbortSignal): Promise<ManifestPhaseResult | null> {
     const demands = this.deps.demands.list()
     const demanded = stage === 'afterRead' ? demands.length > 0 : demands.some(demand => demand.beforeRead)
-    if (!this.canSync) {
+    if (!this.isAlive()) {
       if (demanded) throw new Error(`${describeDemands(demands)} needs the manifest, which this session can't fetch now`)
       return null
     }
@@ -212,10 +212,6 @@ export class ManifestSyncManager {
       }
     }
     return result
-  }
-
-  private get canSync(): boolean {
-    return this.isAlive()
   }
 
   private shouldSkipSync(mode: ManifestMode, hasKnownItems: boolean, timeSinceLastSync: number): boolean {
@@ -367,8 +363,7 @@ export class ManifestSyncManager {
       checkAlive(signal, this.isAlive)
     }
 
-    await this.notifyManifestProcessed(manifest)
-    checkAlive(signal, this.isAlive)
+    this.deps.onManifestSynced?.()
 
     await this.migrateLegacySettings()
     checkAlive(signal, this.isAlive)
@@ -404,15 +399,6 @@ export class ManifestSyncManager {
 
     for (const id of deltas.upstreamIds) {
       this.deps.snapshotSchedule.markItemDirty(id, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
-    }
-  }
-
-  private async notifyManifestProcessed(manifest: ManifestEntry[]): Promise<void> {
-    try {
-      await this.deps.onManifestProcessed?.(manifest)
-    } catch (error) {
-      if (isAbortError(error)) throw error
-      log.warn('Failed to process the manifest (will retry on next sync):', error)
     }
   }
 

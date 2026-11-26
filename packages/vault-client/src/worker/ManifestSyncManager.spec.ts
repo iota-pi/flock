@@ -257,13 +257,13 @@ describe('ManifestSyncManager', () => {
       mockListItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(Date.now())
       mockFetchManifest.mockResolvedValue({ manifest: [] })
-      const onManifestProcessed = vi.fn().mockResolvedValue(undefined)
-      const manager = createManager({ ...depsObj, onManifestProcessed } as any)
+      const onManifestSynced = vi.fn()
+      const manager = createManager({ ...depsObj, onManifestSynced } as any)
 
       expect(await sync(manager, 'now')).toMatchObject({ fetchedManifest: true })
 
       expect(mockFetchManifest).toHaveBeenCalledTimes(1)
-      expect(onManifestProcessed).toHaveBeenCalledWith([])
+      expect(onManifestSynced).toHaveBeenCalledTimes(1)
     })
 
     it('runs a sync asked for by an event once, at the strongest mode asked for', async () => {
@@ -316,14 +316,6 @@ describe('ManifestSyncManager', () => {
 
       await expect(sync(manifestSyncManager, 'now')).rejects.toMatchObject({ message: 'boom' })
       expect(mockUpdateLastManifestSyncTime).not.toHaveBeenCalled()
-    })
-
-    it('still counts as run when processing the manifest fails, which the next sync retries', async () => {
-      mockFetchManifest.mockResolvedValue({ manifest: [] })
-      const onManifestProcessed = vi.fn().mockRejectedValue(new Error('failed'))
-      const manager = createManager({ ...depsObj, onManifestProcessed } as any)
-
-      expect(await sync(manager, 'now')).toMatchObject({ fetchedManifest: true })
     })
 
     describe('demands', () => {

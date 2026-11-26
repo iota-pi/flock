@@ -13,12 +13,13 @@ const DB_VERSION = 3
  */
 const REMOVED_STORES = ['snapshot-rechecks']
 
+/**
+ * The stores a new database gets. The reserved names (`first-start`, `unconfirmed-pulls`) aren't
+ * created: an older database keeps them untouched, which needs no version change.
+ */
 const KEY_PATHS: Record<SyncLogStoreName, string> = {
   [SYNC_LOG_STORES.outbox]: 'itemId',
   [SYNC_LOG_STORES.parked]: 'seq',
-  [SYNC_LOG_STORES.firstStart]: 'itemId',
-  // Read only to migrate unconfirmed pulls into the items' records (see ItemSyncState); can be dropped a release later
-  [SYNC_LOG_STORES.unconfirmedPulls]: 'itemId',
   [SYNC_LOG_STORES.items]: 'itemId',
 }
 
@@ -116,16 +117,6 @@ export class SyncLogDatabase {
     await this.transact(store, 'readwrite', objectStore => {
       for (const record of records) {
         objectStore.put(record)
-      }
-    })
-  }
-
-  /** Writes `record` unless `key` already has one */
-  async putIfAbsent(store: SyncLogStoreName, key: IDBValidKey, record: object): Promise<void> {
-    await this.transact(store, 'readwrite', objectStore => {
-      const existing = objectStore.getKey(key)
-      existing.onsuccess = () => {
-        if (existing.result === undefined) objectStore.put(record)
       }
     })
   }

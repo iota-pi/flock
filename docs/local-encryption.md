@@ -18,7 +18,7 @@ Two changes protect data at rest. **Part 1** derives the password key with Argon
 | Sealed Automerge database (`sealedAutomergeDatabase` + account) | Every document's full history; the wrapped DSK and upgrade marker in its `meta` store | Sealed |
 | Sync metadata: `indexDocSealed` | Active and tombstoned item IDs, local-only settings, last sync times | Sealed |
 | Sync metadata: other keys | Log cursor, pull and sync times, device data level, migration flags | Plaintext, no user content |
-| Sync log database (`syncLogDatabase` + account) | Pending marks, parked entries and each item's sync record (server heads, base version, dirty flag, `snapshotOnly`, `pulledAt`); the `first-start` store is unused | Needs no seal: parked entries hold the server's ciphertext as it arrived, and a plaintext session uses the same store |
+| Sync log database (`syncLogDatabase` + account) | Pending marks, parked entries and each item's sync record (server heads, base version, dirty flag, `snapshotOnly`, `pulledAt`); older databases may also hold the unused `first-start` and `unconfirmed-pulls` stores | Needs no seal: parked entries hold the server's ciphertext as it arrived, and a plaintext session uses the same store |
 | Manual recovery (`manualRecoveryDatabase` + account) | Item IDs, recovery kinds and reason codes (`ManualRecoveryDetail`: fixed codes plus sizes and stages, never an error message) | Plaintext, no user content: error messages can quote decrypted content, so they're only logged, and older free-text reasons are scrubbed when read |
 | Keyring cache, biometric data (localStorage) | Data keys | Encrypted (master key / WebAuthn PRF) |
 | Account metadata (localStorage) | Account ID, salt, key derivation parameters | Plaintext, needed before login |

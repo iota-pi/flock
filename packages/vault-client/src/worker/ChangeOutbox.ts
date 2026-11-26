@@ -57,7 +57,10 @@ interface PreparedPush {
 }
 
 /** Reads which items have pending marks */
-export type PendingMarkReader = Pick<ChangeOutbox, 'isPending' | 'listPending'>
+export interface PendingMarkReader {
+  isPending(itemId: ItemId): Promise<boolean>
+  listPending(): Promise<ItemId[]>
+}
 
 /** Reads pending marks straight from the outbox store, for a component built before the outbox */
 export function readPendingMarks(db: Pick<SyncLogDatabase, 'get' | 'getAll'>): PendingMarkReader {
@@ -193,10 +196,6 @@ export class ChangeOutbox {
 
   async listMarks(): Promise<PendingMark[]> {
     return this.deps.db.getAll<PendingMark>(SYNC_LOG_STORES.outbox)
-  }
-
-  async isPending(itemId: ItemId): Promise<boolean> {
-    return await this.deps.db.get<PendingMark>(SYNC_LOG_STORES.outbox, itemId) !== undefined
   }
 
   private async clearMark(itemId: ItemId, tick: number | undefined): Promise<void> {
