@@ -916,7 +916,7 @@ describe('AutomergeDocStore Unit Tests', () => {
   // =========================================================================
   // 6. Additional AutomergeDocStore core methods
   // =========================================================================
-  describe('changeDocument, saveDocToStorage, and helpers', () => {
+  describe('changeDocument, flushToStorage, and helpers', () => {
     it('changeDocument returns false when document handle is missing and createIfMissing is false', async () => {
       vi.spyOn(docStore, 'hasDataInStorage').mockResolvedValue(false)
       const res = await docStore.changeDocument('missing-item' as ItemId, () => {}, { createIfMissing: false })
@@ -959,58 +959,21 @@ describe('AutomergeDocStore Unit Tests', () => {
       expect(item?.name).toBe('Mutated Name')
     })
 
-    it('saveDocToStorage returns false if repo.storageSubsystem is undefined', async () => {
-      const saved = await docStore.saveDocToStorage('save-item' as ItemId)
-      expect(saved).toBe(false)
-    })
-
-    it('saveDocToStorage calls storageSubsystem.saveDoc when handle is ready', async () => {
+    it('flushToStorage saves loaded docs and skips items whose docs are not loaded', async () => {
       const customRepo = new Repo()
-      const itemId = 'save-ready-item' as ItemId
+      const itemId = 'flush-ready-item' as ItemId
       const docId = toDocumentIdFromItemId(itemId)
-      const binary = createDocBinary(itemId)
-      customRepo.import(binary, { docId })
+      customRepo.import(createDocBinary(itemId), { docId })
 
       const saveDocMock = vi.fn().mockResolvedValue(undefined)
       // @ts-expect-error mocking storageSubsystem
       customRepo.storageSubsystem = { saveDoc: saveDocMock }
 
       const store = createTestDocStore(customRepo)
-      const saved = await store.saveDocToStorage(itemId)
+      await store.flushToStorage([itemId, 'flush-unloaded-item' as ItemId])
 
-      expect(saved).toBe(true)
+      expect(saveDocMock).toHaveBeenCalledTimes(1)
       expect(saveDocMock).toHaveBeenCalledWith(docId, expect.anything())
-    })
-
-    it('saveDocToStorage attempts findHandle with knownToExist: true if handle is not in cache', async () => {
-      const customRepo = new Repo()
-      const itemId = 'save-find-item' as ItemId
-      const docId = toDocumentIdFromItemId(itemId)
-      const binary = createDocBinary(itemId)
-      const handle = customRepo.import(binary, { docId })
-
-      const saveDocMock = vi.fn().mockResolvedValue(undefined)
-      // @ts-expect-error mocking storageSubsystem
-      customRepo.storageSubsystem = { saveDoc: saveDocMock }
-
-      vi.spyOn(customRepo, 'find').mockResolvedValue(handle as any)
-
-      const store = createTestDocStore(customRepo)
-      const saved = await store.saveDocToStorage(itemId)
-
-      expect(saved).toBe(true)
-      expect(saveDocMock).toHaveBeenCalledWith(docId, expect.anything())
-    })
-
-    it('saveDocToStorage returns false if findHandle fails to retrieve document', async () => {
-      const customRepo = new Repo()
-      // @ts-expect-error mocking storageSubsystem
-      customRepo.storageSubsystem = { saveDoc: vi.fn() }
-      vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Not found'))
-
-      const store = createTestDocStore(customRepo)
-      const saved = await store.saveDocToStorage('save-fail-item' as ItemId)
-      expect(saved).toBe(false)
     })
 
     it('seedImportedDocument concurrency defense: merges incoming binary if ready handle already exists in repo', async () => {

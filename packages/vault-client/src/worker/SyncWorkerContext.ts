@@ -276,7 +276,7 @@ export class SyncWorkerContext {
       onDueChanged: () => signals.raise.snapshotDue(),
     })
 
-    const snapshotBuilder = new SnapshotBuilder(repo, keys, this.domain.codec, itemSyncState)
+    const snapshotBuilder = new SnapshotBuilder(docStore, keys, this.domain.codec, itemSyncState)
 
     // Only the mark: the push's acknowledgement marks the item dirty for its snapshot
     const markDocumentDirty = (itemId: ItemId) => signals.raise.edited(itemId)
