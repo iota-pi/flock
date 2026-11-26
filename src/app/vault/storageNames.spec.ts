@@ -14,12 +14,8 @@ describe('FLOCK_STORAGE_NAMES', () => {
       accountPrefixes: {
         automergeDatabase: 'flock-automerge-db-',
         sealedAutomergeDatabase: 'flock-automerge-sealed-',
-        automergeBroadcastChannel: 'flock-automerge-broadcast-',
-        indexChannel: 'flock-index-channel-',
         indexLock: 'flock-index-lock-',
         localDataMigrationLock: 'flock-local-data-migration-',
-        syncPingChannel: 'flock-sync-ping-bus-',
-        leaderPresenceChannel: 'flock-leader-presence-',
         leaderLock: 'flock-sync-leader-',
         syncMetadataDatabase: 'flock-sync-metadata-',
         walDatabase: 'FlockVault_SyncWAL_',

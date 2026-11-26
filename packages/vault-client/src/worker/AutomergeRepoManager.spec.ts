@@ -1,16 +1,9 @@
 import { AutomergeRepoManager } from './AutomergeRepoManager'
 import { VaultIndexedDBStorageAdapter } from './VaultIndexedDBStorageAdapter'
 import * as storageManager from '../utils/storageManager'
-import { createMockKeyProvider } from './__test__/testUtils'
 import { spyOnExports } from '../../test/moduleMocks'
 import * as automergeRepo from '@automerge/automerge-repo/slim'
-import * as encryptedBroadcastChannelNetworkAdapter from './EncryptedBroadcastChannelNetworkAdapter'
 import * as vaultIndexedDBStorageAdapter from './VaultIndexedDBStorageAdapter'
-import type { EncryptedBroadcastChannelOptions } from './EncryptedBroadcastChannelNetworkAdapter'
-import { toDocumentIdFromItemId } from './utils/automerge'
-import type { ItemId } from '@vault/shared'
-
-let adapterOptions: EncryptedBroadcastChannelOptions | undefined
 
 beforeEach(() => {
   spyOnExports(automergeRepo, {
@@ -26,18 +19,6 @@ beforeEach(() => {
       on = vi.fn()
       off = vi.fn()
       shutdown = vi.fn().mockResolvedValue(undefined)
-    },
-  })
-  spyOnExports(encryptedBroadcastChannelNetworkAdapter, {
-    EncryptedBroadcastChannelNetworkAdapter: class MockBroadcastAdapter {
-      constructor(options: EncryptedBroadcastChannelOptions) {
-        adapterOptions = options
-      }
-
-      pause = vi.fn()
-      resume = vi.fn()
-      isSyncPaused = vi.fn().mockReturnValue(false)
-      disconnect = vi.fn()
     },
   })
   spyOnExports(vaultIndexedDBStorageAdapter, {
@@ -62,12 +43,13 @@ describe('AutomergeRepoManager', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     storage = new VaultIndexedDBStorageAdapter('test-db')
-    manager = new AutomergeRepoManager('account-1', createMockKeyProvider(), storage)
+    manager = new AutomergeRepoManager('account-1', storage)
     repo = manager.repo
   })
 
-  it('builds the Repo on the quota-handling storage', () => {
+  it('builds the Repo on the quota-handling storage, with no network', () => {
     expect(repo.storage).toBe(manager.storage)
+    expect(repo.network).toEqual([])
   })
 
   it('delegates save through runStorageOperation and rethrows a quota failure', async () => {
@@ -145,45 +127,4 @@ describe('AutomergeRepoManager', () => {
     expect(repo.shutdown).toHaveBeenCalledTimes(1)
     expect(adapterCloseSpy).toHaveBeenCalledTimes(1)
   })
-
-  describe('doc change listeners', () => {
-    const ITEM = 'item-1' as ItemId
-    const documentId = toDocumentIdFromItemId(ITEM)
-
-    function fakeHandle() {
-      return { documentId, on: vi.fn(), off: vi.fn() }
-    }
-
-    it('listens to the handle for a doc another tab sent, and still passes the doc on', () => {
-      const onDocChanged = vi.fn()
-      const onDocumentReceived = vi.fn()
-      manager = new AutomergeRepoManager('account-1', createMockKeyProvider(), storage, {
-        onDocChanged,
-        onDocumentReceived,
-      })
-      const handle = fakeHandle()
-      ;(manager.repo as any).handles = { [documentId]: handle }
-
-      adapterOptions?.onDocumentReceived?.(documentId)
-      adapterOptions?.onDocumentReceived?.(documentId)
-
-      expect(handle.on).toHaveBeenCalledTimes(1)
-      // Counted as changed once, when first listened to, in case the message was applied already
-      expect(onDocChanged).toHaveBeenCalledTimes(1)
-      expect(onDocChanged).toHaveBeenCalledWith(ITEM)
-      expect(onDocumentReceived).toHaveBeenCalledTimes(2)
-      handle.on.mock.calls[0][1]()
-      expect(onDocChanged).toHaveBeenCalledTimes(2)
-    })
-
-    it('removes the listeners it added on close, with the same reference', async () => {
-      const handle = fakeHandle()
-      manager.watchHandle(handle as any)
-
-      await manager.close()
-
-      expect(handle.off).toHaveBeenCalledWith('change', handle.on.mock.calls[0][1])
-    })
-  })
 })
-

@@ -49,6 +49,12 @@ export interface SyncStateSink<TDoc extends VaultDoc = VaultDoc, TMeta extends V
    * `unpushedChanges` is how many changes that would lose. The data is never discarded automatically.
    */
   onLocalDataUnavailable?(details: { unpushedChanges: number }): void
+  /**
+   * Called when another tab has taken the account over, so this tab's sync has stopped. What the app
+   * shows is left in place. The app should cover it and offer to take the account back (`takeOverHere`).
+   * See "One active tab" in docs/sync-design.md.
+   */
+  onDisplaced?(): void
 }
 
 /** Error reporting and diagnostics, for example backed by Sentry */

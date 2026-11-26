@@ -31,7 +31,7 @@ const log = createLogger('SnapshotPusher')
 
 export interface SnapshotPusherOptions {
   accountId: string
-  /** Only the leader uploads snapshots, and only while online */
+  /** Snapshots upload only while the session runs and is online */
   session: SyncSessionState
   schedule: Pick<SnapshotSchedule, 'requestNow' | 'isDue' | 'clearDue' | 'retryNextPoll' | 'deferUntil'>
   /**
@@ -124,7 +124,7 @@ export class SnapshotsRefusedError extends Error {
 
 /**
  * Uploads the dirty items' snapshots (`ItemSyncState`) when `SnapshotSchedule` says they're due. Uploads run as the last phase of each
- * poll (`pushDue`), so they share the poll's leadership, online state, abort, auth handling and
+ * poll (`pushDue`), so they share the poll's online state, abort, auth handling and
  * backoff. `uploadItems` is the one per-item pipeline (build after push, size limit, batching,
  * failure counting and quarantine), which `SnapshotRewriter` runs too.
  */

@@ -65,8 +65,8 @@ interface FetchAndHydrateParams {
 
 export interface ManifestHydratorDeps {
   accountId: string
-  /** Only the leader talks to the server, and nothing starts once the session is shutting down */
-  session: Pick<SyncSessionState, 'isLeader' | 'isShutdown'>
+  /** Nothing starts once the session is shutting down */
+  session: Pick<SyncSessionState, 'isShutdown'>
   apiClient: SyncApiClient
   docStore: AutomergeDocStore
   indexManager: Pick<AutomergeIndexManager, 'listItemIds' | 'listTombstoneIds' | 'addItemIds' | 'removeItemIds'>
@@ -110,7 +110,7 @@ export class ManifestHydrator {
 
   /** Fetches items' snapshots and merges them into their docs, away from any manifest sync */
   async fetchSnapshots(itemIds: ItemId[], signal?: AbortSignal): Promise<void> {
-    if (!this.deps.session.isLeader || !this.isAlive() || itemIds.length === 0) return
+    if (!this.isAlive() || itemIds.length === 0) return
     const [knownItemIds, tombstoneItemIds] = await Promise.all([
       this.deps.indexManager.listItemIds(),
       this.deps.indexManager.listTombstoneIds(),

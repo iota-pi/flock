@@ -3,7 +3,6 @@ import type { ItemId, SyncLogEntry } from '@vault/shared'
 import type { KeyProvider } from '../keys/Keyring'
 import type { GapHealer, ParkReason } from './GapHealer'
 import type { IncomingChanges } from './IncomingChanges'
-import type { RealtimeBus } from './RealtimeBus'
 import type { AutomergeDocStore } from './docStore'
 import type { ItemSyncState } from './ItemSyncState'
 import type { SyncSessionState } from './SyncSessionState'
@@ -53,12 +52,10 @@ export interface SyncLogPullerDeps {
   manifest: Pick<ManifestDemands, 'demand' | 'isDemanded'>
   /** Records pulled changes for snapshot coverage's S2, which has to be stored before the cursor moves past their rows */
   itemSyncState: Pick<ItemSyncState, 'recordPulledChanges' | 'save'>
-  /** Tells the account's other tabs which items were pulled */
-  bus?: Pick<RealtimeBus, 'publishSyncPing'>
   onKeyVersionMissing?: (kver: string) => void
   /** Called once a page with the items it applied changes other devices pushed to */
   onRemoteChangesApplied?: (itemIds: ItemId[]) => void
-  /** Reloads the rest of the state a new leader takes over */
+  /** Loads the rest of the state the session syncs from */
   onLoad?: () => Promise<void>
 }
 
@@ -113,7 +110,7 @@ export class SyncLogPuller {
   }
 
   /**
-   * Loads where the log was left, which an earlier leader may have moved, and the rest of the state
+   * Loads where the log was left, which an earlier session may have moved, and the rest of the state
    * (`onLoad`). Each is loaded even if the other fails.
    */
   async loadState(): Promise<void> {
@@ -298,7 +295,6 @@ export class SyncLogPuller {
       }
       if (appliedItems.size > 0) {
         const items = Array.from(appliedItems)
-        this.deps.bus?.publishSyncPing(items)
         this.deps.onRemoteChangesApplied?.(items)
       }
     }

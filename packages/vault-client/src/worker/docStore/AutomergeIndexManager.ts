@@ -6,7 +6,6 @@ import { AsyncMutex } from '../../utils/AsyncMutex'
 import { getVaultStorageNames } from '../../shared/storageNames'
 import { withTimeout } from '../../utils/abort'
 import { SYNC_TIMEOUTS } from '../../shared/syncConfig'
-import type { RealtimeBus } from '../RealtimeBus'
 
 /** An index document with every field filled in */
 export type NormalizedIndexDocument = Required<AutomergeIndexDocument>
@@ -67,8 +66,6 @@ export function mergeIndexDocuments(
 export interface AutomergeIndexManagerOptions {
   accountId: string
   indexStore: IndexStore
-  /** Tells the account's other tabs about index and metadata changes, and hears theirs */
-  bus?: RealtimeBus
   onIndexUpdated?: (itemIds: ItemId[]) => void
   onMetadataUpdated?: (metadata: VaultMetadata) => void
 }
@@ -76,22 +73,10 @@ export interface AutomergeIndexManagerOptions {
 export class AutomergeIndexManager {
   private mutex = new AsyncMutex()
   private lastEmittedItemIds: string[] | null = null
-  private isClosed = false
   public readonly indexStore: IndexStore
-  private readonly unsubscribers: Array<() => void> = []
 
   constructor(private readonly deps: AutomergeIndexManagerOptions) {
     this.indexStore = deps.indexStore
-    if (this.deps.bus) {
-      this.unsubscribers.push(
-        this.deps.bus.subscribeIndexUpdated(itemIds => {
-          if (!this.isClosed) this.handleRemoteIndexUpdated(itemIds)
-        }),
-        this.deps.bus.subscribeMetadataUpdated(metadata => {
-          if (!this.isClosed) this.handleRemoteMetadataUpdated(metadata)
-        }),
-      )
-    }
   }
 
   private areItemIdsEqual(a: string[] | null, b: string[]): boolean {
@@ -114,34 +99,12 @@ export class AutomergeIndexManager {
     return true
   }
 
-  private handleRemoteIndexUpdated(itemIds: ItemId[]): void {
+  private emitIndexUpdated(itemIds: ItemId[]): void {
     this.notifyIndexUpdated(itemIds)
   }
 
-  private handleRemoteMetadataUpdated(metadata: VaultMetadata): void {
-    this.deps.onMetadataUpdated?.(metadata)
-  }
-
-  /** Reports a local index change here and to the account's other tabs */
-  private emitIndexUpdated(itemIds: ItemId[]): void {
-    if (this.notifyIndexUpdated(itemIds) && !this.isClosed) {
-      this.deps.bus?.publishIndexUpdated(itemIds)
-    }
-  }
-
-  /** Reports a local metadata change here and to the account's other tabs */
   private emitMetadataUpdated(metadata: VaultMetadata): void {
     this.deps.onMetadataUpdated?.(metadata)
-    if (!this.isClosed) {
-      this.deps.bus?.publishMetadataUpdated(metadata)
-    }
-  }
-
-  close(): void {
-    this.isClosed = true
-    for (const unsubscribe of this.unsubscribers.splice(0)) {
-      unsubscribe()
-    }
   }
 
   private async withLock<T>(task: () => Promise<T>): Promise<T> {
@@ -192,17 +155,13 @@ export class AutomergeIndexManager {
     })
   }
 
-  /**
-   * Adds items to the index, taking them out of the tombstones unless `skipTombstoned` is set. Set it
-   * when the IDs don't come from a live local doc (such as another tab's sync ping, which can name
-   * deleted items); a tombstoned ID is then left as it is.
-   */
-  async addItemIds(itemIds: ItemId[], options?: { skipTombstoned?: boolean }): Promise<void> {
+  /** Adds items to the index, taking them out of the tombstones */
+  async addItemIds(itemIds: ItemId[]): Promise<void> {
     return this.withLock(async () => {
       const doc = await this.getIndexSnapshotInternal()
       const current = new Set(doc.itemIds)
       const tombstoneSet = new Set(doc.tombstoneIds)
-      const idsToAdd = options?.skipTombstoned ? itemIds.filter(id => !tombstoneSet.has(id)) : itemIds
+      const idsToAdd = itemIds
       let updated = false
       for (const id of idsToAdd) {
         if (!current.has(id)) {

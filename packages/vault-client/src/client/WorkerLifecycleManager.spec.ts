@@ -6,6 +6,8 @@ import * as sessionModule from '../keys/session'
 import * as storedMetadataModule from '../keys/storedMetadata'
 import { spyOnExports } from '../../test/moduleMocks'
 import * as comlinkModule from 'comlink'
+import { ActiveTabTakenError, activeTabLockName } from '../shared/activeTab'
+import { installFakeLocks, type FakeLockManager } from '../../test/fakeLocks'
 
 const mockSyncApi = {
   setOnlineState: vi.fn().mockResolvedValue(undefined),
@@ -385,6 +387,8 @@ describe('WorkerLifecycleManager', () => {
       )
 
       const init1 = manager.initialize('account-1')
+      // The run takes the account over before it exports the keyring
+      await vi.waitFor(() => expect(vaultModule.exportKeyringData).toHaveBeenCalledTimes(1))
       const init2 = manager.initialize('account-2')
 
       resolveKeyring1('test-key')
@@ -433,7 +437,9 @@ describe('WorkerLifecycleManager', () => {
         .mockImplementationOnce(() => new Promise<string>(resolve => { resolveKeyringB = resolve }))
 
       const initAPromise = manager.initialize('account-A')
+      await vi.waitFor(() => expect(vaultModule.exportKeyringData).toHaveBeenCalledTimes(1))
       const initBPromise = manager.initialize('account-B')
+      await vi.waitFor(() => expect(vaultModule.exportKeyringData).toHaveBeenCalledTimes(2))
 
       const ensureReadyPromise = manager.ensureReady()
 
@@ -877,6 +883,77 @@ describe('WorkerLifecycleManager', () => {
       expect(order).toEqual(['terminate', 'clear'])
       expect(workers).toHaveLength(2)
       expect(manager.getSyncApi()).not.toBeNull()
+    })
+  })
+  describe('one active tab', () => {
+    let locks: FakeLockManager
+    let restoreLocks: () => void
+
+    beforeEach(() => {
+      ({ locks, restore: restoreLocks } = installFakeLocks())
+      callbacks.onDisplaced = vi.fn()
+      callbacks.onTakeOver = vi.fn()
+    })
+
+    afterEach(() => {
+      restoreLocks()
+    })
+
+    it('takes the account over from the tab that has it before starting the worker', async () => {
+      const holder = locks.request(activeTabLockName('acc-1'), () => new Promise<void>(() => {}))
+
+      await manager.initialize('acc-1')
+
+      await expect(holder).rejects.toMatchObject({ name: 'AbortError' })
+      expect(callbacks.onTakeOver).toHaveBeenCalledWith('acc-1')
+      expect(mockSyncApi.initRepo).toHaveBeenCalledTimes(1)
+      expect(manager.isDisplaced()).toBe(false)
+    })
+
+    it('closes the worker without a reset when displaced, and tells the app', async () => {
+      await manager.initialize('acc-1')
+
+      manager.markDisplaced()
+
+      await vi.waitFor(() => expect(callbacks.onDisplaced).toHaveBeenCalledTimes(1))
+      expect(manager.isDisplaced()).toBe(true)
+      expect(manager.getSyncApi()).toBeNull()
+      expect(workers[0].terminate).toHaveBeenCalled()
+      expect(callbacks.onShutdownCleanup).toHaveBeenCalledWith({ internalRestart: true })
+    })
+
+    it('starts again, taking over, on the next initialize', async () => {
+      await manager.initialize('acc-1')
+      manager.markDisplaced()
+      await vi.waitFor(() => expect(callbacks.onDisplaced).toHaveBeenCalled())
+
+      await manager.initialize('acc-1')
+
+      expect(manager.isDisplaced()).toBe(false)
+      expect(workers).toHaveLength(2)
+      expect(manager.getSyncApi()).not.toBeNull()
+    })
+
+    it('retries the takeover once when another tab takes the lock first', async () => {
+      mockSyncApi.initRepo.mockRejectedValueOnce(new ActiveTabTakenError())
+
+      await manager.initialize('acc-1')
+
+      expect(mockSyncApi.initRepo).toHaveBeenCalledTimes(2)
+      expect(callbacks.onTakeOver).toHaveBeenCalledTimes(2)
+      expect(manager.isDisplaced()).toBe(false)
+    })
+
+    it('leaves the account to the other tab when it wins twice', async () => {
+      mockSyncApi.initRepo
+        .mockRejectedValueOnce(new ActiveTabTakenError())
+        .mockRejectedValueOnce(new ActiveTabTakenError())
+
+      await manager.initialize('acc-1')
+
+      expect(manager.isDisplaced()).toBe(true)
+      await vi.waitFor(() => expect(callbacks.onDisplaced).toHaveBeenCalledTimes(1))
+      expect(callbacks.onFatalError).not.toHaveBeenCalled()
     })
   })
 })

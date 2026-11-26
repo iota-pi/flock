@@ -7,9 +7,11 @@ export interface MigrationSyncState {
   status: SyncStatus
   warning: string | null
   fatalError: string | null
+  /** Another tab took the account over, which stopped this page's sync until it takes it back */
+  displaced: boolean
 }
 
-const initialState: MigrationSyncState = { status: 'connecting', warning: null, fatalError: null }
+const initialState: MigrationSyncState = { status: 'connecting', warning: null, fatalError: null, displaced: false }
 
 let state = initialState
 let account = ''
@@ -52,6 +54,7 @@ const sink: SyncStateSink = {
   startRequest: () => {},
   finishRequest: () => {},
   reset: () => setState(initialState),
+  onDisplaced: () => setState({ displaced: true }),
   beforeRetiringLegacyStores: accountId => {
     if (typeof BroadcastChannel === 'undefined') return
     // This page doesn't listen on the channel, so it can post from a channel of its own
@@ -77,3 +80,10 @@ export const MigrationBridge = createSyncBridge({
   getAccountId: () => account,
   lockVault: lockVaultKeys,
 })
+
+/** Takes the account back from a tab that took it over, if one did */
+export async function takeAccountBack(): Promise<void> {
+  if (!MigrationBridge.isDisplaced()) return
+  setState({ displaced: false })
+  await MigrationBridge.takeOverHere(account)
+}

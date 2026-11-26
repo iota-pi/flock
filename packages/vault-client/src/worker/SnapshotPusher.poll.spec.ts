@@ -54,7 +54,7 @@ async function poll(target: Snapshots): Promise<void> {
   }
 }
 
-/** Aborts the poll in flight, as the orchestrator does when leadership or the connection goes */
+/** Aborts the poll in flight, as the orchestrator does when the connection goes */
 function abortPoll(target: Snapshots): void {
   pollControllers.get(target)?.abort()
 }
@@ -68,14 +68,14 @@ type PusherContext = Omit<SnapshotPusherOptions, 'session' | 'schedule' | 'state
   onDueChanged?: () => void
 }
 
-/** A schedule and pusher with their own session state, a leader's when `isLeader` is set */
+/** A schedule and pusher with their own session state */
 function createSnapshots(
   context: PusherContext,
   db: ItemRecordsDb,
-  options: { isLeader?: boolean; runPollNow?: (target: Snapshots) => Promise<void> } = {},
+  options: { runPollNow?: (target: Snapshots) => Promise<void> } = {},
 ): Snapshots {
   const { repo, keys, codec = passthroughCodec, onDueChanged, ...deps } = context
-  const session = new SyncSessionState({ isLeader: options.isLeader })
+  const session = new SyncSessionState()
   const state = new ItemSyncState({ db, session })
   const schedule = new SnapshotSchedule({ state, recoveryManager: deps.recoveryManager, session, onDueChanged })
   const runPollNow = options.runPollNow ?? poll
@@ -93,14 +93,6 @@ function createSnapshots(
     }),
   }
   return created
-}
-
-/** Changes the session's leadership and tells the schedule, loading the records on promotion as the context does */
-async function setLeader(target: Snapshots, isLeader: boolean): Promise<void> {
-  if (target.session.setLeader(isLeader)) {
-    target.schedule.onLeaderChange()
-    if (isLeader) await target.schedule.load()
-  }
 }
 
 /** Marks the session shut down and stops the pusher, the schedule and then the records, as the context does */
@@ -207,7 +199,7 @@ describe('SnapshotPusher in a poll', () => {
     }
 
     records = createMemoryItemRecords()
-    snapshots = createSnapshots(context as any, records.db, { isLeader: true })
+    snapshots = createSnapshots(context as any, records.db)
   })
 
   afterEach(() => {
@@ -275,7 +267,7 @@ describe('SnapshotPusher in a poll', () => {
 
   it('does not run a poll to flush when nothing is dirty', async () => {
     const runPollNow = vi.fn().mockResolvedValue(undefined)
-    const idle = createSnapshots(context as any, records.db, { isLeader: true, runPollNow })
+    const idle = createSnapshots(context as any, records.db, { runPollNow })
 
     await expect(idle.pusher.flushPendingSnapshots()).resolves.toEqual({ persisted: 0, total: 0 })
     expect(runPollNow).not.toHaveBeenCalled()
@@ -284,14 +276,14 @@ describe('SnapshotPusher in a poll', () => {
   it('runs a poll to flush when nothing is dirty yet but items have pending marks', async () => {
     pendingMarks = true
     let dueInPoll = false
-    const runPollNow = vi.fn(async (leader: Snapshots) => {
+    const runPollNow = vi.fn(async (target: Snapshots) => {
       // The poll's log push is acknowledged, which marks the item dirty
-      leader.schedule.markItemDirty('item-1' as ItemId)
-      dueInPoll = leader.schedule.isDue()
+      target.schedule.markItemDirty('item-1' as ItemId)
+      dueInPoll = target.schedule.isDue()
     })
-    const leader = createSnapshots(context as any, records.db, { isLeader: true, runPollNow })
+    const target = createSnapshots(context as any, records.db, { runPollNow })
 
-    await leader.pusher.flushPendingSnapshots()
+    await target.pusher.flushPendingSnapshots()
 
     expect(runPollNow).toHaveBeenCalledTimes(1)
     expect(dueInPoll).toBe(true)
@@ -300,172 +292,84 @@ describe('SnapshotPusher in a poll', () => {
   it("doesn't leave a flush's request due when the poll made nothing dirty", async () => {
     pendingMarks = true
     const runPollNow = vi.fn().mockResolvedValue(undefined)
-    const leader = createSnapshots(context as any, records.db, { isLeader: true, runPollNow })
+    const target = createSnapshots(context as any, records.db, { runPollNow })
 
-    await leader.pusher.flushPendingSnapshots()
-    leader.schedule.markItemDirty('item-1' as ItemId)
+    await target.pusher.flushPendingSnapshots()
+    target.schedule.markItemDirty('item-1' as ItemId)
 
     expect(runPollNow).toHaveBeenCalledTimes(1)
-    expect(leader.schedule.isDue()).toBe(false)
+    expect(target.schedule.isDue()).toBe(false)
   })
 
-  it('saves pending dirty flags at once when flushed, even in a follower tab', async () => {
-    const follower = createSnapshots(context as any, records.db, { isLeader: false })
-    follower.schedule.markItemDirty('item-1' as ItemId)
+  it('saves pending dirty flags at once when flushed, even offline', async () => {
+    snapshots.session.setOnline(false)
+    snapshots.schedule.markItemDirty('item-1' as ItemId)
     expect(records.db.update).not.toHaveBeenCalled()
 
     // As the page being hidden does
-    await follower.pusher.flushPendingSnapshots()
+    await snapshots.pusher.flushPendingSnapshots()
     await vi.advanceTimersByTimeAsync(0)
 
     expect(records.get('item-1')).toEqual({ itemId: 'item-1', dirty: true })
     expect(mockPutSnapshots).not.toHaveBeenCalled()
   })
 
-  describe('Leadership Coordination and Follower Protection', () => {
-    let follower: Snapshots
+  describe('startup audit', () => {
+    let fresh: Snapshots
 
     beforeEach(() => {
-      // Default creation without options starts with isLeader: false
-      follower = createSnapshots(context as any, records.db)
+      fresh = createSnapshots(context as any, records.db)
     })
 
-    it('defaults isLeader to false and exposes leader getter', () => {
-      expect(follower.session.isLeader).toBe(false)
-    })
-
-    it('prevents flushPendingSnapshots from uploading when not leader', async () => {
-      follower.schedule.markItemDirty('follower-item-1' as ItemId)
-
-      const result = await follower.pusher.flushPendingSnapshots()
-
-      expect(result).toEqual({ persisted: 0, total: 0 })
-      expect(mockPutSnapshots).not.toHaveBeenCalled()
-    })
-
-    it('does not upload from a follower however long its items have been dirty', async () => {
-      follower.schedule.markItemDirty('follower-item-1' as ItemId)
-
-      elapse(2 * SYNC_TIMEOUTS.snapshotMaxWait)
-      await poll(follower)
-
-      expect(mockPutSnapshots).not.toHaveBeenCalled()
-    })
-
-    it('uploads after the debounce when promoted to leader with dirty items', async () => {
-      mockPutSnapshots.mockResolvedValue({
-        success: true,
-        persisted: 1,
-      })
-
-      follower.schedule.markItemDirty('follower-item-1' as ItemId)
-      expect(mockPutSnapshots).not.toHaveBeenCalled()
-
-      // Promoted to leader
-      await setLeader(follower, true)
-      expect(follower.session.isLeader).toBe(true)
-
-      elapse()
-      await poll(follower)
-
-      expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-      expect(mockPutSnapshots.mock.calls[0][0].snapshots[0].itemId).toBe('follower-item-1')
-    })
-
-    it('drops the due time when leadership is revoked', async () => {
-      snapshots.schedule.markItemDirty('leader-item-1' as ItemId)
-
-      await setLeader(snapshots, false)
-      expect(snapshots.session.isLeader).toBe(false)
-
-      expect(snapshots.schedule.nextDueAt).toBeUndefined()
-      elapse(2 * SYNC_TIMEOUTS.snapshotMaxWait)
-      await poll(snapshots)
-      expect(mockPutSnapshots).not.toHaveBeenCalled()
-    })
-
-    it('re-reads the item records and restores flagged items to dirty queue upon promotion to leader', async () => {
+    it('reads the item records and restores flagged items to the dirty queue', async () => {
       records.records.set('item-unpushed' as ItemId, { itemId: 'item-unpushed' as ItemId, dirty: true })
       records.records.set('item-clean' as ItemId, { itemId: 'item-clean' as ItemId, baseVersion: 3 })
 
-      expect(follower.state.listDirty()).toEqual([])
+      await fresh.schedule.load()
 
-      await setLeader(follower, true)
-
-      expect(follower.state.listDirty()).toContain('item-unpushed')
-      expect(follower.state.listDirty()).not.toContain('item-clean')
+      expect(fresh.state.listDirty()).toContain('item-unpushed')
+      expect(fresh.state.listDirty()).not.toContain('item-clean')
     })
 
-    it('pushes un-snapshotted items from previous leader after follower promotion', async () => {
+    it('pushes items an earlier session left un-snapshotted', async () => {
       mockPutSnapshots.mockResolvedValue({
         success: true,
         persisted: 1,
         total: 1,
       })
+      records.records.set('item-from-earlier' as ItemId, { itemId: 'item-from-earlier' as ItemId, dirty: true })
 
-      records.records.set('item-from-previous-leader' as ItemId, { itemId: 'item-from-previous-leader' as ItemId, dirty: true })
-
-      await setLeader(follower, true)
-
+      await fresh.schedule.load()
       elapse()
-      await poll(follower)
+      await poll(fresh)
 
       expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-      expect(mockPutSnapshots.mock.calls[0][0].snapshots[0].itemId).toBe('item-from-previous-leader')
+      expect(mockPutSnapshots.mock.calls[0][0].snapshots[0].itemId).toBe('item-from-earlier')
     })
 
-    it('merges follower local dirty items with un-snapshotted items from previous leader on promotion', async () => {
-      mockPutSnapshots.mockResolvedValue({
-        success: true,
-        persisted: 2,
-        total: 2,
-      })
-
-      follower.schedule.markItemDirty('follower-local-item' as ItemId)
-
-      records.records.set('item-from-previous-leader' as ItemId, { itemId: 'item-from-previous-leader' as ItemId, dirty: true })
-
-      await setLeader(follower, true)
-
-      expect(follower.state.listDirty()).toContain('follower-local-item')
-      expect(follower.state.listDirty()).toContain('item-from-previous-leader')
-
-      elapse()
-      await poll(follower)
-
-      expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-      const sentIds = mockPutSnapshots.mock.calls[0][0].snapshots.map((s: any) => s.itemId)
-      expect(sentIds).toContain('follower-local-item')
-      expect(sentIds).toContain('item-from-previous-leader')
-    })
-
-    it('has nothing due upon promotion if all stored items are clean', async () => {
+    it('has nothing due if all stored items are clean', async () => {
       records.records.set('item-clean' as ItemId, { itemId: 'item-clean' as ItemId, baseVersion: 4 })
 
-      await setLeader(follower, true)
+      await fresh.schedule.load()
 
-      expect(follower.state.listDirty()).toHaveLength(0)
-      expect(follower.schedule.nextDueAt).toBeUndefined()
+      expect(fresh.state.listDirty()).toHaveLength(0)
+      expect(fresh.schedule.nextDueAt).toBeUndefined()
     })
 
-    it('does not upload if leadership is revoked while promotion audit is in flight', async () => {
+    it('does not upload once the session stopped while the audit was in flight', async () => {
       let resolveRecords: (val: any) => void
       const pendingLoad = new Promise(resolve => {
         resolveRecords = resolve
       })
       records.db.getAll.mockReturnValueOnce(pendingLoad as any)
 
-      const promotionPromise = setLeader(follower, true)
-
-      // Leadership revoked before load completes
-      await setLeader(follower, false)
-      expect(follower.session.isLeader).toBe(false)
-
+      const load = fresh.schedule.load()
+      fresh.session.markShutdown()
       resolveRecords!([{ itemId: 'item-unpushed', dirty: true }])
-      await promotionPromise
+      await load
 
       elapse()
-      await poll(follower)
+      await poll(fresh)
       expect(mockPutSnapshots).not.toHaveBeenCalled()
     })
   })

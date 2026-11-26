@@ -33,7 +33,7 @@ describe('SyncPoller', () => {
   let poller: SyncPoller
 
   beforeEach(() => {
-    session = new SyncSessionState({ isLeader: true })
+    session = new SyncSessionState()
     puller = {
       cursor: 7,
       recordOwnPushes: vi.fn(),

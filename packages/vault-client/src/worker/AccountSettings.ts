@@ -6,7 +6,6 @@ import type { ClientEventHub } from './SyncEventHub'
 import type { DocCodec, LegacySettingsContext, LegacySettingsSource } from './domain'
 import { reconcileAutomergeList } from './utils/crdtReconcile'
 import { isPlainObject } from './utils/objectUtils'
-import type { RealtimeBus } from './RealtimeBus'
 import { createLogger } from '../utils/logger'
 import { errorMessage } from '../utils/errorMessage'
 
@@ -18,8 +17,6 @@ export interface AccountSettingsDeps {
   indexManager: AutomergeIndexManager
   eventHub: ClientEventHub
   markDocumentDirty: (itemId: ItemId) => void
-  /** Tells the account's other tabs the settings document changed */
-  bus?: RealtimeBus
   syncedKeys?: readonly string[]
   legacySettings?: LegacySettingsSource
   withAuth: LegacySettingsContext['withAuth']
@@ -210,7 +207,6 @@ export class AccountSettings {
 
     await this.deps.indexManager.addItemIds([this.docId])
     this.deps.markDocumentDirty(this.docId)
-    this.deps.bus?.publishSyncPing([this.docId])
     this.settings = await this.readSettings()
     this.emit()
   }

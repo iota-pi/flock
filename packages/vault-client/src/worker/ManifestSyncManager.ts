@@ -28,8 +28,8 @@ const PULLED_CHANGES_GRACE_MS = SYNC_TIMEOUTS.pulledChangesGrace
 
 export interface ManifestSyncManagerDeps {
   accountId: string
-  /** Only the leader talks to the server, so a sync in any other tab does nothing */
-  session: Pick<SyncSessionState, 'isLeader' | 'isShutdown'>
+  /** Nothing starts once the session is shutting down */
+  session: Pick<SyncSessionState, 'isShutdown'>
   docStore: AutomergeDocStore
   indexManager: AutomergeIndexManager
   /** Queues items owing the server a snapshot, and makes the queued ones due */
@@ -112,7 +112,7 @@ const NOT_SYNCED: ManifestPhaseResult = { added: [], success: false, fetchedMani
 export class ManifestSyncManager {
   private readonly isAlive = () => !this.deps.session.isShutdown
 
-  /** A sync asked for by an event (promotion, coming online, foreground), kept until a phase serves it */
+  /** A sync asked for by an event (starting, coming online, foreground), kept until a phase serves it */
   private requested: ManifestMode | undefined
   private readonly tickets = new Set<ManifestSyncTicket>()
   /** The persisted time of the last clean sync, once read */
@@ -146,8 +146,8 @@ export class ManifestSyncManager {
   /**
    * When the poll's manifest phase next has work, for scheduling polls: now while a sync is asked for,
    * otherwise `manifestSyncMinGap` after the last clean sync or `manifestSyncInterval` after the last
-   * one that fetched the manifest, whichever is later. Undefined outside the leader, and before the
-   * last clean sync's time has been read.
+   * one that fetched the manifest, whichever is later. Undefined once the session is shutting down,
+   * and before the last clean sync's time has been read.
    */
   getDueAt(now = Date.now()): number | undefined {
     if (!this.canSync) return undefined
@@ -172,7 +172,7 @@ export class ManifestSyncManager {
     const demands = this.deps.demands.list()
     const demanded = stage === 'afterRead' ? demands.length > 0 : demands.some(demand => demand.beforeRead)
     if (!this.canSync) {
-      if (demanded) throw new Error(`${describeDemands(demands)} needs the manifest, which this tab can't fetch`)
+      if (demanded) throw new Error(`${describeDemands(demands)} needs the manifest, which this session can't fetch now`)
       return null
     }
     this.lastCleanAt ??= await this.deps.indexManager.getLastManifestSyncTime()
@@ -215,7 +215,7 @@ export class ManifestSyncManager {
   }
 
   private get canSync(): boolean {
-    return this.isAlive() && this.deps.session.isLeader
+    return this.isAlive()
   }
 
   private shouldSkipSync(mode: ManifestMode, hasKnownItems: boolean, timeSinceLastSync: number): boolean {
@@ -270,10 +270,8 @@ export class ManifestSyncManager {
   ): Promise<{ skip: boolean; hasKnownItems: boolean; knownItemIds: ItemId[] }> {
     checkAlive(signal, this.isAlive)
     const knownItemIds = await this.deps.indexManager.listItemIds()
-    // Read every time: another tab may have synced while this one wasn't leading
-    const lastManifestSyncTime = await this.deps.indexManager.getLastManifestSyncTime()
-    checkAlive(signal, this.isAlive)
-    this.lastCleanAt = lastManifestSyncTime
+    // Read once per session, at its first phase, and kept since
+    const lastManifestSyncTime = this.lastCleanAt ?? 0
 
     const hasKnownItems = knownItemIds.length > 0
     const timeSinceLastSync = lastManifestSyncTime > 0 ? Date.now() - lastManifestSyncTime : Infinity

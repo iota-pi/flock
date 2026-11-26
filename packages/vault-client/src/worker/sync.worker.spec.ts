@@ -17,7 +17,6 @@ import type { RepoDoc } from './docStore/AutomergeDocStore'
 import { SyncSessionState } from './SyncSessionState'
 import { SyncStatusManager } from './SyncStatusManager'
 
-const realtimeListeners: Array<(itemIds: string[]) => void> = []
 
 // Mock SyncWorkerContext — the worker delegates all service management here
 const mockContextInitialize = vi.fn().mockResolvedValue(undefined)
@@ -79,12 +78,6 @@ beforeEach(() => {
       session = new SyncSessionState()
       statusManager: SyncStatusManager
       services = {
-        realtimeBus: {
-          subscribeSyncPing: vi.fn((listener: (itemIds: string[]) => void) => {
-            realtimeListeners.push(listener)
-            return () => {}
-          }),
-        },
         repo: { find: mockRepoFind, handles: {} },
         indexManager: {
           listItemIds: mockIndexManagerListItemIds,
@@ -716,21 +709,6 @@ describe('SyncWorker readiness and queueing before initialization', () => {
       await worker.reencryptAllItems()
 
       expect(order).toEqual(['items', 'rewrap'])
-    })
-
-    it('does not touch manual recovery entries when a realtime bus ping arrives', async () => {
-      realtimeListeners.length = 0
-      const worker = new SyncWorker(workerConfig)
-      await worker.initRepo('account-1', 'vault-key-1')
-      expect(realtimeListeners.length).toBeGreaterThan(0)
-
-      realtimeListeners[realtimeListeners.length - 1](['item-1'])
-
-      const ctx = (worker as any)._context
-      // Pings can name deleted items, so they must not take IDs out of the tombstones
-      expect(ctx.services.indexManager.addItemIds).toHaveBeenCalledWith(['item-1'], { skipTombstoned: true })
-      expect(mockRecoveryManagerResolveQuarantines).not.toHaveBeenCalled()
-      expect(mockRecoveryManagerUnquarantine).not.toHaveBeenCalled()
     })
 
     it('delegates retryRecoveryItem to the item recovery service', async () => {

@@ -5,7 +5,6 @@ import { fence } from './__test__/crashFence'
 import { Device } from './__test__/syncLogHarness'
 import {
   assertConverged,
-  CloseTab,
   commandArbitrary,
   Crash,
   Create,
@@ -15,12 +14,11 @@ import {
   FailStateSave,
   Idle,
   LoseResponse,
-  OpenTab,
   Poll,
   quiesce,
   runScenario,
-  Steal,
   Store,
+  SwitchTab,
   UploadSnapshots,
   type Model,
   type World,
@@ -68,28 +66,27 @@ describe('sync model', () => {
     )).resolves.toBeUndefined()
   })
 
-  it('converges through follower tabs, a steal, a lost response and a failed save', { timeout: 60_000 }, async () => {
+  it('converges through tab switches, a lost response and a failed save', { timeout: 60_000 }, async () => {
     // Every command the random runs pick from only rarely, in one fixed scenario. It checks itself.
     await expect(runScenario(2, [
       new Create(0),
       new Poll(0),
-      new OpenTab(0),
-      new Edit(0, 0, true),
-      new Create(0, true),
+      new Edit(0, 0),
+      new SwitchTab(0, true),
+      new Create(0),
       new Store(0),
       new LoseResponse(),
       new Poll(0),
       new FailStateSave(0),
       new Poll(0),
-      new Steal(0),
-      new Edit(0, 1, true),
+      new Edit(0, 1),
+      new SwitchTab(0, false),
       new Edit(0, 0),
       new Poll(0),
       new UploadSnapshots(0),
       new Poll(1),
-      new CloseTab(0),
-      new OpenTab(1),
-      new Edit(1, 1, true),
+      new Edit(1, 1),
+      new SwitchTab(1, true),
       new Crash(1, 'none', 0),
       new Poll(1),
     ])).resolves.toBeUndefined()

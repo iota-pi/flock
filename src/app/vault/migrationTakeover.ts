@@ -7,7 +7,7 @@ import { lockVault } from './session'
  * only one running while it works.
  */
 export async function handleMigrationMessage(message: MigrationChannelMessage | undefined): Promise<void> {
-  if (message?.type !== 'started' || !useAppStore.getState().loggedIn) return
+  if (message?.type !== 'started' || message.takeover || !useAppStore.getState().loggedIn) return
   await lockVault()
   useAppStore.getState().setMessage({
     severity: 'info',

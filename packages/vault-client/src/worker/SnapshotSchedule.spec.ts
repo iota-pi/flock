@@ -22,7 +22,7 @@ describe('SnapshotSchedule', () => {
       listRecoveryItems: vi.fn().mockResolvedValue([]),
     }
 
-    session = new SyncSessionState({ isLeader: true })
+    session = new SyncSessionState()
     state = new ItemSyncState({ db: store.db, session })
     tracker = new SnapshotSchedule({
       state,
@@ -192,21 +192,6 @@ describe('SnapshotSchedule', () => {
     })
   })
 
-  describe('leadership', () => {
-    it('makes the dirty items due after the debounce when this tab becomes the leader', () => {
-      session.setLeader(false)
-      tracker.markItemDirty('item-1' as ItemId)
-      tracker.onLeaderChange()
-      expect(tracker.nextDueAt).toBeUndefined()
-
-      vi.setSystemTime(500)
-      session.setLeader(true)
-      tracker.onLeaderChange()
-
-      expect(tracker.nextDueAt).toBe(1500)
-    })
-  })
-
   describe('default debounce and max wait', () => {
     beforeEach(() => {
       tracker = new SnapshotSchedule({
@@ -343,7 +328,7 @@ describe('SnapshotSchedule', () => {
       tracker.markItemDirty('item-offline' as ItemId)
       await state.importBaseVersions([['item-server' as ItemId, 2]])
 
-      const restartedSession = new SyncSessionState({ isLeader: true })
+      const restartedSession = new SyncSessionState()
       const restartedState = new ItemSyncState({ db: store.db, session: restartedSession })
       const restarted = new SnapshotSchedule({ state: restartedState, recoveryManager: mockRecoveryManager, session: restartedSession })
       await restarted.load()
@@ -461,20 +446,20 @@ describe('SnapshotSchedule', () => {
     })
   })
 
-  describe('across tabs', () => {
-    it("keeps the leader's progress when a follower with older state saves", async () => {
-      const makeTab = (isLeader: boolean) => {
-        const tabSession = new SyncSessionState({ isLeader })
+  describe('a displaced session', () => {
+    it("keeps the active session's progress when a displaced (frozen) one with older state saves", async () => {
+      const makeTab = () => {
+        const tabSession = new SyncSessionState()
         const tabState = new ItemSyncState({ db: store.db, session: tabSession })
         return {
           state: tabState,
           schedule: new SnapshotSchedule({ state: tabState, recoveryManager: mockRecoveryManager, session: tabSession }),
         }
       }
-      const leader = makeTab(true)
-      const follower = makeTab(false)
+      const leader = makeTab()
+      const follower = makeTab()
 
-      // The follower loaded before the leader uploaded these snapshots
+      // The displaced session loaded before the active one uploaded these snapshots
       leader.schedule.markItemDirty('item-1' as ItemId)
       leader.state.clearDirty('item-1' as ItemId, leader.state.getDirtyTick('item-1' as ItemId))
       leader.state.raiseBaseVersion('item-1' as ItemId, 5)

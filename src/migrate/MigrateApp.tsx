@@ -33,7 +33,7 @@ import {
   reencryptOutdatedItems,
   startMigration,
 } from './migration'
-import { getSyncState, MigrationBridge, subscribeSyncState } from './migrationBridge'
+import { getSyncState, MigrationBridge, subscribeSyncState, takeAccountBack } from './migrationBridge'
 import { getClientOutdatedWarning, subscribeClientOutdatedWarning } from './clientOutdatedWarning'
 
 const log = createLogger('MigrateApp')
@@ -46,14 +46,14 @@ const POLLS_BEFORE_BLOCKED = 6
  * re-encryption) before it's shown as stuck, whatever it's waiting on
  */
 export const STALL_TIMEOUT_MS = 5 * 60 * 1000
-/** How long re-encryption waits for this tab to lead, and for it to catch up, before giving up */
+/** How long re-encryption waits for this device to catch up before giving up */
 export const REENCRYPT_WAIT_TIMEOUT_MS = 60 * 1000
 
 /**
- * Why the update stopped: blockers left once everything has run, another tab holding the sync
- * leadership, sync never settling, or the server not answering
+ * Why the update stopped: blockers left once everything has run, another tab taking the account
+ * over, sync never settling, or the server not answering
  */
-type BlockedReason = 'blockers' | 'anotherTab' | 'syncStalled' | 'serverUnreachable'
+type BlockedReason = 'blockers' | 'displaced' | 'syncStalled' | 'serverUnreachable'
 
 type Phase =
   | { kind: 'login' }
@@ -66,12 +66,8 @@ type Phase =
 
 type ReencryptionProgress = { done: number, total: number }
 
-function waitFailureReason(stage: ReencryptStage | null): BlockedReason {
-  return stage === 'waitingForLeader' ? 'anotherTab' : 'syncStalled'
-}
-
 const BLOCKED_MESSAGES: Record<Exclude<BlockedReason, 'blockers'>, string> = {
-  anotherTab: 'Flock is open in another tab or window on this device, which is stopping the update. Close it, then try again.',
+  displaced: 'Flock was opened in another tab or window on this device, which paused the update. Close it, then try again.',
   syncStalled: 'Your data could not finish syncing with the server, so the update could not continue.',
   serverUnreachable: 'Flock could not reach the server to check on the update.',
 }
@@ -266,7 +262,7 @@ export default function MigrateApp() {
       const waitStage = reencryptionWaitStage(err)
       if (waitStage) {
         log.warn('Re-encryption gave up waiting', err)
-        reencryptionWaitFailureRef.current = waitFailureReason(waitStage)
+        reencryptionWaitFailureRef.current = 'syncStalled'
       } else {
         log.warn('Re-encryption failed', err)
         Sentry.captureException(err)
@@ -311,6 +307,10 @@ export default function MigrateApp() {
     }
 
     const poll = async () => {
+      if (getSyncState().displaced) {
+        block(lastStatus, 'displaced')
+        return
+      }
       let status: DataVersionStatus
       try {
         status = await MigrationBridge.checkDataVersion()
@@ -356,7 +356,7 @@ export default function MigrateApp() {
       }
       // Whatever it's waiting on, an update that has stopped moving ends rather than polling forever
       if (isStalled()) {
-        block(status, waitFailureReason(reencryptStageRef.current))
+        block(status, 'syncStalled')
         return
       }
       setPhase({ kind: 'running', status })
@@ -376,6 +376,7 @@ export default function MigrateApp() {
     reencryptionWaitFailureRef.current = null
     setPhase({ kind: 'running', status: null })
     try {
+      await takeAccountBack()
       await MigrationBridge.fullResync()
     } catch (err) {
       log.warn('Full resync failed', err)
@@ -522,11 +523,6 @@ export default function MigrateApp() {
                     </>
                   )
                   : <LinearProgress />}
-                {phase.kind === 'running' && reencryptStage === 'waitingForLeader' && (
-                  <Typography variant="body2" color="text.secondary">
-                    Waiting for Flock to close in your other tabs or windows…
-                  </Typography>
-                )}
                 {phase.kind === 'running' && reencryptStage === 'waitingForSync' && (
                   <Typography variant="body2" color="text.secondary">
                     Waiting for your data to finish syncing…

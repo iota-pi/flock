@@ -12,23 +12,15 @@ export interface SyncSignalHandlers {
   snapshotDue: () => void
   /** Runs a poll now, or right after the one in flight, resolving once it has finished */
   pollNow: () => Promise<void>
-  /** The user came back to one of the account's tabs */
-  foreground: () => void
-  /** The user is active in one of the account's tabs */
+  /** The user is active in the tab, or changes came from another device */
   activity: () => void
-  /** The leader's tab is hidden while another is visible, so the visible one should lead */
-  leaderAway: () => void
-  /** This tab has work only the leader can do */
-  claimLeader: () => void
-  /** An item's doc changed, in this tab or another */
-  docChanged: (itemId: ItemId) => void
-  /** An item was edited in this tab */
+  /** An item was edited */
   edited: (itemId: ItemId) => void
   /** An item's doc holds changes a snapshot merged into it lacks, so they still have to be pushed */
   localChangesFound: (itemId: ItemId) => void
   /** An item's doc has no data in local storage, so only its snapshot can restore it */
   localDataMissing: (itemId: ItemId) => void
-  /** The account's metadata changed, here or in another tab */
+  /** The account's metadata changed */
   metadataUpdated: (metadata: VaultMetadata) => void
 }
 

@@ -1,4 +1,3 @@
-import { debounce } from 'lodash-es'
 import { MAX_INCREMENTAL_MESSAGE_BYTES, type ItemId, type SyncLogMessage } from '@vault/shared'
 import type { KeyProvider } from '../keys/Keyring'
 import type { AutomergeDocStore } from './docStore'
@@ -7,10 +6,9 @@ import type { LogExchange } from './LogExchange'
 import type { SyncLogDatabase } from './stores/SyncLogDatabase'
 import type { SyncSessionState } from './SyncSessionState'
 import { SYNC_LOG_STORES } from '../shared/syncLogStorage'
-import { SYNC_BATCH_SIZES, SYNC_TIMEOUTS } from '../shared/syncConfig'
+import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
 import { checkAlive } from '../utils/abort'
 import { classifySyncError } from '../utils/errorClassifier'
-import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('ChangeOutbox')
@@ -24,7 +22,7 @@ function isRefusedRequest(error: unknown): boolean {
   return status !== undefined && REFUSED_REQUEST_STATUSES.has(status)
 }
 
-/** Why the leader's last push skipped an item, which only it can tell */
+/** Why the last push skipped an item */
 export type PendingBlockReason = 'snapshotOnly' | 'unloadable'
 
 /** An item's pending mark. A new mark gets a new tick, so a push never clears an edit it didn't send. */
@@ -37,7 +35,7 @@ export interface PendingMark {
    * (`datePendingMarks`).
    */
   createdAt: number
-  /** Why the leader's last push skipped the item, kept on the mark so every tab can count it */
+  /** Why the last push skipped the item, kept on the mark so it can be counted */
   blocked?: PendingBlockReason
 }
 
@@ -76,7 +74,7 @@ export interface LogPushResult {
 
 export interface ChangeOutboxDeps {
   db: SyncLogDatabase
-  docStore: Pick<AutomergeDocStore, 'readChangesSince' | 'hasChangesSince' | 'hasDataInStorage' | 'flushToStorage'>
+  docStore: Pick<AutomergeDocStore, 'readChangesSince' | 'hasDataInStorage' | 'flushToStorage'>
   keys: KeyProvider
   session: SyncSessionState
   /** Each item's server heads and whether only a snapshot can deliver it */
@@ -89,8 +87,7 @@ export interface ChangeOutboxDeps {
   /** Asks for an item's snapshot now, which delivers what the log can't */
   requestSnapshot: (itemId: ItemId) => void
   /**
-   * Called once a mark is written, or the leader finds unpushed changes on an item already marked, so
-   * the leader pushes and the unsynced count updates
+   * Called once a mark is written, so the session pushes and the unsynced count updates
    */
   onMarked: () => void
   /**
@@ -165,20 +162,13 @@ function packRequests(messages: SyncLogMessage[]): SyncLogMessage[][] {
  * A pending mark is a hint. A false one costs an empty check at push time.
  */
 export class ChangeOutbox {
-  private readonly changedItems = new Set<ItemId>()
-
-  private readonly checkChangedItemsDebounced = debounce(
-    () => fireAndForget(this.checkChangedItems(), 'ChangeOutbox:checkChangedItems'),
-    SYNC_TIMEOUTS.docChangeCheck,
-  )
-
   constructor(private readonly deps: ChangeOutboxDeps) {}
 
   private now(): number {
     return this.deps.now?.() ?? Date.now()
   }
 
-  /** Records that an item has changes to push. Every tab writes marks, so an edit outlives the leader. */
+  /** Records that an item has changes to push, so the edit outlives this session */
   async mark(itemId: ItemId): Promise<void> {
     await this.markAll([itemId])
   }
@@ -212,35 +202,6 @@ export class ChangeOutbox {
   private async clearMark(itemId: ItemId, tick: number | undefined): Promise<void> {
     if (tick === undefined) return
     await this.deps.db.deleteIf<PendingMark>(SYNC_LOG_STORES.outbox, itemId, mark => mark.tick === tick)
-  }
-
-  /**
-   * Called when an item's doc changes, whatever changed it. Changes from a follower reach the leader
-   * after its mark, which a push may already have cleared, so the leader marks what it finds unpushed.
-   */
-  onDocChanged(itemId: ItemId): void {
-    if (!this.deps.session.isLeader) return
-    this.changedItems.add(itemId)
-    this.checkChangedItemsDebounced()
-  }
-
-  private async checkChangedItems(): Promise<void> {
-    const itemIds = Array.from(this.changedItems)
-    this.changedItems.clear()
-    if (!this.deps.session.isLeader || this.deps.session.isShutdown) return
-
-    const unpushed = itemIds.filter(itemId => (
-      this.deps.docStore.hasChangesSince(itemId, this.deps.itemSyncState.getServerHeads(itemId))
-    ))
-    if (unpushed.length === 0) return
-    const pending = new Set(await this.listPending())
-    const unmarked = unpushed.filter(itemId => !pending.has(itemId))
-    if (unmarked.length > 0) {
-      await this.markAll(unmarked)
-    } else if (!this.deps.session.isShutdown) {
-      // A follower's edit is marked before its change reaches this tab, so nothing woke the push
-      this.deps.onMarked()
-    }
   }
 
   /** Pushes every item with a pending mark, returning whether a push read the log */
@@ -404,7 +365,7 @@ export class ChangeOutbox {
   }
 
   /**
-   * Records each item's new server heads and marks it dirty, so the leader uploads its snapshot, and
+   * Records each item's new server heads and marks it dirty, so its snapshot is uploaded, and
    * saves both in one transaction, before the marks clear: a crash between the two resends rather
    * than forgets. The docs are stored first, since the push read them in memory, and once the marks
    * clear and the log cursor passes the rows, nothing would bring the changes back to this device.
@@ -431,10 +392,5 @@ export class ChangeOutbox {
     for (const { itemId, tick } of pushes) {
       await this.clearMark(itemId, tick)
     }
-  }
-
-  shutdown(): void {
-    this.checkChangedItemsDebounced.cancel()
-    this.changedItems.clear()
   }
 }

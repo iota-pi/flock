@@ -22,13 +22,10 @@ export interface VaultStorageNames {
     automergeDatabase: string
     /** Automerge documents sealed with the device storage key */
     sealedAutomergeDatabase: string
-    automergeBroadcastChannel: string
-    indexChannel: string
     indexLock: string
     /** Web Lock held while the app's `migrateLocalData` hook runs, so tabs migrate one at a time */
     localDataMigrationLock: string
-    syncPingChannel: string
-    leaderPresenceChannel: string
+    /** Web Lock held by the account's active tab, the only one whose engine syncs (named for the leader lock it replaced) */
     leaderLock: string
     syncMetadataDatabase: string
     walDatabase: string
@@ -74,12 +71,8 @@ export function createVaultStorageNames(appName: string): VaultStorageNames {
     accountPrefixes: {
       automergeDatabase: `${prefix}-automerge-`,
       sealedAutomergeDatabase: `${prefix}-automerge-sealed-`,
-      automergeBroadcastChannel: `${prefix}-automerge-broadcast-`,
-      indexChannel: `${prefix}-index-channel-`,
       indexLock: `${prefix}-index-lock-`,
       localDataMigrationLock: `${prefix}-local-data-migration-`,
-      syncPingChannel: `${prefix}-sync-ping-`,
-      leaderPresenceChannel: `${prefix}-leader-presence-`,
       leaderLock: `${prefix}-leader-`,
       syncMetadataDatabase: `${prefix}-sync-metadata-`,
       walDatabase: `${prefix}-wal-`,

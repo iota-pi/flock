@@ -120,6 +120,16 @@ function createRewriter(deps: TestDeps) {
   return { rewriter, outcomes, poll }
 }
 
+/** A device that never catches up, whose wait ends only when its signal aborts */
+function stalledCatchUp(): { isCaughtUp: boolean; whenCaughtUp: (signal?: AbortSignal) => Promise<void> } {
+  return {
+    isCaughtUp: false,
+    whenCaughtUp: signal => new Promise((_resolve, reject) => {
+      signal?.addEventListener('abort', () => reject(signal.reason), { once: true })
+    }),
+  }
+}
+
 function createDeps(overrides: Partial<TestDeps> = {}): TestDeps {
   const mockRepo = {
     find: vi.fn().mockResolvedValue({
@@ -128,7 +138,7 @@ function createDeps(overrides: Partial<TestDeps> = {}): TestDeps {
     }),
   }
   const state = createState()
-  const session = new SyncSessionState({ isLeader: true })
+  const session = new SyncSessionState()
   const recoveryManager = new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() })
   return {
     builder: new SnapshotBuilder(mockRepo as any, keys, passthroughCodec, noLogCoverage),
@@ -136,7 +146,6 @@ function createDeps(overrides: Partial<TestDeps> = {}): TestDeps {
     apiClient: new SyncApiClient(),
     recoveryManager,
     session,
-    claimLeader: vi.fn(),
     catchUp: { isCaughtUp: true, whenCaughtUp: vi.fn().mockResolvedValue(undefined) },
     pushToLog: vi.fn().mockResolvedValue(undefined),
     state,
@@ -652,17 +661,6 @@ describe('SnapshotRewriter.request', () => {
     }))
   })
 
-  it('claims leadership first when this tab is a follower', async () => {
-    mockListItemIds.mockResolvedValue([])
-    const session = new SyncSessionState()
-    const claimLeader = vi.fn(() => session.setLeader(true))
-    const { rewriter: following } = createRewriter({ ...deps, session, claimLeader })
-
-    await following.request()
-
-    expect(claimLeader).toHaveBeenCalledTimes(1)
-  })
-
   it('stops at once, quarantining nothing, while offline', async () => {
     mockListItemIds.mockResolvedValue(['item-1'])
     deps.session.setOnline(false)
@@ -838,19 +836,17 @@ describe('SnapshotRewriter waits', () => {
     mockListItemIds.mockResolvedValue([])
   })
 
-  it('gives up waiting for leadership after the timeout, reporting the stage', async () => {
+  it('gives up waiting to catch up after the timeout, reporting the stage', async () => {
     const onStage = vi.fn()
-    const session = new SyncSessionState()
-    const { rewriter } = createRewriter(createDeps({ session, onStage }))
+    const { rewriter } = createRewriter(createDeps({ catchUp: stalledCatchUp(), onStage }))
 
     await expect(rewriter.request({ waitTimeoutMs: 10 })).rejects.toMatchObject({
       name: 'ReencryptionWaitError',
-      stage: 'waitingForLeader',
+      stage: 'waitingForSync',
     })
 
-    expect(onStage.mock.calls.map(([stage]) => stage)).toEqual(['waitingForLeader', null])
+    expect(onStage.mock.calls.map(([stage]) => stage)).toEqual(['waitingForSync', null])
     expect(rewriter.stage).toBeNull()
-    session.setLeader(true)
   })
 
   it('waits until the device has caught up, so it never replaces a snapshot it has not merged', async () => {
@@ -878,18 +874,11 @@ describe('SnapshotRewriter waits', () => {
     expect(onStage.mock.calls.map(([stage]) => stage)).toEqual(['waitingForSync', 'reencrypting', null])
   })
 
-  it('gives up waiting to catch up after the timeout', async () => {
-    const catchUp = { isCaughtUp: false, whenCaughtUp: (signal?: AbortSignal) => new SyncSessionState().whenLeader(signal) }
-    const { rewriter } = createRewriter(createDeps({ catchUp }))
-
-    await expect(rewriter.request({ waitTimeoutMs: 10 })).rejects.toMatchObject({ stage: 'waitingForSync' })
-  })
-
   it('stops a waiting request when cancelled', async () => {
-    const { rewriter } = createRewriter(createDeps({ session: new SyncSessionState() }))
+    const { rewriter } = createRewriter(createDeps({ catchUp: stalledCatchUp() }))
 
     const running = rewriter.request()
-    await vi.waitFor(() => expect(rewriter.stage).toBe('waitingForLeader'))
+    await vi.waitFor(() => expect(rewriter.stage).toBe('waitingForSync'))
     rewriter.cancel()
 
     await expect(running).rejects.toThrow('Re-encryption cancelled')
@@ -897,21 +886,21 @@ describe('SnapshotRewriter waits', () => {
   })
 
   it('lets a request start again after a cancelled one', async () => {
-    const session = new SyncSessionState()
-    const { rewriter } = createRewriter(createDeps({ session }))
+    const catchUp = stalledCatchUp()
+    const { rewriter } = createRewriter(createDeps({ catchUp }))
     const first = rewriter.request()
-    await vi.waitFor(() => expect(rewriter.stage).toBe('waitingForLeader'))
+    await vi.waitFor(() => expect(rewriter.stage).toBe('waitingForSync'))
     rewriter.cancel()
     await expect(first).rejects.toThrow()
 
-    session.setLeader(true)
+    catchUp.isCaughtUp = true
     await expect(rewriter.request()).resolves.toEqual({ succeeded: [], failed: [] })
   })
 
   it('prepares by waiting as a request would, without rewriting anything', async () => {
-    const { rewriter } = createRewriter(createDeps({ session: new SyncSessionState() }))
+    const { rewriter } = createRewriter(createDeps({ catchUp: stalledCatchUp() }))
 
-    await expect(rewriter.prepare({ waitTimeoutMs: 10 })).rejects.toMatchObject({ stage: 'waitingForLeader' })
+    await expect(rewriter.prepare({ waitTimeoutMs: 10 })).rejects.toMatchObject({ stage: 'waitingForSync' })
     expect(mockListItemIds).not.toHaveBeenCalled()
     expect(rewriter.stage).toBeNull()
 

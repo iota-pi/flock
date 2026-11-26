@@ -29,6 +29,8 @@ export type ClientEvent =
   | { type: 'retiringLegacyStores'; accountId: string }
   /** This device's local data can't be opened. `kver` is the missing key version, if that's the cause. */
   | { type: 'localDataUnavailable'; kver?: string; unpushedChanges: number }
+  /** Another tab took over the account, so this worker's session has stopped (see "One active tab" in docs/sync-design.md) */
+  | { type: 'displaced' }
   | {
     type: 'workerError'
     error: {

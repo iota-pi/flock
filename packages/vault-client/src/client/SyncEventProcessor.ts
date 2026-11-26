@@ -12,6 +12,8 @@ export interface SyncEventProcessorCallbacks {
   onLocalDataUnavailable?: (details: { kver?: string, unpushedChanges: number }) => void
   onActivity?: () => void
   onTokenRefreshNeeded?: () => void
+  /** Another tab took over the account, and this worker's session has stopped */
+  onDisplaced?: () => void
 }
 
 export class SyncEventProcessor<TDoc extends VaultDoc = VaultDoc, TMeta extends VaultMetadata = VaultMetadata> {
@@ -203,6 +205,10 @@ export class SyncEventProcessor<TDoc extends VaultDoc = VaultDoc, TMeta extends 
           level: 'warning',
         })
         this.callbacks.onLocalDataUnavailable?.({ kver: event.kver, unpushedChanges: event.unpushedChanges })
+        break
+      case 'displaced':
+        this.telemetry.addBreadcrumb({ category: 'sync', message: 'Another tab took over the account', level: 'info' })
+        this.callbacks.onDisplaced?.()
         break
       case 'retiringLegacyStores':
         this.sink.beforeRetiringLegacyStores?.(event.accountId)

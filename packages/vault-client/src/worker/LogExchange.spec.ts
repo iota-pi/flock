@@ -26,7 +26,7 @@ describe('LogExchange', () => {
 
   beforeEach(() => {
     controller = new AbortController()
-    session = new SyncSessionState({ isLeader: true })
+    session = new SyncSessionState()
     puller = {
       cursor: 7,
       recordOwnPushes: vi.fn(),
@@ -75,7 +75,6 @@ describe('LogExchange', () => {
 
   it.each([
     ['the signal aborts', () => controller.abort()],
-    ['leadership moves', () => session.setLeader(false)],
     ['the device goes offline', () => session.setOnline(false)],
   ])('records what the server stored when %s during the request, then stops', async (_, interrupt) => {
     const pushResults = [{ itemId: ITEM, seq: 8 }]

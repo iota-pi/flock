@@ -22,6 +22,7 @@ import useAutoLock from './hooks/useAutoLock'
 import QuotaWarningSnackbar from './components/QuotaWarningSnackbar'
 import QuotaExceededDialog from './components/dialogs/QuotaExceededDialog'
 import LocalDataUnavailableDialog from './components/dialogs/LocalDataUnavailableDialog'
+import DisplacedDialog from './components/dialogs/DisplacedDialog'
 import DeleteAccountDialog from './components/dialogs/DeleteAccountDialog'
 import AppUpdateSnackbar from './components/AppUpdateSnackbar'
 import BackupReminderSnackbar from './components/BackupReminderSnackbar'
@@ -129,6 +130,7 @@ function RootLayout() {
         onClose={() => setIsQuotaDialogOpen(false)}
       />
       <LocalDataUnavailableDialog />
+      <DisplacedDialog />
       <DeleteAccountDialog />
     </Root>
   )

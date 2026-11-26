@@ -30,6 +30,7 @@ const retryWaiting = (accountId = 'a', clearLocalData = false): LifecyclePhase =
 const ready = (accountId = 'a'): LifecyclePhase => ({ kind: 'ready', accountId })
 const restarting = (accountId = 'a'): LifecyclePhase => ({ kind: 'restarting', accountId })
 const halted = (accountId = 'a'): LifecyclePhase => ({ kind: 'halted', accountId })
+const displaced = (accountId = 'a'): LifecyclePhase => ({ kind: 'displaced', accountId })
 
 const init = (accountId = 'a', clearLocalData = false): LifecycleEvent => ({ type: 'initialize', accountId, clearLocalData })
 const NEXT_RUN = LAST_RUN + 1
@@ -309,6 +310,45 @@ describe('transitionLifecycle', () => {
     ])
   })
 
+  describe('another tab taking over', () => {
+    runTable([
+      {
+        name: 'closes a ready worker without a reset',
+        from: state(ready()),
+        event: { type: 'displaced' },
+        phase: displaced(),
+        effects: [{ type: 'closeDisplaced', accountId: 'a' }],
+      },
+      {
+        name: 'aborts a run that could not take the lock, and resets the failure count',
+        from: state(starting(), { initFailures: 2 }),
+        event: { type: 'displaced' },
+        phase: displaced(),
+        initFailures: 0,
+        effects: [ABORT_RUN, { type: 'closeDisplaced', accountId: 'a' }],
+      },
+      {
+        name: 'is ignored once shutting down',
+        from: state(shuttingDown),
+        event: { type: 'displaced' },
+        phase: shuttingDown,
+      },
+      {
+        name: 'is ignored while waiting to retry',
+        from: state(retryWaiting()),
+        event: { type: 'displaced' },
+        phase: retryWaiting(),
+      },
+      {
+        name: 'initialize takes the account back',
+        from: state(displaced()),
+        event: init(),
+        phase: starting('a', NEXT_RUN),
+        effects: [startRun()],
+      },
+    ])
+  })
+
   it('returns the same state when nothing changes', () => {
     const from = state(ready())
     expect(transitionLifecycle(from, { type: 'timerFired' }).state).toBe(from)
@@ -317,13 +357,13 @@ describe('transitionLifecycle', () => {
 
 describe('lifecycle helpers', () => {
   it('only treats a worker on its way as pending', () => {
-    expect([idle, starting(), retryWaiting(), ready(), restarting(), halted(), shuttingDown].map(isPending))
-      .toEqual([false, true, true, false, true, false, false])
+    expect([idle, starting(), retryWaiting(), ready(), restarting(), halted(), shuttingDown, displaced()].map(isPending))
+      .toEqual([false, true, true, false, true, false, false, false])
   })
 
   it('has an account in every phase but idle and shuttingDown', () => {
-    expect([idle, starting(), retryWaiting(), ready(), restarting(), halted(), shuttingDown].map(phaseAccountId))
-      .toEqual([null, 'a', 'a', 'a', 'a', 'a', null])
+    expect([idle, starting(), retryWaiting(), ready(), restarting(), halted(), shuttingDown, displaced()].map(phaseAccountId))
+      .toEqual([null, 'a', 'a', 'a', 'a', 'a', null, 'a'])
   })
 
   it('clamps the retry delay at the last one', () => {

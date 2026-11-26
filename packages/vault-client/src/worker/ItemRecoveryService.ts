@@ -19,8 +19,6 @@ export interface ItemRecoveryServiceDeps {
   /** Runs a poll whose manifest phase syncs at `mode`, returning that sync's result */
   syncManifest: (mode: ManifestMode) => Promise<ManifestPhaseResult>
   itemOperations: ItemOperations
-  /** Makes this tab the leader, which alone talks to the server, or throws */
-  becomeLeader: () => Promise<void>
   /** Called once an unreadable document's local copy has been removed, so it's no longer reported unreadable */
   onLocalCopyDiscarded: (documentId: DocumentId) => void
 }
@@ -36,8 +34,6 @@ export class ItemRecoveryService {
    */
   async replaceFromServer(itemId: ItemId): Promise<void> {
     const { repoManager, docStore, recoveryManager } = this.deps
-    // Before the local copy goes, so a tab that can't fetch the server's copy keeps it
-    await this.deps.becomeLeader()
     const documentId = toDocumentIdFromItemId(itemId)
     // Drops the handle that never finished loading. Its chunks are removed here rather than left to
     // the Repo, which doesn't wait for that.
@@ -53,14 +49,9 @@ export class ItemRecoveryService {
     await recoveryManager.unquarantine(itemId)
   }
 
-  /**
-   * Releases a quarantined item and pushes its snapshot again. Only the leader's queue uploads, so a
-   * follower takes over first: queued in a follower, the item would leave recovery but never go up.
-   */
+  /** Releases a quarantined item and pushes its snapshot again */
   async retryRecoveryItem(itemId: ItemId): Promise<void> {
     const { recoveryManager, snapshotSchedule, snapshotPusher } = this.deps
-    // Before the item leaves recovery, so a tab that can't take over leaves it there
-    await this.deps.becomeLeader()
     await recoveryManager.unquarantine(itemId)
     snapshotPusher.clearOversized(itemId)
     snapshotSchedule.markItemDirty(itemId)

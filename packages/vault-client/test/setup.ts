@@ -8,7 +8,6 @@ import { clearQuotaRecoveryHandlerForTesting, resetQuotaExceededStatus } from '.
 // mocks are the only module mocks: specs use `vi.spyOn` instead of `vi.mock`.
 vi.mock('@automerge/automerge/slim', async () => (await import('./moduleMocks')).mutableCopy('@automerge/automerge/slim'))
 vi.mock('@automerge/automerge-repo/slim', async () => (await import('./moduleMocks')).mutableCopy('@automerge/automerge-repo/slim'))
-vi.mock('@automerge/automerge-repo-network-broadcastchannel', async () => (await import('./moduleMocks')).mutableCopy('@automerge/automerge-repo-network-broadcastchannel'))
 vi.mock('comlink', async () => (await import('./moduleMocks')).mutableCopy('comlink'))
 
 globalThis.isSecureContext = true

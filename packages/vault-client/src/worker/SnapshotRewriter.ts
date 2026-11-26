@@ -45,10 +45,8 @@ export interface SnapshotRewriterOptions {
   schedule: Pick<SnapshotSchedule, 'isDeferred' | 'liftDeferral'>
   indexManager: Pick<AutomergeIndexManager, 'listItemIds'>
   apiClient: Pick<SyncApiClient, 'getValidToken'>
-  /** Rewrites run in the leader's polls, while online */
+  /** Rewrites run in the session's polls, while online */
   session: SyncSessionState
-  /** Makes this tab the leader, which polls */
-  claimLeader: () => void
   /**
    * Whether catch-up's manifest sync has merged the server's snapshots. A rewrite before then could
    * replace a snapshot with one that lacks what only that snapshot holds.
@@ -85,13 +83,13 @@ interface Pass {
 /**
  * Rewrites every item's snapshot, re-encrypting it under the active data key. A request queues every
  * item and asks for a poll; the poll's rewrite phase (`runDue`, after the snapshot phase) builds and
- * uploads them, so rewrites share the poll's leadership, abort, auth pause and backoff (sync rule 4).
+ * uploads them, so rewrites share the poll's abort, auth pause and backoff (sync rule 4).
  * A request failure fails the poll and the callers waiting, and leaves the rest of the queue for the
  * next poll. A refusal for the account's storage quota (429) rejects the callers waiting but leaves
  * the poll's result alone, as in the snapshot phase, and the queue waits out the quota delay.
  */
 export class SnapshotRewriter {
-  /** One for each request or `prepare` waiting for leadership or catch-up, which `cancel` aborts */
+  /** One for each request or `prepare` waiting for catch-up, which `cancel` aborts */
   private readonly cancellers = new Set<AbortController>()
   private queue: QueuedItem[] = []
   private pass: Pass | null = null
@@ -305,7 +303,7 @@ export class SnapshotRewriter {
   }
 
   /**
-   * A rewrite runs in the leader's polls, once the device has caught up: a device that hasn't read
+   * A rewrite runs in the session's polls, once the device has caught up: a device that hasn't read
    * the log for longer than its TTL (or has reset its sync state) merges the server's snapshots
    * first. Offline there's nothing to wait for. With `timeoutMs`, each wait gives up with a
    * `ReencryptionWaitError`.
@@ -316,11 +314,6 @@ export class SnapshotRewriter {
     const signal = outer ? AbortSignal.any([outer, canceller.signal]) : canceller.signal
     try {
       if (!this.deps.session.isOnline) return
-      if (!this.deps.session.isLeader) {
-        this.setStage('waitingForLeader')
-        this.deps.claimLeader()
-        await this.waitFor('waitingForLeader', waitSignal => this.deps.session.whenLeader(waitSignal), signal, timeoutMs)
-      }
       if (!this.deps.catchUp.isCaughtUp) {
         this.setStage('waitingForSync')
         await this.waitFor('waitingForSync', waitSignal => this.deps.catchUp.whenCaughtUp(waitSignal), signal, timeoutMs)
