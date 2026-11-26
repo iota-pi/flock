@@ -37,8 +37,7 @@ export function estimateSnapshotSize(snapshot: VaultSnapshotInput): number {
 
 /**
  * Strips the payload from a deleted snapshot, leaving only the metadata needed
- * for the server to record the tombstone. Used when the full document history
- * is too large to upload.
+ * for the server to record the tombstone.
  */
 export function toTombstoneSnapshot(snapshot: VaultSnapshotInput): VaultSnapshotInput {
   if (snapshot.deleted !== true) {
@@ -69,8 +68,8 @@ export class SnapshotBuilder {
     private readonly repo: Repo,
     private readonly keys: KeyProvider,
     private readonly codec: DocCodec,
-    /** Snapshot coverage (S1), so a snapshot only holds what the log has */
-    private readonly syncState: Pick<ItemSyncState, 'isCovered'>,
+    /** Snapshot coverage (S1), so a snapshot only holds what the log has, and the server's version */
+    private readonly syncState: Pick<ItemSyncState, 'isCovered' | 'getBaseVersion'>,
   ) {}
 
   /** Reports failures as results; only an abort of `signal` throws */
@@ -118,6 +117,20 @@ export class SnapshotBuilder {
       return { type: 'error', reason: 'Document data not available' }
     }
 
+    const itemSnapshot = normalizeItemSnapshot(itemId, doc as Record<string, unknown>, this.codec)
+    if (!itemSnapshot) {
+      return { type: 'error', reason: 'Failed to normalize item snapshot' }
+    }
+
+    // The server keeps nothing of a deleted item's content and nothing reads it, so once the server
+    // has the item a payload-less tombstone is enough, with no history to save or coverage to wait
+    // for. An item it has never seen still gets its whole snapshot, since a tombstone for an unseen ID
+    // writes no row, and a device holding the item's later log rows without its create needs the row
+    // to learn it's deleted.
+    if (itemSnapshot.deleted && this.syncState.getBaseVersion(itemId) > 0) {
+      return { type: 'success', snapshot: { itemId, deleted: true } }
+    }
+
     // In the same synchronous section as the save, so the snapshot holds exactly what was checked
     if (!this.syncState.isCovered(itemId, doc)) {
       return { type: 'deferred', reason: 'unpushed' }
@@ -131,11 +144,6 @@ export class SnapshotBuilder {
 
     const encryptedDoc = await this.keys.encryptBytes(binary, itemId)
     const encryptedHeads = heads.length > 0 ? await encryptSnapshotHeads(this.keys, itemId, heads) : undefined
-
-    const itemSnapshot = normalizeItemSnapshot(itemId, doc as Record<string, unknown>, this.codec)
-    if (!itemSnapshot) {
-      return { type: 'error', reason: 'Failed to normalize item snapshot' }
-    }
 
     return {
       type: 'success',

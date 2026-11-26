@@ -375,7 +375,9 @@ export class SnapshotPusher {
     const snapshotSize = estimateSnapshotSize(snapshot)
 
     if (snapshotSize > this.maxPayloadBytes && snapshot.deleted === true) {
-      // The full history can never be uploaded, but the server still needs to learn of the deletion
+      // The full history can never be uploaded, but the server still needs to learn of the deletion.
+      // The builder only gives a deleted item its history when the server has never seen it, and then
+      // this tombstone writes nothing; manifest sync doesn't push it again (calculateSyncDeltas).
       this.clearOversized(itemId)
       log.warn(`Uploading metadata-only tombstone for oversized deleted item ${itemId}`)
       const tombstone = toTombstoneSnapshot(snapshot)

@@ -253,6 +253,23 @@ describe('calculateSyncDeltas', () => {
       expect(result.upstreamIds).toEqual(['item-offline-created'])
     })
 
+    it('does not push a locally tombstoned item that is missing from the server manifest', () => {
+      // Its tombstone would write nothing on the server, so pushing it would repeat every manifest sync
+      const result = calculateSyncDeltas({
+        manifest: [],
+        force: false,
+        knownItemIds: [],
+        tombstoneItemIds: ['item-never-uploaded' as ItemId],
+        quarantinedMap: new Map(),
+        localVersionsMap: new Map([
+          ['item-never-uploaded' as ItemId, { baseVersion: 0, isDirty: true }],
+        ]),
+      })
+
+      expect(result.missingIds).toHaveLength(0)
+      expect(result.upstreamIds).toEqual([])
+    })
+
     it('does not push quarantined items upstream unless forced', () => {
       const params = {
         manifest: [

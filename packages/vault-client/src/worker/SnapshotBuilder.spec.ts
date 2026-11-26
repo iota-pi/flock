@@ -68,7 +68,7 @@ describe('SnapshotBuilder', () => {
   })
 
   it('defers an item whose changes have not reached the log, without saving it', async () => {
-    const coverage = { isCovered: vi.fn().mockReturnValue(false) }
+    const coverage = { ...noLogCoverage, isCovered: vi.fn().mockReturnValue(false) }
     const deferring = new SnapshotBuilder(mockRepo, keys, passthroughCodec, coverage)
 
 
@@ -211,6 +211,18 @@ describe('SnapshotBuilder', () => {
       }),
       heads: ['mock-head'],
     })
+  })
+
+  it('builds a payload-less tombstone for a deleted item the server has, without saving it', async () => {
+    mockNormalizeItemSnapshot.mockReturnValue({ type: 'topic', deleted: true })
+    const syncState = { isCovered: vi.fn().mockReturnValue(false), getBaseVersion: vi.fn().mockReturnValue(2) }
+
+    const result = await new SnapshotBuilder(mockRepo, keys, passthroughCodec, syncState).build('item-1' as ItemId)
+
+    expect(result).toEqual({ type: 'success', snapshot: { itemId: 'item-1', deleted: true } })
+    expect(mockSave).not.toHaveBeenCalled()
+    expect(mockEncryptBytes).not.toHaveBeenCalled()
+    expect(syncState.isCovered).not.toHaveBeenCalled()
   })
 
   it('returns not-ready if encryptBytes throws VaultNotInitializedError or Vault is locked', async () => {

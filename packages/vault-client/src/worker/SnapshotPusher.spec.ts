@@ -266,6 +266,18 @@ describe('SnapshotPusher', () => {
     expect(mockRecoveryManager.quarantine).toHaveBeenCalledWith('item-1', 'oversized', expect.anything())
   })
 
+  it('uploads a deleted item without a payload', async () => {
+    mockBuilder.build.mockResolvedValue({ type: 'success', snapshot: { itemId: 'item-1' as ItemId, deleted: true } })
+
+    const result = await push()
+
+    expect(result).toEqual({ persisted: 1, total: 1, success: true })
+    const payload = mockApiClient.putSnapshots.mock.calls[0][0]
+    expect(payload.snapshots).toEqual([{ itemId: 'item-1', deleted: true }])
+    expect(mockOnSnapshotStored).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'item-1', heads: undefined }))
+    expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
+  })
+
   describe('deleted oversized items', () => {
     const deletedSnapshot = (itemId: string) => ({
       type: 'success',
