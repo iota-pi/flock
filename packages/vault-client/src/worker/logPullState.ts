@@ -28,13 +28,13 @@ export interface LogPullState {
   read: ReadPhase
   /**
    * Catch-up's manifest sync has run, so stale gaps are expected until a pull reaches the end of the
-   * log. Whether a manifest sync is due is `ManifestSyncManager`'s, which holds the puller's demands.
+   * log. Whether a manifest sync is due is `ManifestSyncManager`'s, which holds the puller's asks.
    */
   catchingUp: boolean
 }
 
 export type LogPullEvent =
-  /** The server's clock showed the device may be behind the log's TTL, so the page was dropped and catch-up demanded */
+  /** The server's clock showed the device may be behind the log's TTL, so the page was dropped and catch-up asked for */
   | { type: 'pageDropped' }
   /** Catch-up's manifest sync fetched the manifest */
   | { type: 'catchUpSynced' }
@@ -51,7 +51,7 @@ export type LogPullEffect =
   /** Move the cursor past the gap: its rows were lost */
   | 'passGap'
   /**
-   * Log the lost rows as an error, since they can't go missing by design, and demand the manifest
+   * Log the lost rows as an error, since they can't go missing by design, and ask for the manifest
    * sync that recovers what they held
    */
   | 'recoverLostRows'

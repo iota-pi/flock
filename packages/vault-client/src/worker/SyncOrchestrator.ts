@@ -1,6 +1,6 @@
 import type { PollOutcome, SyncPoller } from './SyncPoller'
 import type { SyncLogPuller } from './SyncLogPuller'
-import type { ManifestMode, ManifestPhaseResult, ManifestSyncManager } from './ManifestSyncManager'
+import type { ManifestAsk, ManifestMode, ManifestPhaseResult, ManifestSyncManager } from './ManifestSyncManager'
 import type { SyncSessionState } from './SyncSessionState'
 import type { ClientEventHub } from './SyncEventHub'
 import {
@@ -25,7 +25,7 @@ export interface SyncOrchestratorDeps {
   poller: Pick<SyncPoller, 'executePoll'>
   clientEventHub: ClientEventHub
   puller: Pick<SyncLogPuller, 'hasImmediatePendingPulls' | 'gapRepollDelay'>
-  manifestSyncManager: Pick<ManifestSyncManager, 'request' | 'openTicket' | 'closeTicket' | 'getDueAt'>
+  manifestSyncManager: Pick<ManifestSyncManager, 'ask' | 'getDueAt'>
   /** Receives each poll's outcome */
   onPollResult?: (outcome: PollOutcome) => void
   /**
@@ -56,6 +56,8 @@ export class SyncOrchestrator {
   private readonly pollTimer = new RetryTimer()
   /** Armed while a flush is queued, so flushes made in the same turn share one poll */
   private readonly flushTimer = new RetryTimer()
+  /** The `due` manifest sync starting, coming online or the foreground asked for */
+  private dueManifestAsk: ManifestAsk | undefined
 
   constructor(private readonly deps: SyncOrchestratorDeps) {}
 
@@ -181,8 +183,14 @@ export class SyncOrchestrator {
 
   /** Polls now, with a manifest sync unless a clean one ran within `manifestSyncMinGap` */
   private startSyncing(options?: { resetBackoff?: boolean }): void {
-    this.deps.manifestSyncManager.request('due')
+    this.askDueManifestSync()
     this.startPolling(options)
+  }
+
+  /** Asks for a `due` manifest sync, which the next poll's phase serves, unless one is already asked for */
+  private askDueManifestSync(): void {
+    if (this.dueManifestAsk?.isOpen) return
+    this.dueManifestAsk = this.deps.manifestSyncManager.ask({ mode: 'due', until: 'served' })
   }
 
   /** Cancels scheduled and in-flight polls, and with them any manifest sync */
@@ -215,7 +223,7 @@ export class SyncOrchestrator {
    */
   onForeground(): void {
     if (!this.isOperational) return
-    this.deps.manifestSyncManager.request('due')
+    this.askDueManifestSync()
     this.dispatch({ type: 'foreground' })
   }
 
@@ -257,8 +265,8 @@ export class SyncOrchestrator {
   async syncManifest(mode: ManifestMode): Promise<ManifestPhaseResult> {
     const { manifestSyncManager } = this.deps
     return this.pollWithTicket(
-      () => manifestSyncManager.openTicket(mode),
-      ticket => manifestSyncManager.closeTicket(ticket),
+      () => manifestSyncManager.ask({ mode, until: 'served' }),
+      ask => ask.close(),
     )
   }
 

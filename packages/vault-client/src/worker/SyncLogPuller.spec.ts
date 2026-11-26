@@ -1,7 +1,7 @@
 import type { Mock } from 'vitest'
 import type { ItemId, SyncLogEntry } from '@vault/shared'
 import type { KeyProvider } from '../keys/Keyring'
-import type { ManifestDemand } from './ManifestDemands'
+import type { ManifestAsk, ManifestAskOptions } from './ManifestSyncManager'
 import { SyncLogPuller, type LogPage, type SyncLogPullerDeps } from './SyncLogPuller'
 import { SyncSessionState } from './SyncSessionState'
 import { MissingKeyError } from './utils/decryptWithKeyResolution'
@@ -26,18 +26,39 @@ function page(entries: SyncLogEntry[], overrides: Partial<LogPage> = {}): LogPag
   return { entries, hasMore: false, serverNow: NOW, ...overrides }
 }
 
-/** Holds demands as `ManifestSyncManager` does, and meets them all when a sync fetches the manifest */
+const FETCHED = { added: [], success: true, fetchedManifest: true }
+
+/** Holds asks as `ManifestSyncManager` does, and meets them all when a sync fetches the manifest */
 class FakeManifest {
-  readonly demands = new Set<ManifestDemand>()
-  demand(demand: ManifestDemand): void { this.demands.add(demand) }
-  isDemanded(demand: ManifestDemand): boolean { return this.demands.has(demand) }
+  private readonly asks = new Set<ManifestAskOptions>()
+
+  readonly ask = (options: ManifestAskOptions): ManifestAsk => {
+    const { asks } = this
+    asks.add(options)
+    return {
+      get isOpen() { return asks.has(options) },
+      close: () => {
+        asks.delete(options)
+        return { added: [], success: false, fetchedManifest: false }
+      },
+    }
+  }
+
+  /** The asks waiting */
+  get open(): ManifestAskOptions[] {
+    return Array.from(this.asks)
+  }
+
   fetch(): void {
-    for (const demand of Array.from(this.demands)) {
-      this.demands.delete(demand)
-      demand.onFetched?.()
+    for (const options of this.open) {
+      this.asks.delete(options)
+      options.onMet?.(FETCHED)
     }
   }
 }
+
+const RECOVERY = expect.objectContaining({ purpose: 'Recovering lost log rows', mode: 'now', until: 'fetched' })
+const CATCH_UP = expect.objectContaining({ purpose: 'Catching up', mode: 'now', until: 'fetched', beforeRead: true })
 
 describe('SyncLogPuller', () => {
   let session: SyncSessionState
@@ -93,7 +114,7 @@ describe('SyncLogPuller', () => {
       session,
       incoming: incoming as unknown as SyncLogPullerDeps['incoming'],
       reconciler: reconciler as unknown as SyncLogPullerDeps['reconciler'],
-      manifest,
+      askManifest: manifest.ask,
       itemSyncState: itemSyncState as unknown as SyncLogPullerDeps['itemSyncState'],
       onRemoteChangesApplied,
     })
@@ -272,18 +293,19 @@ describe('SyncLogPuller', () => {
 
       expect(puller.cursor).toBe(3)
       expect(puller.gapRepollDelay).toBeUndefined()
-      expect(manifest.demands).toEqual(new Set([puller.recoveryDemand]))
-      expect(puller.recoveryDemand.beforeRead).toBe(false)
+      expect(manifest.open).toEqual([RECOVERY])
+      expect(manifest.open[0].beforeRead).toBeFalsy()
     })
 
     it('keeps asking for the recovery sync until one fetches the manifest', async () => {
       await puller.process(page([entry(3, { createdAt: NOW - SYNC_TIMEOUTS.gapWait })]))
       await puller.process(page([entry(4)]))
 
-      expect(manifest.isDemanded(puller.recoveryDemand)).toBe(true)
+      expect(manifest.open).toEqual([RECOVERY])
+      expect(puller.isRecoveryAsked).toBe(true)
 
       manifest.fetch()
-      expect(manifest.isDemanded(puller.recoveryDemand)).toBe(false)
+      expect(puller.isRecoveryAsked).toBe(false)
     })
 
     it('moves past a fresh gap that has lasted the whole wait', async () => {
@@ -292,7 +314,7 @@ describe('SyncLogPuller', () => {
       await puller.process(page([entry(2)], { serverNow: NOW + SYNC_TIMEOUTS.gapWait }))
 
       expect(puller.cursor).toBe(2)
-      expect(manifest.isDemanded(puller.recoveryDemand)).toBe(true)
+      expect(puller.isRecoveryAsked).toBe(true)
     })
 
     it('expects stale gaps while catching up, and asks for no second manifest sync', async () => {
@@ -304,17 +326,17 @@ describe('SyncLogPuller', () => {
         session,
         incoming: incoming as unknown as SyncLogPullerDeps['incoming'],
         reconciler: reconciler as unknown as SyncLogPullerDeps['reconciler'],
-        manifest,
+        askManifest: manifest.ask,
         itemSyncState: itemSyncState as unknown as SyncLogPullerDeps['itemSyncState'],
       })
       await fresh.loadState()
-      expect(fresh.demandCatchUpIfBehind(NOW)).toBe(true)
+      expect(fresh.askCatchUpIfBehind(NOW)).toBe(true)
       manifest.fetch()
 
       await fresh.process(page([entry(5, { createdAt: NOW - SYNC_TIMEOUTS.gapWait })]))
 
       expect(fresh.cursor).toBe(5)
-      expect(manifest.demands.size).toBe(0)
+      expect(manifest.open).toEqual([])
       await fresh.shutdown({ clearLocalData: true })
     })
   })
@@ -329,7 +351,7 @@ describe('SyncLogPuller', () => {
         session,
         incoming: incoming as unknown as SyncLogPullerDeps['incoming'],
         reconciler: reconciler as unknown as SyncLogPullerDeps['reconciler'],
-        manifest,
+        askManifest: manifest.ask,
         itemSyncState: itemSyncState as unknown as SyncLogPullerDeps['itemSyncState'],
       })
       await fresh.loadState()
@@ -337,15 +359,15 @@ describe('SyncLogPuller', () => {
       expect(fresh.needsCatchUpManifest(NOW)).toBe(true)
       expect(fresh.isCaughtUp).toBe(false)
 
-      expect(fresh.demandCatchUpIfBehind(NOW)).toBe(true)
-      expect(manifest.demands).toEqual(new Set([fresh.catchUpDemand]))
-      expect(fresh.catchUpDemand.beforeRead).toBe(true)
+      expect(fresh.askCatchUpIfBehind(NOW)).toBe(true)
+      expect(fresh.askCatchUpIfBehind(NOW)).toBe(true)
+      expect(manifest.open).toEqual([CATCH_UP])
 
       const caughtUp = fresh.whenCaughtUp()
       manifest.fetch()
       await caughtUp
       expect(fresh.needsCatchUpManifest(NOW)).toBe(false)
-      expect(fresh.demandCatchUpIfBehind(NOW)).toBe(false)
+      expect(fresh.askCatchUpIfBehind(NOW)).toBe(false)
       await fresh.shutdown({ clearLocalData: true })
     })
 
@@ -354,8 +376,8 @@ describe('SyncLogPuller', () => {
 
       expect(puller.dropPageIfBehind(behind)).toBe(true)
       expect(puller.hasImmediatePendingPulls()).toBe(true)
-      expect(manifest.isDemanded(puller.catchUpDemand)).toBe(true)
-      // Demanded, so it's due whatever the local clock says
+      expect(puller.isCatchUpAsked).toBe(true)
+      // Asked for, so it's due whatever the local clock says
       expect(puller.needsCatchUpManifest(NOW)).toBe(true)
 
       manifest.fetch()
@@ -372,12 +394,12 @@ describe('SyncLogPuller', () => {
         session,
         incoming: incoming as unknown as SyncLogPullerDeps['incoming'],
         reconciler: reconciler as unknown as SyncLogPullerDeps['reconciler'],
-        manifest,
+        askManifest: manifest.ask,
         itemSyncState: itemSyncState as unknown as SyncLogPullerDeps['itemSyncState'],
       })
       puller = fresh
       await fresh.loadState()
-      fresh.demandCatchUpIfBehind(NOW)
+      fresh.askCatchUpIfBehind(NOW)
       manifest.fetch()
 
       await fresh.process(page([entry(1)], { hasMore: true }))

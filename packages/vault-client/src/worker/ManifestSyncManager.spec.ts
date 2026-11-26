@@ -1,7 +1,6 @@
 import { MAX_FETCH_RESPONSE_CHARS } from '@vault/shared'
-import { ManifestDemands, type ManifestDemand } from './ManifestDemands'
 import { ManifestHydrator } from './ManifestHydrator'
-import { ManifestSyncManager, type ManifestMode } from './ManifestSyncManager'
+import { ManifestSyncManager, type ManifestAskOptions, type ManifestMode, type ManifestStage } from './ManifestSyncManager'
 import { SyncSessionState } from './SyncSessionState'
 import { SnapshotSchedule } from './SnapshotSchedule'
 import { RecoveryManager } from './RecoveryManager'
@@ -75,7 +74,7 @@ function createManager(deps: any): ManifestSyncManager {
 
 /** A sync at `mode`, as the poll's manifest phase runs one when asked for it */
 function sync(manager: ManifestSyncManager, mode: ManifestMode = 'due', signal = new AbortController().signal) {
-  manager.request(mode)
+  manager.ask({ mode, until: 'served' })
   return manager.runPhase('afterRead', signal)
 }
 
@@ -93,7 +92,6 @@ describe('ManifestSyncManager', () => {
   let depsObj: {
     accountId: string
     session: SyncSessionState
-    demands: ManifestDemands
     docStore: any
     indexManager: any
     snapshotSchedule: any
@@ -136,7 +134,6 @@ describe('ManifestSyncManager', () => {
     depsObj = {
       accountId: 'acc-123',
       session: new SyncSessionState(),
-      demands: new ManifestDemands(),
       docStore: mockDocStore,
       indexManager: mockIndexManager,
       snapshotSchedule: mockSnapshotSchedule,
@@ -180,7 +177,7 @@ describe('ManifestSyncManager', () => {
   describe('once the session has shut down', () => {
     it('never talks to the server', async () => {
       const manager = createManager({ ...depsObj, session: shutDownSession() })
-      manager.request('force')
+      manager.ask({ mode: 'force', until: 'served' })
 
       expect(await sync(manager, 'force')).toBeNull()
       expect(manager.getDueAt()).toBeUndefined()
@@ -248,7 +245,7 @@ describe('ManifestSyncManager', () => {
     })
 
     it('is due now while a sync is asked for', async () => {
-      manifestSyncManager.request('due')
+      manifestSyncManager.ask({ mode: 'due', until: 'served' })
 
       expect(manifestSyncManager.getDueAt(1234)).toBe(1234)
     })
@@ -270,8 +267,8 @@ describe('ManifestSyncManager', () => {
       mockListItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(Date.now())
       mockFetchManifest.mockResolvedValue({ manifest: [] })
-      manifestSyncManager.request('now')
-      manifestSyncManager.request('due')
+      manifestSyncManager.ask({ mode: 'now', until: 'served' })
+      manifestSyncManager.ask({ mode: 'due', until: 'served' })
 
       expect(await manifestSyncManager.runPhase('afterRead', signal())).toMatchObject({ fetchedManifest: true })
       expect(await manifestSyncManager.runPhase('afterRead', signal())).toBeNull()
@@ -283,7 +280,7 @@ describe('ManifestSyncManager', () => {
     it('throws when the manifest cannot be fetched, keeping what was asked for', async () => {
       mockListItemIds.mockResolvedValue(['item-1'])
       mockFetchManifest.mockRejectedValueOnce(new TypeError('Failed to fetch'))
-      manifestSyncManager.request('now')
+      manifestSyncManager.ask({ mode: 'now', until: 'served' })
 
       await expect(manifestSyncManager.runPhase('afterRead', signal())).rejects.toThrow('Failed to fetch')
 
@@ -318,9 +315,36 @@ describe('ManifestSyncManager', () => {
       expect(mockUpdateLastManifestSyncTime).not.toHaveBeenCalled()
     })
 
-    describe('demands', () => {
-      const beforeRead = (onFetched = vi.fn()): ManifestDemand => ({ purpose: 'Catching up', beforeRead: true, onFetched })
-      const afterRead = (onFetched = vi.fn()): ManifestDemand => ({ purpose: 'Recovering lost log rows', beforeRead: false, onFetched })
+    describe('asks', () => {
+      type Row = {
+        ask: ManifestAskOptions
+        stage: ManifestStage
+        /** How the sync goes if one runs: it fetches the manifest, skips itself, or can't fetch it */
+        outcome: 'fetched' | 'skipped' | 'threw' | 'shutDown'
+        phase: 'ran' | 'none' | 'throws'
+        expected: 'met' | 'kept'
+      }
+      const served = (mode: ManifestMode, beforeRead = false): ManifestAskOptions => ({ mode, until: 'served', beforeRead })
+      const fetched = (beforeRead = false): ManifestAskOptions => ({ mode: 'now', until: 'fetched', beforeRead, purpose: 'Catching up' })
+
+      // The contract of `ask`: what a phase at each stage does with an ask, given how its sync goes
+      const table: Row[] = [
+        { ask: served('now'), stage: 'afterRead', outcome: 'fetched', phase: 'ran', expected: 'met' },
+        { ask: served('force'), stage: 'afterRead', outcome: 'fetched', phase: 'ran', expected: 'met' },
+        { ask: served('due'), stage: 'afterRead', outcome: 'skipped', phase: 'ran', expected: 'met' },
+        { ask: served('now'), stage: 'afterRead', outcome: 'threw', phase: 'throws', expected: 'kept' },
+        { ask: served('now'), stage: 'afterRead', outcome: 'shutDown', phase: 'none', expected: 'kept' },
+        { ask: served('now'), stage: 'beforeRead', outcome: 'fetched', phase: 'none', expected: 'kept' },
+        { ask: served('now', true), stage: 'beforeRead', outcome: 'fetched', phase: 'ran', expected: 'met' },
+        { ask: served('now', true), stage: 'beforeRead', outcome: 'shutDown', phase: 'none', expected: 'kept' },
+        { ask: fetched(), stage: 'afterRead', outcome: 'fetched', phase: 'ran', expected: 'met' },
+        { ask: fetched(), stage: 'afterRead', outcome: 'threw', phase: 'throws', expected: 'kept' },
+        { ask: fetched(), stage: 'afterRead', outcome: 'shutDown', phase: 'throws', expected: 'kept' },
+        { ask: fetched(), stage: 'beforeRead', outcome: 'fetched', phase: 'none', expected: 'kept' },
+        { ask: fetched(true), stage: 'beforeRead', outcome: 'fetched', phase: 'ran', expected: 'met' },
+        { ask: fetched(true), stage: 'beforeRead', outcome: 'threw', phase: 'throws', expected: 'kept' },
+        { ask: fetched(true), stage: 'beforeRead', outcome: 'shutDown', phase: 'throws', expected: 'kept' },
+      ]
 
       beforeEach(() => {
         mockListItemIds.mockResolvedValue(['item-1'])
@@ -328,124 +352,97 @@ describe('ManifestSyncManager', () => {
         mockFetchManifest.mockResolvedValue({ manifest: [] })
       })
 
-      it('runs a demand before the read only if it must run then', async () => {
-        const recovery = afterRead()
-        depsObj.demands.demand(recovery)
-        manifestSyncManager.request('now')
+      it.each(table)(
+        'until $ask.until at $ask.mode (before read: $ask.beforeRead), $stage phase, $outcome: phase $phase, ask $expected',
+        async row => {
+          if (row.outcome === 'threw') mockFetchManifest.mockRejectedValue(new TypeError('Failed to fetch'))
+          const manager = row.outcome === 'shutDown'
+            ? createManager({ ...depsObj, session: shutDownSession() })
+            : manifestSyncManager
+          const onMet = vi.fn()
+          const ask = manager.ask({ ...row.ask, onMet })
 
-        expect(await manifestSyncManager.runPhase('beforeRead', signal())).toBeNull()
-        expect(mockFetchManifest).not.toHaveBeenCalled()
+          const phase = await manager.runPhase(row.stage, signal()).then(
+            result => (result === null ? 'none' : 'ran'),
+            () => 'throws',
+          )
 
-        expect(await manifestSyncManager.runPhase('afterRead', signal())).toMatchObject({ fetchedManifest: true })
-        expect(recovery.onFetched).toHaveBeenCalledTimes(1)
-        expect(depsObj.demands.isDemanded(recovery)).toBe(false)
-      })
+          expect(phase).toBe(row.phase)
+          const reachedServer = row.phase === 'ran' ? row.outcome === 'fetched' : row.outcome === 'threw'
+          expect(mockFetchManifest).toHaveBeenCalledTimes(reachedServer ? 1 : 0)
+          expect(ask.isOpen).toBe(row.expected === 'kept')
+          expect(onMet).toHaveBeenCalledTimes(row.expected === 'met' ? 1 : 0)
+        },
+      )
 
-      it('runs inside the minimum gap, and is due now until met', async () => {
-        const catchUp = beforeRead()
-        depsObj.demands.demand(catchUp)
+      it('is due now until met', async () => {
+        manifestSyncManager.ask(fetched(true))
         expect(manifestSyncManager.getDueAt(1234)).toBe(1234)
 
-        expect(await manifestSyncManager.runPhase('beforeRead', signal())).toMatchObject({ fetchedManifest: true })
+        await manifestSyncManager.runPhase('beforeRead', signal())
 
-        expect(catchUp.onFetched).toHaveBeenCalledTimes(1)
-        expect(depsObj.demands.isDemanded(catchUp)).toBe(false)
+        expect(manifestSyncManager.getDueAt(1234)).not.toBe(1234)
       })
 
-      it('meets every demand and request with one sync, so nothing runs after the read', async () => {
-        const catchUp = beforeRead()
-        const recovery = afterRead()
-        depsObj.demands.demand(recovery)
-        depsObj.demands.demand(catchUp)
-        depsObj.demands.demand(catchUp)
-        manifestSyncManager.request('now')
+      it('meets every ask with one sync before the read, so nothing runs after it', async () => {
+        const catchUp = manifestSyncManager.ask(fetched(true))
+        const recovery = manifestSyncManager.ask({ mode: 'now', until: 'fetched', purpose: 'Recovering lost log rows' })
+        const event = manifestSyncManager.ask(served('due'))
 
         await manifestSyncManager.runPhase('beforeRead', signal())
 
         expect(await manifestSyncManager.runPhase('afterRead', signal())).toBeNull()
         expect(mockFetchManifest).toHaveBeenCalledTimes(1)
-        expect(catchUp.onFetched).toHaveBeenCalledTimes(1)
-        expect(recovery.onFetched).toHaveBeenCalledTimes(1)
+        expect([catchUp.isOpen, recovery.isOpen, event.isOpen]).toEqual([false, false, false])
       })
 
-      // Rule 4: a recovery request stays until a sync fetches the manifest
-      it('stays when the manifest cannot be fetched', async () => {
-        const recovery = afterRead()
-        depsObj.demands.demand(recovery)
-        mockFetchManifest.mockRejectedValueOnce(new TypeError('Failed to fetch'))
-
-        await expect(manifestSyncManager.runPhase('afterRead', signal())).rejects.toThrow('Failed to fetch')
-
-        expect(recovery.onFetched).not.toHaveBeenCalled()
-        expect(depsObj.demands.isDemanded(recovery)).toBe(true)
-        await manifestSyncManager.runPhase('afterRead', signal())
-        expect(recovery.onFetched).toHaveBeenCalledTimes(1)
-      })
-
-      it('is not met by a demand placed while a sync runs', async () => {
-        const recovery = afterRead()
-        mockFetchManifest.mockImplementationOnce(async () => {
-          depsObj.demands.demand(recovery)
-          return { manifest: [] }
-        })
-        manifestSyncManager.request('now')
-
-        await manifestSyncManager.runPhase('afterRead', signal())
-
-        expect(depsObj.demands.isDemanded(recovery)).toBe(true)
-      })
-
-      it('fails the phase once the session has shut down, so the poll cannot report success without it', async () => {
-        const manager = createManager({ ...depsObj, session: shutDownSession() })
-        depsObj.demands.demand(beforeRead())
-
-        await expect(manager.runPhase('beforeRead', signal())).rejects.toThrow('Catching up')
-        expect(mockFetchManifest).not.toHaveBeenCalled()
-      })
-    })
-
-    describe('tickets', () => {
-      it('runs at the mode a ticket asks for and gives it the result', async () => {
-        mockListItemIds.mockResolvedValue(['item-1'])
-        mockGetLastManifestSyncTime.mockResolvedValue(Date.now())
-        mockFetchManifest.mockResolvedValue({ manifest: [] })
-        const ticket = manifestSyncManager.openTicket('force')
+      it('runs at the strongest mode asked for and gives each ask the result', async () => {
+        const weak = manifestSyncManager.ask(served('due'))
+        const strong = manifestSyncManager.ask(served('force'))
 
         const result = await manifestSyncManager.runPhase('afterRead', signal())
 
         expect(mockFetchManifest).toHaveBeenCalledTimes(1)
-        expect(manifestSyncManager.closeTicket(ticket)).toBe(result)
+        expect(strong.close()).toBe(result)
+        expect(weak.close()).toBe(result)
       })
 
-      it('serves a weaker ticket with a stronger sync', async () => {
-        mockListItemIds.mockResolvedValue(['item-1'])
-        mockGetLastManifestSyncTime.mockResolvedValue(Date.now())
-        mockFetchManifest.mockResolvedValue({ manifest: [] })
-        const ticket = manifestSyncManager.openTicket('due')
-
-        await sync(manifestSyncManager, 'now')
-
-        expect(manifestSyncManager.closeTicket(ticket)).toMatchObject({ fetchedManifest: true })
-      })
-
-      it('serves a due ticket with a sync that skipped itself', async () => {
-        mockListItemIds.mockResolvedValue(['item-1'])
-        mockGetLastManifestSyncTime.mockResolvedValue(Date.now())
-        const ticket = manifestSyncManager.openTicket('due')
+      it('gives a due ask the result of a sync that skipped itself', async () => {
+        const ask = manifestSyncManager.ask(served('due'))
 
         await manifestSyncManager.runPhase('afterRead', signal())
 
         expect(mockFetchManifest).not.toHaveBeenCalled()
-        expect(manifestSyncManager.closeTicket(ticket)).toEqual({ added: [], success: true, fetchedManifest: false })
+        expect(ask.close()).toEqual({ added: [], success: true, fetchedManifest: false })
       })
 
-      it('returns a failure for a ticket no sync served, and leaves nothing asked for', async () => {
-        mockListItemIds.mockResolvedValue(['item-1'])
-        mockGetLastManifestSyncTime.mockResolvedValue(Date.now())
-        const ticket = manifestSyncManager.openTicket('force')
+      it('is not met by a sync that started before it was placed', async () => {
+        let recovery: ReturnType<ManifestSyncManager['ask']> | undefined
+        mockFetchManifest.mockImplementationOnce(async () => {
+          recovery = manifestSyncManager.ask(fetched())
+          return { manifest: [] }
+        })
+        manifestSyncManager.ask(served('now'))
 
-        expect(manifestSyncManager.closeTicket(ticket)).toEqual({ added: [], success: false, fetchedManifest: false })
+        await manifestSyncManager.runPhase('afterRead', signal())
+
+        expect(recovery?.isOpen).toBe(true)
+      })
+
+      it('returns a failure for an ask closed before any sync met it, and leaves nothing asked for', async () => {
+        const ask = manifestSyncManager.ask(served('force'))
+
+        expect(ask.close()).toEqual({ added: [], success: false, fetchedManifest: false })
+        expect(ask.isOpen).toBe(false)
         expect(await manifestSyncManager.runPhase('afterRead', signal())).toBeNull()
+      })
+
+      it('names what needed the manifest when the session has shut down', async () => {
+        const manager = createManager({ ...depsObj, session: shutDownSession() })
+        manager.ask(fetched(true))
+
+        await expect(manager.runPhase('beforeRead', signal())).rejects.toThrow('Catching up')
+        expect(mockFetchManifest).not.toHaveBeenCalled()
       })
     })
   })

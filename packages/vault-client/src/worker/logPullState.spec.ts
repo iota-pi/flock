@@ -106,7 +106,7 @@ const rows: Row[] = [
     to: state(idle),
   },
 
-  // Catching up: the manifest syncs themselves are demands on ManifestSyncManager
+  // Catching up: the manifest syncs themselves are asks on ManifestSyncManager
   { name: 'reads a dropped page again at once', from: state(idle), event: { type: 'pageDropped' }, to: state(morePages) },
   {
     name: 'reads the log once catch-up\'s manifest sync has run',

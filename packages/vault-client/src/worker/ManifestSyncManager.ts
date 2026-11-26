@@ -12,7 +12,6 @@ import { isRequestFailure } from '../utils/errorClassifier'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { calculateSyncDeltas, type QuarantinedItem, type SyncDeltas } from './calculateSyncDeltas'
 import type { ManifestHydrator } from './ManifestHydrator'
-import type { ManifestDemand, ManifestDemands } from './ManifestDemands'
 import { findSnapshotsCoveredLocally } from './findSnapshotsCoveredLocally'
 import { areHeadsEqual } from './utils/automerge'
 import type { ItemSyncState } from './ItemSyncState'
@@ -39,8 +38,6 @@ export interface ManifestSyncManagerDeps {
   keys: KeyProvider
   recoveryManager: RecoveryManager
   apiClient: SyncApiClient
-  /** The syncs other components demand, which a phase meets once it fetches the manifest */
-  demands: ManifestDemands
   /** Fetches the snapshots the manifest shows this device lacks, and merges them in */
   hydrator: Pick<ManifestHydrator, 'fetchAndHydrateRemoteItems'>
   storeItems: (items: VaultDoc[], options?: StoreItemsOptions) => Promise<void>
@@ -82,28 +79,75 @@ export type ManifestMode = 'due' | 'now' | 'force'
 /** What a manifest sync came to, and whether it fetched the manifest (a skipped one didn't) */
 export type ManifestPhaseResult = SyncResult & { fetchedManifest: boolean }
 
-/** A caller waiting on a manifest sync. A phase at its mode or a stronger one sets `result`. */
-export interface ManifestSyncTicket {
-  readonly mode: ManifestMode
-  result?: ManifestPhaseResult
-}
-
 /** Where in the poll a manifest phase runs: before the log is read, or after */
 export type ManifestStage = 'beforeRead' | 'afterRead'
 
-const MODE_STRENGTH: Record<ManifestMode, number> = { due: 0, now: 1, force: 2 }
+/**
+ * A manifest sync a caller asks the poll's manifest phase for, and how long the ask stays.
+ *
+ * - `until: 'served'` stays until a phase runs a sync at `mode` or stronger, whether or not that sync
+ *   fetched the manifest (a `due` one may skip itself), or until the caller closes it.
+ * - `until: 'fetched'` stays until such a sync fetches the manifest. A phase that should run one and
+ *   can't fails the poll (rule 4). Only `now` and `force` syncs always fetch it, so only they may be
+ *   asked this way: a `due` ask that skipped syncs never met would keep the poll due forever.
+ */
+export type ManifestAskOptions = {
+  /**
+   * Whether the sync must run before the log is read, rather than after. A sync that runs before
+   * the read meets every ask it can, so it leaves nothing for after.
+   */
+  beforeRead?: boolean
+  /** What the sync is for, which the error names when an ask until `fetched` can't be met */
+  purpose?: string
+  /** Called once a sync has met the ask */
+  onMet?: (result: ManifestPhaseResult) => void
+} & (
+  | { mode: ManifestMode, until: 'served' }
+  | { mode: Exclude<ManifestMode, 'due'>, until: 'fetched' }
+)
 
-function strongerMode(a: ManifestMode | undefined, b: ManifestMode | undefined): ManifestMode | undefined {
-  if (a === undefined) return b
-  if (b === undefined) return a
-  return MODE_STRENGTH[b] > MODE_STRENGTH[a] ? b : a
+/** An ask waiting on the poll's manifest phase */
+export interface ManifestAsk {
+  /** Whether no sync has met the ask yet, and it hasn't been closed */
+  readonly isOpen: boolean
+  /** Withdraws the ask, returning the result of the sync that met it, or a failure if none did */
+  close(): ManifestPhaseResult
 }
 
-function describeDemands(demands: ManifestDemand[]): string {
-  return demands.map(demand => demand.purpose).join(', ')
+const MODE_STRENGTH: Record<ManifestMode, number> = { due: 0, now: 1, force: 2 }
+
+function strongerMode(a: ManifestMode | undefined, b: ManifestMode): ManifestMode {
+  return a !== undefined && MODE_STRENGTH[a] >= MODE_STRENGTH[b] ? a : b
 }
 
 const NOT_SYNCED: ManifestPhaseResult = { added: [], success: false, fetchedManifest: false }
+
+class OpenAsk implements ManifestAsk {
+  private result: ManifestPhaseResult | undefined
+
+  constructor(readonly options: ManifestAskOptions, private readonly asks: Set<OpenAsk>) {}
+
+  get isOpen(): boolean {
+    return this.asks.has(this)
+  }
+
+  close(): ManifestPhaseResult {
+    this.asks.delete(this)
+    return this.result ?? NOT_SYNCED
+  }
+
+  /** Whether a sync at `mode` that came to `result` meets this ask */
+  isMetBy(mode: ManifestMode, result: ManifestPhaseResult): boolean {
+    if (MODE_STRENGTH[this.options.mode] > MODE_STRENGTH[mode]) return false
+    return this.options.until === 'served' || result.fetchedManifest
+  }
+
+  meet(result: ManifestPhaseResult): void {
+    this.asks.delete(this)
+    this.result = result
+    this.options.onMet?.(result)
+  }
+}
 
 /**
  * Runs the manifest sync as a phase of the poll, which carries the poll's abort signal, so a sync
@@ -112,9 +156,7 @@ const NOT_SYNCED: ManifestPhaseResult = { added: [], success: false, fetchedMani
 export class ManifestSyncManager {
   private readonly isAlive = () => !this.deps.session.isShutdown
 
-  /** A sync asked for by an event (starting, coming online, foreground), kept until a phase serves it */
-  private requested: ManifestMode | undefined
-  private readonly tickets = new Set<ManifestSyncTicket>()
+  private readonly asks = new Set<OpenAsk>()
   /** The persisted time of the last clean sync, once read */
   private lastCleanAt: number | undefined
   /** When a sync last fetched the manifest, clean or not, so one with item failures retries hourly */
@@ -122,25 +164,11 @@ export class ManifestSyncManager {
 
   constructor(private readonly deps: ManifestSyncManagerDeps) {}
 
-  /** Asks the next poll's manifest phase for a sync at `mode` or stronger, kept until one fetches the manifest */
-  request(mode: ManifestMode): void {
-    this.requested = strongerMode(this.requested, mode)
-  }
-
-  /**
-   * Registers a caller that waits for the next sync at `mode` or stronger. Unlike `request`, a ticket
-   * lapses at `closeTicket`, so a sync that never ran isn't left asked for.
-   */
-  openTicket(mode: ManifestMode): ManifestSyncTicket {
-    const ticket: ManifestSyncTicket = { mode }
-    this.tickets.add(ticket)
-    return ticket
-  }
-
-  /** Withdraws a ticket, returning the result of the sync that served it, or a failure if none did */
-  closeTicket(ticket: ManifestSyncTicket): ManifestPhaseResult {
-    this.tickets.delete(ticket)
-    return ticket.result ?? NOT_SYNCED
+  /** Asks the poll's manifest phase for a sync, which stays asked for as `options.until` says */
+  ask(options: ManifestAskOptions): ManifestAsk {
+    const ask = new OpenAsk(options, this.asks)
+    this.asks.add(ask)
+    return ask
   }
 
   /**
@@ -151,7 +179,7 @@ export class ManifestSyncManager {
    */
   getDueAt(now = Date.now()): number | undefined {
     if (!this.isAlive()) return undefined
-    if (this.requested !== undefined || this.tickets.size > 0 || this.deps.demands.size > 0) return now
+    if (this.asks.size > 0) return now
     return this.periodicDueAt
   }
 
@@ -161,55 +189,40 @@ export class ManifestSyncManager {
   }
 
   /**
-   * One of the poll's manifest phases. Before the log is read, it runs a sync only for a demand that
-   * must run then. After, it runs one for any demand, `request` or open ticket, or a `due` one if the
-   * periodic sync is due. A sync that runs takes the strongest mode asked for and serves everything
-   * it meets, and null means none ran. A manifest that can't be fetched throws, which fails the poll
-   * (rule 4), and what was asked for stays asked for. Items that fail to hydrate don't throw: they
-   * are left for the next sync.
+   * One of the poll's manifest phases. Before the log is read, it runs a sync only if an ask must
+   * run then; after, for any ask, or a `due` one if the periodic sync is due. A sync that runs takes
+   * the strongest mode asked for, and meets the asks placed before it started that it satisfies
+   * (`ManifestAskOptions`). Null means none ran. A manifest that can't be fetched throws, which fails
+   * the poll (rule 4), and every ask stays. Items that fail to hydrate don't throw: they are left
+   * for the next sync.
    */
   async runPhase(stage: ManifestStage, signal: AbortSignal): Promise<ManifestPhaseResult | null> {
-    const demands = this.deps.demands.list()
-    const demanded = stage === 'afterRead' ? demands.length > 0 : demands.some(demand => demand.beforeRead)
+    const asks = Array.from(this.asks)
+    const joining = stage === 'afterRead' || asks.some(ask => ask.options.beforeRead) ? asks : []
     if (!this.isAlive()) {
-      if (demanded) throw new Error(`${describeDemands(demands)} needs the manifest, which this session can't fetch now`)
+      const mustFetch = joining.filter(ask => ask.options.until === 'fetched')
+      if (mustFetch.length > 0) {
+        const purposes = mustFetch.map(ask => ask.options.purpose ?? 'A manifest sync').join(', ')
+        throw new Error(`${purposes} needs the manifest, which this session can't fetch now`)
+      }
       return null
     }
     this.lastCleanAt ??= await this.deps.indexManager.getLastManifestSyncTime()
     checkAlive(signal, this.isAlive)
 
-    let mode: ManifestMode | undefined = demanded ? 'now' : undefined
-    if (stage === 'afterRead' || demanded) {
-      mode = strongerMode(mode, this.requested)
-      for (const ticket of this.tickets) {
-        mode = strongerMode(mode, ticket.mode)
-      }
+    let mode: ManifestMode | undefined
+    for (const ask of joining) {
+      mode = strongerMode(mode, ask.options.mode)
     }
     const periodicDueAt = this.periodicDueAt
     if (stage === 'afterRead' && mode === undefined && periodicDueAt !== undefined && Date.now() >= periodicDueAt) {
       mode = 'due'
     }
     if (mode === undefined) return null
-    const strength = MODE_STRENGTH[mode]
 
-    const served = Array.from(this.tickets).filter(ticket => MODE_STRENGTH[ticket.mode] <= strength)
-    const requested = this.requested
-    this.requested = undefined
-    let result: ManifestPhaseResult
-    try {
-      result = await this.executeSync(mode, signal)
-    } catch (error) {
-      this.requested = strongerMode(this.requested, requested)
-      throw error
-    }
-    for (const ticket of served) {
-      ticket.result = result
-      this.tickets.delete(ticket)
-    }
-    if (result.fetchedManifest) {
-      for (const demand of demands) {
-        this.deps.demands.meet(demand)
-      }
+    const result = await this.executeSync(mode, signal)
+    for (const ask of joining) {
+      if (ask.isOpen && ask.isMetBy(mode, result)) ask.meet(result)
     }
     return result
   }

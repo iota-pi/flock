@@ -15,15 +15,15 @@ export type PollOutcome = 'success' | 'failure' | 'auth-failure' | 'no-poll'
 
 export interface SyncPollerDeps {
   session: Pick<SyncSessionState, 'isOperational'>
-  puller: Pick<SyncLogPuller, 'demandCatchUpIfBehind'>
+  puller: Pick<SyncLogPuller, 'askCatchUpIfBehind'>
   /** Reads the log, and carries the outbox's pushes */
   exchange: LogExchange
   /** Pushes pending changes, returning whether a push read the log */
   outbox: Pick<ChangeOutbox, 'pushPending'>
   reconciler: Pick<ItemReconciler, 'runDue'>
   /**
-   * A manifest phase (`ManifestSyncManager.runPhase`): runs a manifest sync if one is demanded for
-   * `stage`, asked for or due, and returns null if none ran. Throws if the manifest can't be fetched.
+   * A manifest phase (`ManifestSyncManager.runPhase`): runs a manifest sync if one is asked for at
+   * `stage` or due, and returns null if none ran. Throws if the manifest can't be fetched.
    */
   runManifestPhase: (stage: ManifestStage, signal: AbortSignal) => Promise<ManifestPhaseResult | null>
   /** Uploads the snapshots that are due, throwing if a request fails */
@@ -41,7 +41,7 @@ export class SyncPoller {
 
   /**
    * Runs the manifest sync that must come before reading the log, such as catching up, then pushes
-   * pending changes and reads the log, then runs any other manifest sync that is demanded, asked for
+   * pending changes and reads the log, then runs any other manifest sync that is asked for
    * or due, then heals parked rows, uploads the snapshots that are due and runs any queued snapshot rewrites,
    * after the pushes that must precede them (S1). Aborting `signal` cancels the poll, which then reports `'no-poll'`. Polls go
    * through the untracked client, so they don't show as activity in the sync status.
@@ -50,7 +50,7 @@ export class SyncPoller {
     if (!this.isOperational) return 'no-poll'
 
     try {
-      this.deps.puller.demandCatchUpIfBehind(Date.now())
+      this.deps.puller.askCatchUpIfBehind(Date.now())
       await this.deps.runManifestPhase('beforeRead', signal)
 
       if (!await this.deps.outbox.pushPending(signal)) {
