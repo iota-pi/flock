@@ -1,5 +1,5 @@
 import type { ChangeOutbox } from './ChangeOutbox'
-import type { GapHealer } from './GapHealer'
+import type { ItemReconciler } from './ItemReconciler'
 import type { LogExchange } from './LogExchange'
 import type { ManifestPhaseResult, ManifestStage } from './ManifestSyncManager'
 import type { SnapshotPusher } from './SnapshotPusher'
@@ -20,7 +20,7 @@ export interface SyncPollerDeps {
   exchange: LogExchange
   /** Pushes pending changes, returning whether a push read the log */
   outbox: Pick<ChangeOutbox, 'pushPending'>
-  healer: Pick<GapHealer, 'runDue'>
+  reconciler: Pick<ItemReconciler, 'runDue'>
   /**
    * A manifest phase (`ManifestSyncManager.runPhase`): runs a manifest sync if one is demanded for
    * `stage`, asked for or due, and returns null if none ran. Throws if the manifest can't be fetched.
@@ -58,7 +58,7 @@ export class SyncPoller {
       }
 
       await this.deps.runManifestPhase('afterRead', signal)
-      await this.deps.healer.runDue(signal)
+      await this.deps.reconciler.runDue(signal)
       await this.deps.snapshots.pushDue(signal)
       await this.deps.rewrites.runDue(signal)
       return 'success'

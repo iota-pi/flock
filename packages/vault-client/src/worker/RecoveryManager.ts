@@ -4,12 +4,13 @@ import {
   type ManualRecoveryDetail,
   type ManualRecoveryEntry,
   type ManualRecoveryKind,
+  type ManualRecoveryMatch,
   type ReadManualRecoveryOptions,
   readManualRecoveryEntries,
   readManualRecoveryCount,
   removeManualRecoveryEntryById,
   removeManualRecoveryEntryByItemId,
-  removeManualRecoveryEntryIfKind,
+  removeManualRecoveryEntryIfMatches,
   upsertManualRecoveryEntry,
 } from '../shared/manualRecoveryStore'
 import { normalizeSyncError } from '@vault/shared'
@@ -151,7 +152,8 @@ export class RecoveryManager {
     await this.pushRecoveryItems()
   }
 
-  async resolveQuarantines(itemIds: ItemId[], kinds: ReadonlySet<ManualRecoveryKind>): Promise<void> {
+  /** Clears the items' entries that `match` accepts, leaving any other entry for them in place */
+  async resolveQuarantines(itemIds: ItemId[], match: ManualRecoveryMatch): Promise<void> {
     const accountId = this.deps.accountId
     const uniqueItemIds = Array.from(new Set(itemIds.filter(id => Boolean(id))))
     if (uniqueItemIds.length === 0) return
@@ -160,7 +162,7 @@ export class RecoveryManager {
 
     let removedAny = false
     for (const itemId of uniqueItemIds) {
-      const removed = await removeManualRecoveryEntryIfKind(accountId, itemId, kinds)
+      const removed = await removeManualRecoveryEntryIfMatches(accountId, itemId, match)
       if (removed) {
         removedAny = true
         this.clearRecoveryState(itemId)

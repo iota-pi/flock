@@ -2,7 +2,7 @@ import type { Mock } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 import type { ItemId, SyncLogEntry } from '@vault/shared'
 import type { KeyProvider } from '../keys/Keyring'
-import { GapHealer, MAX_PULL_RETRIES, type GapHealerDeps, type ParkedEntry } from './GapHealer'
+import { ItemReconciler, MAX_PULL_RETRIES, type ItemReconcilerDeps, type ParkedEntry } from './ItemReconciler'
 import { SyncLogDatabase } from './stores/SyncLogDatabase'
 import { SYNC_LOG_STORES } from '../shared/syncLogStorage'
 import { GAP_HEAL_DELAYS, SYNC_TIMEOUTS } from '../shared/syncConfig'
@@ -15,7 +15,7 @@ function entry(seq: number, kver = '1'): SyncLogEntry {
   return { seq, itemId: ITEM, encryptedMessage: { iv: 'iv', cipher: `row-${seq}`, kver }, createdAt: 0 }
 }
 
-describe('GapHealer', () => {
+describe('ItemReconciler', () => {
   let db: SyncLogDatabase
   let keys: { hasKey: AnyMock; decryptBytes: AnyMock }
   let docStore: { getMissingDeps: AnyMock }
@@ -25,20 +25,21 @@ describe('GapHealer', () => {
     quarantine: AnyMock
     reportDecryptionFailure: AnyMock
     resolveQuarantines: AnyMock
+    listRecoveryItems: AnyMock
   }
   let fetchSnapshots: AnyMock
   let onWorkDue: AnyMock
   let onHealingChange: AnyMock
-  let healer: GapHealer
+  let reconciler: ItemReconciler
 
-  function createHealer(): GapHealer {
-    return new GapHealer({
+  function createReconciler(): ItemReconciler {
+    return new ItemReconciler({
       db,
       keys: keys as unknown as KeyProvider,
-      docStore: docStore as unknown as GapHealerDeps['docStore'],
-      indexManager: indexManager as unknown as GapHealerDeps['indexManager'],
-      incoming: incoming as unknown as GapHealerDeps['incoming'],
-      recoveryManager: recoveryManager as unknown as GapHealerDeps['recoveryManager'],
+      docStore: docStore as unknown as ItemReconcilerDeps['docStore'],
+      indexManager: indexManager as unknown as ItemReconcilerDeps['indexManager'],
+      incoming: incoming as unknown as ItemReconcilerDeps['incoming'],
+      recoveryManager: recoveryManager as unknown as ItemReconcilerDeps['recoveryManager'],
       fetchSnapshots,
       onWorkDue,
       onHealingChange,
@@ -61,11 +62,12 @@ describe('GapHealer', () => {
       quarantine: vi.fn().mockResolvedValue(undefined),
       reportDecryptionFailure: vi.fn().mockResolvedValue(undefined),
       resolveQuarantines: vi.fn().mockResolvedValue(undefined),
+      listRecoveryItems: vi.fn().mockResolvedValue([]),
     }
-    fetchSnapshots = vi.fn().mockResolvedValue(undefined)
+    fetchSnapshots = vi.fn(async (itemIds: ItemId[]) => itemIds)
     onWorkDue = vi.fn()
     onHealingChange = vi.fn()
-    healer = createHealer()
+    reconciler = createReconciler()
   })
 
   afterEach(async () => {
@@ -73,7 +75,7 @@ describe('GapHealer', () => {
   })
 
   it('keeps the row\'s ciphertext as it arrived', async () => {
-    await healer.park(entry(1), 'missingDeps')
+    await reconciler.park(entry(1), 'missingDeps')
 
     expect(await parked()).toEqual([expect.objectContaining({
       seq: 1,
@@ -84,10 +86,10 @@ describe('GapHealer', () => {
   })
 
   it('fetches the snapshot at once, applies parked rows in order, and clears them', async () => {
-    await healer.park(entry(2), 'missingDeps')
-    await healer.park(entry(1), 'missingDeps')
+    await reconciler.park(entry(2), 'missingDeps')
+    await reconciler.park(entry(1), 'missingDeps')
 
-    await healer.runDue()
+    await reconciler.runDue()
 
     expect(fetchSnapshots).toHaveBeenCalledWith([ITEM], undefined)
     expect(keys.decryptBytes.mock.calls.map(([payload]) => payload.cipher)).toEqual(['row-1', 'row-2'])
@@ -99,11 +101,11 @@ describe('GapHealer', () => {
   it('reads the parked rows twice per run, however many items are due', async () => {
     const items = ['item-a', 'item-b', 'item-c'] as ItemId[]
     for (const [index, itemId] of items.entries()) {
-      await healer.park({ ...entry(index + 1), itemId }, 'missingDeps')
+      await reconciler.park({ ...entry(index + 1), itemId }, 'missingDeps')
     }
     const getAll = vi.spyOn(db, 'getAll')
 
-    await healer.runDue()
+    await reconciler.runDue()
 
     expect(getAll).toHaveBeenCalledTimes(2)
     expect(await parked()).toEqual([])
@@ -111,13 +113,13 @@ describe('GapHealer', () => {
   })
 
   it('keeps an item that a pull parks another row for during the run', async () => {
-    await healer.park(entry(1), 'missingDeps')
+    await reconciler.park(entry(1), 'missingDeps')
     incoming.apply.mockImplementationOnce(async () => {
-      await healer.park(entry(2), 'missingDeps')
+      await reconciler.park(entry(2), 'missingDeps')
       return true
     })
 
-    await healer.runDue()
+    await reconciler.runDue()
 
     expect((await parked()).map(row => row.seq)).toEqual([2])
     expect(recoveryManager.resolveQuarantines).not.toHaveBeenCalled()
@@ -126,9 +128,9 @@ describe('GapHealer', () => {
 
   it('does not fetch a snapshot for a missing key', async () => {
     keys.hasKey.mockReturnValue(false)
-    await healer.park(entry(1, '2'), 'missingKey')
+    await reconciler.park(entry(1, '2'), 'missingKey')
 
-    await healer.runDue()
+    await reconciler.runDue()
 
     expect(fetchSnapshots).not.toHaveBeenCalled()
     expect(await parked()).toHaveLength(1)
@@ -138,12 +140,12 @@ describe('GapHealer', () => {
 
   it('applies a missing-key row after a keyring update', async () => {
     keys.hasKey.mockReturnValue(false)
-    await healer.park(entry(1, '2'), 'missingKey')
-    await healer.runDue()
+    await reconciler.park(entry(1, '2'), 'missingKey')
+    await reconciler.runDue()
 
     keys.hasKey.mockReturnValue(true)
-    healer.onKeyringUpdated()
-    await healer.runDue()
+    reconciler.onKeyringUpdated()
+    await reconciler.runDue()
 
     expect(onWorkDue).toHaveBeenCalled()
     expect(incoming.apply).toHaveBeenCalledTimes(1)
@@ -154,22 +156,22 @@ describe('GapHealer', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     try {
       incoming.apply.mockResolvedValue(false)
-      await healer.park(entry(1), 'missingDeps')
+      await reconciler.park(entry(1), 'missingDeps')
 
-      await healer.runDue()
+      await reconciler.runDue()
       expect(await parked()).toHaveLength(1)
 
-      await healer.runDue()
+      await reconciler.runDue()
       expect(incoming.apply).toHaveBeenCalledTimes(1)
 
       vi.advanceTimersByTime(GAP_HEAL_DELAYS[0])
-      await healer.runDue()
+      await reconciler.runDue()
       expect(incoming.apply).toHaveBeenCalledTimes(2)
 
-      await healer.runDue()
+      await reconciler.runDue()
       expect(incoming.apply).toHaveBeenCalledTimes(2)
       vi.advanceTimersByTime(GAP_HEAL_DELAYS[1])
-      await healer.runDue()
+      await reconciler.runDue()
       expect(incoming.apply).toHaveBeenCalledTimes(3)
     } finally {
       vi.useRealTimers()
@@ -178,29 +180,29 @@ describe('GapHealer', () => {
 
   it('retries at once after a later entry for the item, and after a manifest sync', async () => {
     incoming.apply.mockResolvedValue(false)
-    await healer.park(entry(1), 'missingDeps')
-    await healer.runDue()
+    await reconciler.park(entry(1), 'missingDeps')
+    await reconciler.runDue()
 
-    healer.onLogEntry(ITEM)
-    await healer.runDue()
+    reconciler.onLogEntry(ITEM)
+    await reconciler.runDue()
     expect(incoming.apply).toHaveBeenCalledTimes(2)
 
-    healer.onManifestSynced()
-    await healer.runDue()
+    reconciler.onManifestSynced()
+    await reconciler.runDue()
     expect(incoming.apply).toHaveBeenCalledTimes(3)
   })
 
   it('re-applies rows without fetching the snapshot again after later rows and a manifest sync', async () => {
     incoming.apply.mockResolvedValue(false)
-    await healer.park(entry(1), 'missingDeps')
-    await healer.runDue()
+    await reconciler.park(entry(1), 'missingDeps')
+    await reconciler.runDue()
     expect(fetchSnapshots).toHaveBeenCalledTimes(1)
 
-    await healer.park(entry(2), 'missingDeps')
-    healer.onLogEntry(ITEM)
-    await healer.runDue()
-    healer.onManifestSynced()
-    await healer.runDue()
+    await reconciler.park(entry(2), 'missingDeps')
+    reconciler.onLogEntry(ITEM)
+    await reconciler.runDue()
+    reconciler.onManifestSynced()
+    await reconciler.runDue()
 
     expect(fetchSnapshots).toHaveBeenCalledTimes(1)
     expect(incoming.apply).toHaveBeenCalledTimes(5)
@@ -210,23 +212,23 @@ describe('GapHealer', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     try {
       incoming.apply.mockResolvedValue(false)
-      await healer.park(entry(1), 'missingDeps')
-      await healer.runDue()
+      await reconciler.park(entry(1), 'missingDeps')
+      await reconciler.runDue()
 
       // Rows every 15 s would each push the re-apply backoff on, but not the snapshot's
       for (let elapsed = 0; elapsed < GAP_HEAL_DELAYS[0]; elapsed += 15_000) {
         vi.advanceTimersByTime(15_000)
-        healer.onLogEntry(ITEM)
-        await healer.runDue()
+        reconciler.onLogEntry(ITEM)
+        await reconciler.runDue()
       }
       expect(fetchSnapshots).toHaveBeenCalledTimes(2)
 
       vi.advanceTimersByTime(GAP_HEAL_DELAYS[1] - 1)
-      healer.onLogEntry(ITEM)
-      await healer.runDue()
+      reconciler.onLogEntry(ITEM)
+      await reconciler.runDue()
       expect(fetchSnapshots).toHaveBeenCalledTimes(2)
       vi.advanceTimersByTime(1)
-      await healer.runDue()
+      await reconciler.runDue()
       expect(fetchSnapshots).toHaveBeenCalledTimes(3)
     } finally {
       vi.useRealTimers()
@@ -235,20 +237,20 @@ describe('GapHealer', () => {
 
   it('fetches the snapshot again after a keyring update', async () => {
     incoming.apply.mockResolvedValue(false)
-    await healer.park(entry(1), 'missingDeps')
-    await healer.runDue()
+    await reconciler.park(entry(1), 'missingDeps')
+    await reconciler.runDue()
 
-    healer.onKeyringUpdated()
-    await healer.runDue()
+    reconciler.onKeyringUpdated()
+    await reconciler.runDue()
 
     expect(fetchSnapshots).toHaveBeenCalledTimes(2)
   })
 
   it('keeps a row the doc applied while the doc still reports missing dependencies', async () => {
     docStore.getMissingDeps.mockResolvedValue(['missing-hash'])
-    await healer.park(entry(1), 'missingDeps')
+    await reconciler.park(entry(1), 'missingDeps')
 
-    await healer.runDue()
+    await reconciler.runDue()
 
     expect(await parked()).toHaveLength(1)
   })
@@ -257,12 +259,12 @@ describe('GapHealer', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     try {
       incoming.apply.mockResolvedValue(false)
-      await healer.park(entry(1), 'missingDeps')
-      await healer.runDue()
+      await reconciler.park(entry(1), 'missingDeps')
+      await reconciler.runDue()
       expect(recoveryManager.quarantine).not.toHaveBeenCalled()
 
       vi.advanceTimersByTime(SYNC_TIMEOUTS.missingChangesQuarantine)
-      await healer.runDue()
+      await reconciler.runDue()
       expect(recoveryManager.quarantine).toHaveBeenCalledWith(
         ITEM,
         'missingChanges',
@@ -270,8 +272,8 @@ describe('GapHealer', () => {
       )
 
       incoming.apply.mockResolvedValue(true)
-      healer.onManifestSynced()
-      await healer.runDue()
+      reconciler.onManifestSynced()
+      await reconciler.runDue()
       expect(recoveryManager.resolveQuarantines).toHaveBeenCalledWith([ITEM], new Set(['missingChanges']))
       expect(await parked()).toEqual([])
     } finally {
@@ -283,13 +285,13 @@ describe('GapHealer', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     try {
       incoming.apply.mockRejectedValue(new Error('Refusing to overwrite'))
-      await healer.park(entry(1), 'apply')
-      await healer.runDue()
+      await reconciler.park(entry(1), 'apply')
+      await reconciler.runDue()
       expect(recoveryManager.quarantine).not.toHaveBeenCalled()
       expect(await parked()).toHaveLength(1)
 
       vi.advanceTimersByTime(SYNC_TIMEOUTS.missingChangesQuarantine)
-      await healer.runDue()
+      await reconciler.runDue()
       expect(recoveryManager.quarantine).toHaveBeenCalledWith(
         ITEM,
         'missingChanges',
@@ -298,8 +300,8 @@ describe('GapHealer', () => {
       expect(await parked()).toHaveLength(1)
 
       incoming.apply.mockResolvedValue(true)
-      healer.onManifestSynced()
-      await healer.runDue()
+      reconciler.onManifestSynced()
+      await reconciler.runDue()
       expect(recoveryManager.resolveQuarantines).toHaveBeenCalledWith([ITEM], new Set(['missingChanges']))
       expect(await parked()).toEqual([])
     } finally {
@@ -311,14 +313,14 @@ describe('GapHealer', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     try {
       incoming.apply.mockResolvedValue(false)
-      await healer.park(entry(1), 'missingDeps')
-      await healer.runDue()
+      await reconciler.park(entry(1), 'missingDeps')
+      await reconciler.runDue()
       expect(await parked()).toHaveLength(1)
 
       indexManager.listTombstoneIds.mockResolvedValue([ITEM])
       vi.advanceTimersByTime(SYNC_TIMEOUTS.missingChangesQuarantine)
-      healer.onManifestSynced()
-      await healer.runDue()
+      reconciler.onManifestSynced()
+      await reconciler.runDue()
 
       expect(recoveryManager.quarantine).not.toHaveBeenCalled()
       expect(recoveryManager.resolveQuarantines).toHaveBeenCalledWith([ITEM], new Set(['missingChanges']))
@@ -331,12 +333,12 @@ describe('GapHealer', () => {
 
   it('quarantines a row that never decrypts after the retry limit, and drops it', async () => {
     keys.decryptBytes.mockRejectedValue(new Error('bad tag'))
-    await healer.park(entry(1), 'decryption')
+    await reconciler.park(entry(1), 'decryption')
 
     for (let attempt = 1; attempt < MAX_PULL_RETRIES; attempt += 1) {
       expect(recoveryManager.reportDecryptionFailure).not.toHaveBeenCalled()
-      healer.onManifestSynced()
-      await healer.runDue()
+      reconciler.onManifestSynced()
+      await reconciler.runDue()
     }
 
     expect(recoveryManager.reportDecryptionFailure).toHaveBeenCalledWith(ITEM, 'pullDecryption', expect.any(Error))
@@ -344,9 +346,9 @@ describe('GapHealer', () => {
   })
 
   it('picks up parked entries after a reload', async () => {
-    await healer.park(entry(1), 'missingDeps')
+    await reconciler.park(entry(1), 'missingDeps')
 
-    const reloaded = createHealer()
+    const reloaded = createReconciler()
     await reloaded.load()
     await reloaded.runDue()
 
@@ -355,24 +357,120 @@ describe('GapHealer', () => {
   })
 
   it('fetches a snapshot on request for an indexed item with no local data', async () => {
-    healer.requestSnapshot(ITEM)
+    reconciler.reconcile(ITEM, { fetch: true })
 
     expect(onWorkDue).toHaveBeenCalled()
-    await healer.runDue()
+    await reconciler.runDue()
 
     expect(fetchSnapshots).toHaveBeenCalledWith([ITEM], undefined)
     fetchSnapshots.mockClear()
-    await healer.runDue()
+    await reconciler.runDue()
     expect(fetchSnapshots).not.toHaveBeenCalled()
   })
 
   it('lets a failed fetch fail the poll, leaving the item for the next one', async () => {
     fetchSnapshots.mockRejectedValueOnce(new Error('offline'))
-    await healer.park(entry(1), 'missingDeps')
+    await reconciler.park(entry(1), 'missingDeps')
 
-    await expect(healer.runDue()).rejects.toThrow('offline')
+    await expect(reconciler.runDue()).rejects.toThrow('offline')
 
-    await healer.runDue()
+    await reconciler.runDue()
     expect(await parked()).toEqual([])
+  })
+
+  it('applies parked rows on request without fetching', async () => {
+    await reconciler.park(entry(1), 'missingKey')
+
+    reconciler.reconcile(ITEM, { fetch: false })
+    await reconciler.runDue()
+
+    expect(fetchSnapshots).not.toHaveBeenCalled()
+    expect(await parked()).toEqual([])
+  })
+
+  describe('tickets', () => {
+    it('settles a ticket with whether its own item merged, though another item in the fetch failed', async () => {
+      const other = 'item-2' as ItemId
+      fetchSnapshots.mockResolvedValueOnce([ITEM])
+      reconciler.reconcile(other, { fetch: true })
+      const ticket = reconciler.openTicket(ITEM)
+      const otherTicket = reconciler.openTicket(other)
+
+      await reconciler.runDue()
+
+      expect(fetchSnapshots).toHaveBeenCalledWith([other, ITEM], undefined)
+      expect(reconciler.closeTicket(ticket)).toBe(true)
+      expect(reconciler.closeTicket(otherTicket)).toBe(false)
+    })
+
+    it('fetches at once, past the snapshot backoff', async () => {
+      await reconciler.park(entry(1), 'missingDeps')
+      incoming.apply.mockResolvedValue(false)
+      await reconciler.runDue()
+      fetchSnapshots.mockClear()
+
+      const ticket = reconciler.openTicket(ITEM)
+      await reconciler.runDue()
+
+      expect(fetchSnapshots).toHaveBeenCalledWith([ITEM], undefined)
+      expect(reconciler.closeTicket(ticket)).toBe(true)
+    })
+
+    it('leaves a ticket unsettled when the fetch fails as a whole, and serves it at the next run', async () => {
+      fetchSnapshots.mockRejectedValueOnce(new Error('offline'))
+      const ticket = reconciler.openTicket(ITEM)
+
+      await expect(reconciler.runDue()).rejects.toThrow('offline')
+      expect(ticket.settled).toBeUndefined()
+
+      await reconciler.runDue()
+      expect(reconciler.closeTicket(ticket)).toBe(true)
+    })
+
+    it('reports a ticket closed before any run as not settled', () => {
+      expect(reconciler.closeTicket(reconciler.openTicket(ITEM))).toBe(false)
+    })
+  })
+
+  describe('quarantined server copies', () => {
+    const quarantined = [
+      { itemId: 'item-snapshot', kind: 'snapshotDecryption', detail: { code: 'decryptionFailed' } },
+      { itemId: 'item-hydration', kind: 'unknown', detail: { code: 'hydrationFailed' } },
+      { itemId: 'item-local', kind: 'localDecryption', detail: { code: 'decryptionFailed' } },
+      { itemId: 'item-oversized', kind: 'oversized', detail: { code: 'oversized', sizeKb: 400 } },
+    ]
+
+    it('fetches the items quarantined for their server copy after a keyring update', async () => {
+      recoveryManager.listRecoveryItems.mockResolvedValue(quarantined)
+
+      reconciler.onKeyringUpdated()
+      expect(onWorkDue).toHaveBeenCalled()
+      await reconciler.runDue()
+
+      expect(fetchSnapshots).toHaveBeenCalledWith(['item-snapshot', 'item-hydration'], undefined)
+      expect(onHealingChange).toHaveBeenLastCalledWith(false)
+
+      fetchSnapshots.mockClear()
+      await reconciler.runDue()
+      expect(recoveryManager.listRecoveryItems).toHaveBeenCalledTimes(1)
+      expect(fetchSnapshots).not.toHaveBeenCalled()
+    })
+
+    it('reads the quarantines again at the next run when reading them fails', async () => {
+      recoveryManager.listRecoveryItems.mockRejectedValueOnce(new Error('IndexedDB read failed'))
+      reconciler.onKeyringUpdated()
+
+      await expect(reconciler.runDue()).rejects.toThrow('IndexedDB read failed')
+
+      recoveryManager.listRecoveryItems.mockResolvedValue(quarantined)
+      await reconciler.runDue()
+      expect(fetchSnapshots).toHaveBeenCalledWith(['item-snapshot', 'item-hydration'], undefined)
+    })
+
+    it('reads no quarantines without a keyring update', async () => {
+      await reconciler.runDue()
+
+      expect(recoveryManager.listRecoveryItems).not.toHaveBeenCalled()
+    })
   })
 })

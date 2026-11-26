@@ -153,7 +153,7 @@ A record moved to another key, store or account fails to decrypt. Records store 
 - **IndexedDB pitfall:** a transaction auto-commits once it has no pending requests at the end of a task, so awaiting WebCrypto inside one throws `TransactionInactiveError`. Seal *before* opening the write transaction, and open *after* the read transaction completes. `loadRange` collects the raw records, then decrypts them with `Promise.all`.
 - **A record that fails to decrypt throws. It's never treated as missing.** Returning `undefined` or skipping a chunk would make a present document look absent or silently drop history while `has()` still reports it, and automerge-repo only tracks chunks that loaded, so a later compaction could remove a skipped one.
   - automerge-repo's `StorageSource` loads without a `catch`, so a rejected load would leave the handle pending forever. Instead the sealed codec reports each failure (`onOpenFailure`): the context quarantines the document once as `localDecryption`, and `AutomergeDocStore` gives up on it at once.
-  - **Recovery:** "Replace from server" (`replaceFromServer`) drops the document's local chunks and stuck handle, forces a manifest sync and unquarantines the item once the server's copy is stored. The user confirms first, since unsynced changes to it are lost.
+  - **Recovery:** "Replace from server" (`replaceFromServer`) drops the document's local chunks and stuck handle, fetches the server's copy of that item alone (`ItemReconciler`) and unquarantines the item once it's stored. The user confirms first, since unsynced changes to it are lost.
 
 ### New databases, not in-place rewrite
 

@@ -8,7 +8,7 @@ const mockReadManualRecoveryEntries = vi.fn()
 const mockReadManualRecoveryCount = vi.fn()
 const mockRemoveManualRecoveryEntryById = vi.fn()
 const mockRemoveManualRecoveryEntryByItemId = vi.fn()
-const mockRemoveManualRecoveryEntryIfKind = vi.fn()
+const mockRemoveManualRecoveryEntryIfMatches = vi.fn()
 const mockUpsertManualRecoveryEntry = vi.fn()
 
 beforeEach(() => {
@@ -17,7 +17,7 @@ beforeEach(() => {
     readManualRecoveryCount: (...args: any[]) => mockReadManualRecoveryCount(...args),
     removeManualRecoveryEntryById: (...args: any[]) => mockRemoveManualRecoveryEntryById(...args),
     removeManualRecoveryEntryByItemId: (...args: any[]) => mockRemoveManualRecoveryEntryByItemId(...args),
-    removeManualRecoveryEntryIfKind: (...args: any[]) => mockRemoveManualRecoveryEntryIfKind(...args),
+    removeManualRecoveryEntryIfMatches: (...args: any[]) => mockRemoveManualRecoveryEntryIfMatches(...args),
     upsertManualRecoveryEntry: (...args: any[]) => mockUpsertManualRecoveryEntry(...args),
   })
 })
@@ -38,7 +38,7 @@ describe('RecoveryManager', () => {
     mockReadManualRecoveryCount.mockResolvedValue(0)
     mockRemoveManualRecoveryEntryById.mockResolvedValue(undefined)
     mockRemoveManualRecoveryEntryByItemId.mockResolvedValue(undefined)
-    mockRemoveManualRecoveryEntryIfKind.mockResolvedValue(true)
+    mockRemoveManualRecoveryEntryIfMatches.mockResolvedValue(true)
     mockUpsertManualRecoveryEntry.mockResolvedValue(undefined)
 
     recoveryManager = new RecoveryManager({
@@ -161,7 +161,7 @@ describe('RecoveryManager', () => {
 
       await recoveryManager.resolveQuarantines(['item-1' as ItemId], kinds)
 
-      expect(mockRemoveManualRecoveryEntryIfKind).not.toHaveBeenCalled()
+      expect(mockRemoveManualRecoveryEntryIfMatches).not.toHaveBeenCalled()
       expect(onEventMock).not.toHaveBeenCalled()
     })
 
@@ -170,15 +170,15 @@ describe('RecoveryManager', () => {
 
       await recoveryManager.resolveQuarantines(['item-1', 'item-2', 'item-1'] as ItemId[], kinds)
 
-      expect(mockRemoveManualRecoveryEntryIfKind).toHaveBeenCalledTimes(2)
-      expect(mockRemoveManualRecoveryEntryIfKind).toHaveBeenCalledWith('account-123', 'item-1', kinds)
-      expect(mockRemoveManualRecoveryEntryIfKind).toHaveBeenCalledWith('account-123', 'item-2', kinds)
+      expect(mockRemoveManualRecoveryEntryIfMatches).toHaveBeenCalledTimes(2)
+      expect(mockRemoveManualRecoveryEntryIfMatches).toHaveBeenCalledWith('account-123', 'item-1', kinds)
+      expect(mockRemoveManualRecoveryEntryIfMatches).toHaveBeenCalledWith('account-123', 'item-2', kinds)
       expect(onEventMock).toHaveBeenCalledTimes(1)
     })
 
     it('clears cooldown and in-flight only for removed ids', async () => {
       mockReadManualRecoveryCount.mockResolvedValue(2)
-      mockRemoveManualRecoveryEntryIfKind.mockImplementation(async (_acc: string, id: string) => id === 'item-1')
+      mockRemoveManualRecoveryEntryIfMatches.mockImplementation(async (_acc: string, id: string) => id === 'item-1')
       for (const id of ['item-1', 'item-2'] as ItemId[]) {
         recoveryManager['setRecoveryCooldown'](id, 'snapshotFailure', Date.now() + 50000)
         recoveryManager['setInFlight'](id, 'snapshotFailure', true)
@@ -194,7 +194,7 @@ describe('RecoveryManager', () => {
 
     it('does not emit when nothing was removed', async () => {
       mockReadManualRecoveryCount.mockResolvedValue(1)
-      mockRemoveManualRecoveryEntryIfKind.mockResolvedValue(false)
+      mockRemoveManualRecoveryEntryIfMatches.mockResolvedValue(false)
 
       await recoveryManager.resolveQuarantines(['item-1' as ItemId], kinds)
 

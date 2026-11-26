@@ -36,6 +36,7 @@ describe('ManifestHydrator', () => {
   let storeItemsSpy: any
   let onDecryptionFailureSpy: any
   let onItemSnapshotHydratedSpy: any
+  let onItemsSettledSpy: any
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -61,6 +62,7 @@ describe('ManifestHydrator', () => {
     storeItemsSpy = vi.fn().mockResolvedValue(undefined)
     onDecryptionFailureSpy = vi.fn()
     onItemSnapshotHydratedSpy = vi.fn()
+    onItemsSettledSpy = vi.fn()
 
     hydrator = new ManifestHydrator({
       accountId: 'acc-test',
@@ -74,6 +76,7 @@ describe('ManifestHydrator', () => {
       session: { isShutdown: false },
       onDecryptionFailure: onDecryptionFailureSpy,
       onItemSnapshotHydrated: onItemSnapshotHydratedSpy,
+      onItemsSettled: onItemsSettledSpy,
     })
   })
 
@@ -107,6 +110,22 @@ describe('ManifestHydrator', () => {
         { account: 'acc-test', itemIds: ['item-known'] },
         { signal },
       )
+    })
+
+    it('returns the items whose server copy merged, leaving out the ones that failed', async () => {
+      mockApiClient.fetchSnapshotsByIds.mockResolvedValue({
+        items: [
+          { item: 'item-known', snapshot: { iv: 'iv', cipher: 'c' } },
+          { item: 'item-bad', snapshot: { iv: 'iv', cipher: 'bad' } },
+        ],
+      })
+      // In the order the items arrive: the second fails to decrypt
+      mockDecryptBytes.mockResolvedValueOnce(new Uint8Array([1])).mockResolvedValueOnce(null)
+      mockDocStore.hydrateAutomergeDocumentBinary.mockResolvedValue({ hasLocalChanges: false })
+
+      const settled = await hydrator.fetchSnapshots(['item-known', 'item-bad'] as ItemId[])
+
+      expect(settled).toEqual(['item-known'])
     })
 
     it('never talks to the server once the session is shutting down', async () => {
@@ -389,7 +408,7 @@ describe('ManifestHydrator', () => {
         tombstoneSet: new Set(),
       })
 
-      expect(result).toEqual({ added: [], hasFailures: true })
+      expect(result).toEqual({ added: [], hasFailures: true, settled: [] })
       expect(onMigrationRequired).toHaveBeenCalledTimes(1)
       expect(onDecryptionFailureSpy).not.toHaveBeenCalled()
       expect(storeItemsSpy).not.toHaveBeenCalled()
@@ -478,7 +497,12 @@ describe('ManifestHydrator', () => {
 
         const result = await hydrator.fetchAndHydrateRemoteItems(params())
 
-        expect(result).toEqual({ added: ['item-new', 'item-known'], hasFailures: false })
+        expect(result).toEqual({
+          added: ['item-new', 'item-known'],
+          hasFailures: false,
+          settled: ['item-new', 'item-known'],
+        })
+        expect(onItemsSettledSpy).toHaveBeenCalledWith(['item-new', 'item-known'])
         expect(mockDocStore.flushToStorage).toHaveBeenCalledWith(['item-new', 'item-known'])
         expect(order).toEqual(['flush', 'index', 'versions'])
       })
@@ -488,7 +512,8 @@ describe('ManifestHydrator', () => {
 
         const result = await hydrator.fetchAndHydrateRemoteItems(params())
 
-        expect(result).toEqual({ added: [], hasFailures: true })
+        expect(result).toEqual({ added: [], hasFailures: true, settled: [] })
+        expect(onItemsSettledSpy).not.toHaveBeenCalled()
         expect(mockIndexManager.addItemIds).not.toHaveBeenCalled()
         expect(mockItemSyncState.importBaseVersions).not.toHaveBeenCalled()
       })
@@ -513,7 +538,9 @@ describe('ManifestHydrator', () => {
       })
 
       expect(result.hasFailures).toBe(true)
+      expect(result.settled).toEqual([])
       expect(onDecryptionFailureSpy).toHaveBeenCalledWith('item-bad', expect.any(Error), 4)
+      expect(onItemsSettledSpy).not.toHaveBeenCalled()
     })
 
     it('retries an item whose key version is missing at the next sync instead of quarantining it', async () => {

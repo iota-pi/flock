@@ -10,7 +10,8 @@ describe('ItemRecoveryService', () => {
   let mockRecoveryManager: any
   let mockSnapshotSchedule: any
   let mockSnapshotPusher: any
-  let syncManifest: any
+  let reconcileItem: any
+  let mockReconciler: any
   let mockItemOperations: any
   let onLocalCopyDiscarded: Mock<(documentId: DocumentId) => void>
   let service: ItemRecoveryService
@@ -33,7 +34,8 @@ describe('ItemRecoveryService', () => {
       flushPendingSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
       clearOversized: vi.fn(),
     }
-    syncManifest = vi.fn().mockResolvedValue({ added: [], success: true, fetchedManifest: true })
+    reconcileItem = vi.fn().mockResolvedValue(true)
+    mockReconciler = { reconcile: vi.fn() }
     mockItemOperations = {
       recreateOversizedItem: vi.fn().mockResolvedValue('item-new'),
     }
@@ -44,7 +46,8 @@ describe('ItemRecoveryService', () => {
       recoveryManager: mockRecoveryManager,
       snapshotSchedule: mockSnapshotSchedule,
       snapshotPusher: mockSnapshotPusher,
-      syncManifest,
+      reconciler: mockReconciler,
+      reconcileItem,
       itemOperations: mockItemOperations,
       onLocalCopyDiscarded,
     })
@@ -60,7 +63,9 @@ describe('ItemRecoveryService', () => {
       expect(mockRepoManager.repo.delete).toHaveBeenCalledWith(documentId)
       expect(mockRepoManager.storage.removeRange).toHaveBeenCalledWith([documentId])
       expect(onLocalCopyDiscarded).toHaveBeenCalledWith(documentId)
-      expect(syncManifest).toHaveBeenCalledWith('force')
+      expect(reconcileItem).toHaveBeenCalledWith(itemId)
+      expect(mockRepoManager.storage.removeRange.mock.invocationCallOrder[0])
+        .toBeLessThan(reconcileItem.mock.invocationCallOrder[0])
       expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith(itemId)
     })
 
@@ -72,8 +77,8 @@ describe('ItemRecoveryService', () => {
       expect(mockRecoveryManager.unquarantine).not.toHaveBeenCalled()
     })
 
-    it('keeps the item quarantined when the sync fails', async () => {
-      syncManifest.mockResolvedValueOnce({ added: [], success: false, fetchedManifest: false })
+    it('keeps the item quarantined when its fetch fails', async () => {
+      reconcileItem.mockResolvedValueOnce(false)
 
       await expect(service.replaceFromServer('item-1' as ItemId)).rejects.toThrow(/could not be downloaded/)
 
@@ -82,13 +87,14 @@ describe('ItemRecoveryService', () => {
   })
 
   describe('retryRecoveryItem', () => {
-    it('releases a quarantined item and pushes its snapshot again', async () => {
+    it('releases a quarantined item, pushes its snapshot again and fetches the server copy', async () => {
       await service.retryRecoveryItem('item-1' as ItemId)
 
       expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith('item-1')
       expect(mockSnapshotPusher.clearOversized).toHaveBeenCalledWith('item-1')
       expect(mockSnapshotSchedule.markItemDirty).toHaveBeenCalledWith('item-1')
       expect(mockSnapshotPusher.flushPendingSnapshots).toHaveBeenCalled()
+      expect(mockReconciler.reconcile).toHaveBeenCalledWith('item-1', { fetch: true })
     })
   })
 })

@@ -48,7 +48,7 @@ describe('SyncLogPuller', () => {
   let incoming: { apply: AnyMock; readPending: AnyMock; takeAddedChanges: () => ItemId[] }
   /** Items whose docs gained changes, which `incoming` hands over */
   let addedChanges: Set<ItemId>
-  let healer: { park: AnyMock; onLogEntry: AnyMock }
+  let reconciler: { park: AnyMock; onLogEntry: AnyMock }
   let itemSyncState: { recordPulledChanges: AnyMock; save: AnyMock }
   let onRemoteChangesApplied: AnyMock
   let manifest: FakeManifest
@@ -79,7 +79,7 @@ describe('SyncLogPuller', () => {
         return itemIds
       },
     }
-    healer = { park: vi.fn().mockResolvedValue(undefined), onLogEntry: vi.fn() }
+    reconciler = { park: vi.fn().mockResolvedValue(undefined), onLogEntry: vi.fn() }
     itemSyncState = {
       recordPulledChanges: vi.fn().mockResolvedValue(undefined),
       save: vi.fn().mockResolvedValue(undefined),
@@ -92,7 +92,7 @@ describe('SyncLogPuller', () => {
       keys: keys as unknown as KeyProvider,
       session,
       incoming: incoming as unknown as SyncLogPullerDeps['incoming'],
-      healer: healer as unknown as SyncLogPullerDeps['healer'],
+      reconciler: reconciler as unknown as SyncLogPullerDeps['reconciler'],
       manifest,
       itemSyncState: itemSyncState as unknown as SyncLogPullerDeps['itemSyncState'],
       onRemoteChangesApplied,
@@ -145,7 +145,7 @@ describe('SyncLogPuller', () => {
 
     await expect(puller.process(page([entry(1), entry(2)]))).rejects.toThrow('idb failed')
 
-    expect(healer.park).not.toHaveBeenCalled()
+    expect(reconciler.park).not.toHaveBeenCalled()
     expect(incoming.apply).not.toHaveBeenCalled()
     expect(puller.cursor).toBe(0)
   })
@@ -184,7 +184,7 @@ describe('SyncLogPuller', () => {
 
     await puller.process(page([onlyKeyTwoMissing]))
 
-    expect(healer.park).toHaveBeenCalledWith(onlyKeyTwoMissing, 'missingKey')
+    expect(reconciler.park).toHaveBeenCalledWith(onlyKeyTwoMissing, 'missingKey')
     expect(puller.cursor).toBe(1)
     expect(new MissingKeyError('2').kver).toBe('2')
   })
@@ -194,7 +194,7 @@ describe('SyncLogPuller', () => {
 
     await puller.process(page([entry(1), entry(2)]))
 
-    expect(healer.park).toHaveBeenCalledWith(entry(1), 'decryption')
+    expect(reconciler.park).toHaveBeenCalledWith(entry(1), 'decryption')
     expect(incoming.apply).toHaveBeenCalledTimes(1)
     expect(puller.cursor).toBe(2)
   })
@@ -204,7 +204,7 @@ describe('SyncLogPuller', () => {
 
     await puller.process(page([entry(1)]))
 
-    expect(healer.park).toHaveBeenCalledWith(entry(1), 'missingDeps')
+    expect(reconciler.park).toHaveBeenCalledWith(entry(1), 'missingDeps')
     expect(puller.cursor).toBe(1)
     expect(onRemoteChangesApplied).not.toHaveBeenCalled()
   })
@@ -214,23 +214,23 @@ describe('SyncLogPuller', () => {
 
     await puller.process(page([entry(1)]))
 
-    expect(healer.park).toHaveBeenCalledWith(entry(1), 'apply')
+    expect(reconciler.park).toHaveBeenCalledWith(entry(1), 'apply')
     expect(puller.cursor).toBe(1)
   })
 
   it('holds the cursor where parking failed, so the poll fails and the row is read again', async () => {
     incoming.apply.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
-    healer.park.mockRejectedValueOnce(new Error('quota'))
+    reconciler.park.mockRejectedValueOnce(new Error('quota'))
 
     await expect(puller.process(page([entry(1), entry(2)]))).rejects.toThrow('quota')
 
     expect(puller.cursor).toBe(1)
   })
 
-  it('tells the healer about each entry applied for an item', async () => {
+  it('tells the reconciler about each entry applied for an item', async () => {
     await puller.process(page([entry(1)]))
 
-    expect(healer.onLogEntry).toHaveBeenCalledWith(ITEM)
+    expect(reconciler.onLogEntry).toHaveBeenCalledWith(ITEM)
   })
 
   it('records items whose docs gained changes', async () => {
@@ -303,7 +303,7 @@ describe('SyncLogPuller', () => {
         keys: keys as unknown as KeyProvider,
         session,
         incoming: incoming as unknown as SyncLogPullerDeps['incoming'],
-        healer: healer as unknown as SyncLogPullerDeps['healer'],
+        reconciler: reconciler as unknown as SyncLogPullerDeps['reconciler'],
         manifest,
         itemSyncState: itemSyncState as unknown as SyncLogPullerDeps['itemSyncState'],
       })
@@ -328,7 +328,7 @@ describe('SyncLogPuller', () => {
         keys: keys as unknown as KeyProvider,
         session,
         incoming: incoming as unknown as SyncLogPullerDeps['incoming'],
-        healer: healer as unknown as SyncLogPullerDeps['healer'],
+        reconciler: reconciler as unknown as SyncLogPullerDeps['reconciler'],
         manifest,
         itemSyncState: itemSyncState as unknown as SyncLogPullerDeps['itemSyncState'],
       })
@@ -371,7 +371,7 @@ describe('SyncLogPuller', () => {
         keys: keys as unknown as KeyProvider,
         session,
         incoming: incoming as unknown as SyncLogPullerDeps['incoming'],
-        healer: healer as unknown as SyncLogPullerDeps['healer'],
+        reconciler: reconciler as unknown as SyncLogPullerDeps['reconciler'],
         manifest,
         itemSyncState: itemSyncState as unknown as SyncLogPullerDeps['itemSyncState'],
       })
@@ -497,7 +497,7 @@ describe('SyncLogPuller', () => {
         addedChanges.add(ITEM)
         return true
       }).mockResolvedValueOnce(false)
-      healer.park.mockRejectedValueOnce(new Error('quota'))
+      reconciler.park.mockRejectedValueOnce(new Error('quota'))
 
       await expect(puller.process(page([entry(1), entry(2)]))).rejects.toThrow('quota')
       await puller.shutdown()

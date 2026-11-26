@@ -14,7 +14,8 @@ let readManualRecoveryEntries: any
 let removeManualRecoveryEntryById: any
 let removeManualRecoveryEntryByItemId: any
 let upsertManualRecoveryEntry: any
-let removeManualRecoveryEntryIfKind: any
+let removeManualRecoveryEntryIfMatches: any
+let isServerCopyQuarantine: any
 
 beforeEach(() => {
   vi.spyOn(localforage, 'createInstance').mockImplementation(options => {
@@ -46,7 +47,8 @@ describe('manualRecoveryStore', () => {
     removeManualRecoveryEntryById = mod.removeManualRecoveryEntryById
     removeManualRecoveryEntryByItemId = mod.removeManualRecoveryEntryByItemId
     upsertManualRecoveryEntry = mod.upsertManualRecoveryEntry
-    removeManualRecoveryEntryIfKind = mod.removeManualRecoveryEntryIfKind
+    removeManualRecoveryEntryIfMatches = mod.removeManualRecoveryEntryIfMatches
+    isServerCopyQuarantine = mod.isServerCopyQuarantine
   })
   beforeEach(async () => {
     createdInstances.length = 0
@@ -272,23 +274,37 @@ describe('manualRecoveryStore', () => {
     })
   })
 
-  describe('removeManualRecoveryEntryIfKind', () => {
+  describe('removeManualRecoveryEntryIfMatches', () => {
     it('removes an entry with a matching kind', async () => {
       await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', detail: { code: 'decryptionFailed' }, kind: 'pullDecryption' })
 
-      expect(await removeManualRecoveryEntryIfKind(accountId, 'item-1', new Set(['pullDecryption']))).toBe(true)
+      expect(await removeManualRecoveryEntryIfMatches(accountId, 'item-1', new Set(['pullDecryption']))).toBe(true)
       expect(await readManualRecoveryCount(accountId)).toBe(0)
     })
 
     it('keeps an entry with a non-matching kind', async () => {
       await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', detail: { code: 'oversized', sizeKb: 400 }, kind: 'oversized' })
 
-      expect(await removeManualRecoveryEntryIfKind(accountId, 'item-1', new Set(['pullDecryption']))).toBe(false)
+      expect(await removeManualRecoveryEntryIfMatches(accountId, 'item-1', new Set(['pullDecryption']))).toBe(false)
       expect(await readManualRecoveryCount(accountId)).toBe(1)
     })
 
     it('returns false for a missing entry', async () => {
-      expect(await removeManualRecoveryEntryIfKind(accountId, 'missing', new Set(['pullDecryption']))).toBe(false)
+      expect(await removeManualRecoveryEntryIfMatches(accountId, 'missing', new Set(['pullDecryption']))).toBe(false)
+    })
+
+    it('removes only the server-copy quarantines that the predicate accepts', async () => {
+      await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', detail: { code: 'hydrationFailed' }, kind: 'unknown' })
+      await upsertManualRecoveryEntry(accountId, { itemId: 'item-2', detail: { code: 'unspecified' }, kind: 'unknown' })
+      await upsertManualRecoveryEntry(accountId, { itemId: 'item-3', detail: { code: 'decryptionFailed' }, kind: 'snapshotDecryption' })
+      await upsertManualRecoveryEntry(accountId, { itemId: 'item-4', detail: { code: 'decryptionFailed' }, kind: 'localDecryption' })
+
+      const removed = []
+      for (const itemId of ['item-1', 'item-2', 'item-3', 'item-4']) {
+        removed.push(await removeManualRecoveryEntryIfMatches(accountId, itemId, isServerCopyQuarantine))
+      }
+
+      expect(removed).toEqual([true, false, true, false])
     })
 
     it('serializes with concurrent upserts so an oversized quarantine is never lost', async () => {
@@ -297,7 +313,7 @@ describe('manualRecoveryStore', () => {
         await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', detail: { code: 'decryptionFailed' }, kind: 'pullDecryption' })
 
         const upsert = () => upsertManualRecoveryEntry(accountId, { itemId: 'item-1', detail: { code: 'oversized', sizeKb: 400 }, kind: 'oversized' })
-        const remove = () => removeManualRecoveryEntryIfKind(accountId, 'item-1', new Set(['pullDecryption']))
+        const remove = () => removeManualRecoveryEntryIfMatches(accountId, 'item-1', new Set(['pullDecryption']))
         await (upsertFirst ? Promise.all([upsert(), remove()]) : Promise.all([remove(), upsert()]))
 
         const entries = await readManualRecoveryEntries(accountId)
