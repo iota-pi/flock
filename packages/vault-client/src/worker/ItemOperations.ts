@@ -106,10 +106,14 @@ export class ItemOperations {
     try {
       const result = await this.applyDocumentChange(id, changes, { knownToExist: true })
       if (result === 'applied') {
+        this.deps.markDocumentDirty(id)
         if (changes.deleted === true) {
+          // As in `createDocumentOrThrow`, the doc reaches storage before the index records it. A
+          // crash before the Repo's throttled save would otherwise leave a tombstone over a live doc,
+          // whose snapshot every manifest sync would push to undo a deletion it doesn't hold.
+          await this.deps.docStore.flushToStorage([id])
           await this.deps.indexManager.removeItemIds([id])
         }
-        this.deps.markDocumentDirty(id)
       } else if (result === 'refusedDeleted') {
         await this.handleMutationFailure(id, 'edit', `Cannot edit deleted item ${id}`)
       } else {
