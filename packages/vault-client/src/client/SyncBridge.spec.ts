@@ -436,6 +436,40 @@ describe('SyncBridge', () => {
       })
     })
 
+    describe('when lockVault shuts the bridge down, as Flock\'s does', () => {
+      let shutdownFinished: boolean
+
+      beforeEach(async () => {
+        const { reloadKeyringFromStorage } = await import('../keys/vault')
+        vi.mocked(reloadKeyringFromStorage).mockResolvedValueOnce({
+          success: false,
+          passwordChanged: true,
+        })
+        shutdownFinished = false
+        lockVault.mockImplementationOnce(async () => {
+          await SyncBridge.shutdown()
+          shutdownFinished = true
+        })
+        await SyncBridge.initialize('test-account')
+      })
+
+      it('finishes locking after a storage event', async () => {
+        window.dispatchEvent(new StorageEvent('storage', { key: getVaultStorageNames().keyringCacheKey }))
+
+        await vi.waitFor(() => expect(shutdownFinished).toBe(true))
+        expect(lockVault).toHaveBeenCalledTimes(1)
+      })
+
+      it('finishes locking after a PASSWORD_CHANGED message', async () => {
+        const channel = new BroadcastChannel(getVaultStorageNames().vaultEventsChannel)
+        channel.postMessage({ type: 'PASSWORD_CHANGED', account: 'test-account' })
+        channel.close()
+
+        await vi.waitFor(() => expect(shutdownFinished).toBe(true))
+        expect(lockVault).toHaveBeenCalledTimes(1)
+      })
+    })
+
     it('reloads keyring and updates worker when keyVersionMissing event is received', async () => {
       const { reloadKeyringFromStorage } = await import('../keys/vault')
       vi.mocked(reloadKeyringFromStorage).mockResolvedValueOnce({
